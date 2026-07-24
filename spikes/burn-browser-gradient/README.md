@@ -36,3 +36,5 @@ uv run python -m orcacolony.coordinator \
 ```
 
 The verified browser round trip accepted all 52 tensors and produced a step-1 checkpoint with cosine similarity `0.9999999999820228` and relative L2 error `5.996203529187336e-6` against the canonical Python step.
+
+The same client also completes the M2 two-worker proof through `python -m orcacolony.multiworker`. Two browser workers processed disjoint ranges `[0, 2]` and `[2, 4]`; their centrally aggregated checkpoint reached cosine similarity `0.9999999999820688` and relative L2 error `5.988475132799176e-6` against the full-batch Python step.

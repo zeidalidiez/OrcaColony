@@ -1,6 +1,6 @@
 # OrcaColony
 
-OrcaColony is a volunteer-compute framework for training one small open model at a time. The Milestone 0 reference and Milestone 1 browser-gradient/connected-worker proofs described in [SPEC.md](SPEC.md) are runnable.
+OrcaColony is a volunteer-compute framework for training one small open model at a time. The Milestone 0 through Milestone 2 reference, browser, connected-worker, and multi-worker global-step proofs described in [SPEC.md](SPEC.md) are runnable.
 
 ## Development
 
@@ -30,3 +30,17 @@ uv run python -m orcacolony.coordinator \
 ```
 
 Open the URL printed by the coordinator. The browser receives one checkpoint-bound assignment, uploads all gradients, and the coordinator validates them, applies the canonical optimizer step, and writes a new checkpoint plus `receipt.json`.
+
+## Multi-worker global step
+
+Run the M2 coordinator from a fresh state directory:
+
+```bash
+uv run python -m orcacolony.multiworker \
+  --config campaign/t0-smoke.json \
+  --state .artifacts/m2 \
+  --browser-root spikes/burn-browser-gradient/www \
+  --workers 2
+```
+
+Open `http://localhost:8000/?worker=browser-a` and then `http://localhost:8000/?worker=browser-b`. The coordinator leases non-overlapping ranges, persists each accepted result, aggregates both summed gradients, normalizes and clips once, and publishes one crash-replayable canonical checkpoint.

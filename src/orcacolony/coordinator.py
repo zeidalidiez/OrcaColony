@@ -405,7 +405,7 @@ def main() -> None:
             {
                 "campaign_id": coordinator.assignment["campaign_id"],
                 "assignment_id": coordinator.assignment["assignment_id"],
-                "url": f"http://{args.host}:{server.server_port}/?connected=1&autorun=1",
+                "url": f"http://{args.host}:{server.server_port}/?connected=1",
             },
             sort_keys=True,
         ),

@@ -2,6 +2,7 @@ import init, { run_gradient } from "./pkg/orcacolony_burn_browser_gradient.js";
 
 const button = document.querySelector("#run");
 const output = document.querySelector("#output");
+const pageParams = new URLSearchParams(location.search);
 
 function show(message) {
   output.textContent = typeof message === "string" ? message : JSON.stringify(message, null, 2);
@@ -93,15 +94,16 @@ function compareGradients(expectedBuffer, actualBuffer) {
 
 async function run() {
   button.disabled = true;
-  const connected = new URLSearchParams(location.search).has("connected");
+  const workerId = pageParams.get("worker");
+  const connected = pageParams.has("connected") || workerId !== null;
   show(connected ? "Loading the coordinator assignment…" : "Loading WASM and the M0 fixture…");
   try {
     if (!navigator.gpu) throw new Error("WebGPU is unavailable in this browser");
     const started = performance.now();
-    const manifest = await fetchOk(
-      connected ? "/api/v1/assignment" : "./fixture/fixture.json",
-      "json",
-    );
+    const assignmentUrl = workerId
+      ? `/api/v1/assignment?worker_id=${encodeURIComponent(workerId)}`
+      : "/api/v1/assignment";
+    const manifest = await fetchOk(connected ? assignmentUrl : "./fixture/fixture.json", "json");
     const modelUrl = connected ? manifest.model_url : "./fixture/model.safetensors";
     const gradientUrl = connected
       ? manifest.oracle_gradient_url
@@ -128,6 +130,7 @@ async function run() {
     const summary = {
       backend: "Burn 0.21 Autodiff<Wgpu<f32, i32>>",
       mode: connected ? "connected-worker" : "local-parity",
+      worker_id: workerId,
       batch_shape: manifest.input_shape,
       model_parameter_count: manifest.parameter_count,
       expected_loss_sum: expectedLossSum,
@@ -144,20 +147,23 @@ async function run() {
       gradientMetrics.relative_l2_error <= 0.01;
     if (connected) {
       show("Uploading the complete gradient to the coordinator…");
+      const headers = {
+        "Content-Type": "application/octet-stream",
+        "X-Orca-Checkpoint-Sha256": manifest.checkpoint_sha256,
+        "X-Orca-Loss-Sum": String(result.loss_sum),
+        "X-Orca-Loss-Weight-Sum": String(result.loss_weight_sum),
+      };
+      if (manifest.lease_token) headers["X-Orca-Lease-Token"] = manifest.lease_token;
       const response = await fetch(manifest.result_url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/octet-stream",
-          "X-Orca-Checkpoint-Sha256": manifest.checkpoint_sha256,
-          "X-Orca-Loss-Sum": String(result.loss_sum),
-          "X-Orca-Loss-Weight-Sum": String(result.loss_weight_sum),
-        },
+        headers,
         body: actualGradientBytes,
       });
       const receipt = await response.json();
       if (!response.ok) throw new Error(`coordinator rejected result: ${receipt.error}`);
       summary.coordinator = receipt;
-      summary.connected_step_complete = receipt.accepted === true && receipt.step === 1;
+      summary.connected_step_complete =
+        receipt.step_complete ?? (receipt.accepted === true && receipt.step === 1);
     }
     window.orcacolonyResult = summary;
     console.log("ORCACOLONY_RESULT", JSON.stringify(summary));
@@ -174,4 +180,4 @@ async function run() {
 }
 
 button.addEventListener("click", run);
-if (new URLSearchParams(location.search).has("autorun")) run();
+if (pageParams.has("autorun") || pageParams.has("connected") || pageParams.has("worker")) run();
