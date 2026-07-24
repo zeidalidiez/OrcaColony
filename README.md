@@ -44,3 +44,16 @@ uv run python -m orcacolony.multiworker \
 ```
 
 Open `http://localhost:8000/?worker=browser-a` and then `http://localhost:8000/?worker=browser-b`. The coordinator leases non-overlapping ranges, persists each accepted result, aggregates both summed gradients, normalizes and clips once, and publishes one crash-replayable canonical checkpoint.
+
+Continue from that canonical model and optimizer state by starting the next coordinator with `--resume-from`:
+
+```bash
+uv run python -m orcacolony.multiworker \
+  --config campaign/t0-smoke.json \
+  --state .artifacts/m2-step-2 \
+  --resume-from .artifacts/m2/checkpoint \
+  --browser-root spikes/burn-browser-gradient/www \
+  --workers 2
+```
+
+The verified two-step browser run advanced the checkpoint to step 2 and dataset cursor 8 while preserving AdamW state. Its step-2 model reached cosine similarity `0.999999999999976` and relative L2 error `2.185048989144713e-7` against the resumed Python reference.

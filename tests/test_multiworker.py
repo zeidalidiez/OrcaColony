@@ -160,3 +160,43 @@ def test_http_leases_two_workers_and_closes_the_global_step(tmp_path: Path) -> N
     assert receipts[0]["step_complete"] is False
     assert receipts[1]["step_complete"] is True
     assert status["state"] == "step_complete"
+
+
+def test_next_global_step_resumes_model_optimizer_and_dataset_cursor(
+    tmp_path: Path,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    first = GlobalStepCoordinator.create(
+        campaign,
+        tmp_path / "step-1",
+        worker_count=2,
+    )
+    for worker_id in ("worker-a", "worker-b"):
+        assignment = first.lease(worker_id, now=100)
+        first.accept(submission_for(first, assignment), now=101)
+
+    second = GlobalStepCoordinator.create(
+        campaign,
+        tmp_path / "step-2",
+        worker_count=2,
+        resume_from=first.checkpoint_dir,
+    )
+    second_a = second.lease("worker-a", now=200)
+    second_b = second.lease("worker-b", now=200)
+
+    assert second_a["global_step"] == 1
+    assert second_a["data_range"] == [4, 6]
+    assert second_b["data_range"] == [6, 8]
+
+    second.accept(submission_for(second, second_a), now=201)
+    receipt = second.accept(submission_for(second, second_b), now=201)
+    checkpoint_state = json.loads(
+        (second.checkpoint_dir / "state.json").read_text(encoding="utf-8")
+    )
+
+    assert receipt.step_complete is True
+    assert receipt.step == 2
+    assert receipt.checkpoint_metrics["relative_l2_error"] < 1e-6
+    assert checkpoint_state["step"] == 2
+    assert checkpoint_state["dataset_cursor"] == 8
+    assert len(checkpoint_state["loss_history"]) == 2

@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import threading
 import time
 from dataclasses import dataclass
@@ -26,6 +27,7 @@ from .coordinator import _tensor_metrics
 from .reference import (
     CampaignConfig,
     _create_optimizer,
+    _load_checkpoint,
     _save_checkpoint,
     _sha256_file,
     build_model,
@@ -80,6 +82,7 @@ class GlobalStepCoordinator:
         self.campaign = campaign
         self.state_dir = state_dir
         self.initial_model_path = state_dir / "model.safetensors"
+        self.base_checkpoint_dir = state_dir / "base-checkpoint"
         self.oracle_dir = state_dir / "oracle-gradients"
         self.results_dir = state_dir / "results"
         self.reference_dir = state_dir / "reference-step-1"
@@ -94,6 +97,7 @@ class GlobalStepCoordinator:
         state_dir: str | Path,
         worker_count: int,
         lease_seconds: int = 60,
+        resume_from: str | Path | None = None,
     ) -> GlobalStepCoordinator:
         if worker_count < 2:
             raise ValueError("multi-worker proof requires at least two workers")
@@ -109,18 +113,51 @@ class GlobalStepCoordinator:
         (state_dir / "oracle-gradients").mkdir()
         (state_dir / "results").mkdir()
 
-        initial_model = build_model(campaign)
-        save_safetensors_file(
-            {
-                name: tensor.detach().cpu().contiguous()
-                for name, tensor in sorted(initial_model.state_dict().items())
-            },
-            str(state_dir / "model.safetensors"),
-        )
+        base_step = 0
+        dataset_cursor = 0
+        loss_history: list[float] = []
+        if resume_from is None:
+            initial_model = build_model(campaign)
+            save_safetensors_file(
+                {
+                    name: tensor.detach().cpu().contiguous()
+                    for name, tensor in sorted(initial_model.state_dict().items())
+                },
+                str(state_dir / "model.safetensors"),
+            )
+        else:
+            source_checkpoint = Path(resume_from)
+            (
+                initial_model,
+                _,
+                base_step,
+                dataset_cursor,
+                loss_history,
+            ) = _load_checkpoint(campaign, source_checkpoint)
+            base_checkpoint_dir = state_dir / "base-checkpoint"
+            base_checkpoint_dir.mkdir()
+            source_state = json.loads(
+                (source_checkpoint / "state.json").read_text(encoding="utf-8")
+            )
+            for filename in (
+                source_state["model"]["file"],
+                source_state["optimizer"]["file"],
+                "state.json",
+            ):
+                shutil.copy2(source_checkpoint / filename, base_checkpoint_dir / filename)
+            shutil.copy2(
+                base_checkpoint_dir / source_state["model"]["file"],
+                state_dir / "model.safetensors",
+            )
         checkpoint_sha256 = _sha256_file(state_dir / "model.safetensors")
-        run_training(campaign, state_dir / "reference-step-1", target_steps=1)
+        run_training(
+            campaign,
+            state_dir / "reference-step-1",
+            target_steps=base_step + 1,
+            resume_from=(state_dir / "base-checkpoint" if resume_from is not None else None),
+        )
 
-        inputs, targets = fixture_batch(campaign)
+        inputs, targets = fixture_batch(campaign, dataset_cursor)
         rows_per_assignment = campaign.training.batch_size // worker_count
         assignments: list[dict[str, object]] = []
         for index in range(worker_count):
@@ -129,6 +166,7 @@ class GlobalStepCoordinator:
             assignment_inputs = inputs[start:end].contiguous()
             assignment_targets = targets[start:end].contiguous()
             model = build_model(campaign)
+            model.load_state_dict(initial_model.state_dict())
             loss_sum = F.cross_entropy(
                 model(assignment_inputs).reshape(-1, campaign.model.vocabulary_size),
                 assignment_targets.reshape(-1),
@@ -143,8 +181,8 @@ class GlobalStepCoordinator:
             basis = {
                 "campaign_id": campaign.campaign["id"],
                 "checkpoint_sha256": checkpoint_sha256,
-                "global_step": 0,
-                "data_range": [start, end],
+                "global_step": base_step,
+                "data_range": [dataset_cursor + start, dataset_cursor + end],
                 "input_ids": assignment_inputs.reshape(-1).tolist(),
                 "input_shape": list(assignment_inputs.shape),
                 "target_ids": assignment_targets.reshape(-1).tolist(),
@@ -184,7 +222,11 @@ class GlobalStepCoordinator:
             "worker_count": worker_count,
             "lease_seconds": lease_seconds,
             "state": "waiting_for_results",
-            "step": 0,
+            "step": base_step,
+            "base_step": base_step,
+            "dataset_cursor": dataset_cursor,
+            "loss_history": loss_history,
+            "has_base_checkpoint": resume_from is not None,
             "assignments": assignments,
             "model_sha256": None,
             "checkpoint_metrics": None,
@@ -375,9 +417,21 @@ class GlobalStepCoordinator:
             return self._receipt(assignment)
 
     def _finalize_locked(self) -> None:
-        model = build_model(self.campaign)
-        model.load_state_dict(load_safetensors_file(str(self.initial_model_path)))
-        optimizer = _create_optimizer(model, self.campaign.training)
+        if self._state.get("has_base_checkpoint", False):
+            (
+                model,
+                optimizer,
+                base_step,
+                dataset_cursor,
+                loss_history,
+            ) = _load_checkpoint(self.campaign, self.base_checkpoint_dir)
+        else:
+            model = build_model(self.campaign)
+            model.load_state_dict(load_safetensors_file(str(self.initial_model_path)))
+            optimizer = _create_optimizer(model, self.campaign.training)
+            base_step = 0
+            dataset_cursor = 0
+            loss_history = []
         aggregate = {
             name: torch.zeros_like(parameter, dtype=torch.float32)
             for name, parameter in model.named_parameters()
@@ -401,14 +455,18 @@ class GlobalStepCoordinator:
             self.campaign.training.max_gradient_norm,
         )
         optimizer.step()
+        next_step = base_step + 1
+        next_cursor = (
+            dataset_cursor + self.campaign.training.batch_size
+        ) % self.campaign.training.dataset_sequences
         checkpoint = _save_checkpoint(
             self.campaign,
             model,
             optimizer,
             self.checkpoint_dir,
-            step=1,
-            dataset_cursor=self.campaign.training.batch_size,
-            loss_history=[total_loss_sum / total_loss_weight],
+            step=next_step,
+            dataset_cursor=next_cursor,
+            loss_history=[*loss_history, total_loss_sum / total_loss_weight],
         )
         checkpoint_metrics = _tensor_metrics(
             load_safetensors_file(str(self.reference_dir / "model.safetensors")),
@@ -417,7 +475,7 @@ class GlobalStepCoordinator:
         self._state.update(
             {
                 "state": "step_complete",
-                "step": 1,
+                "step": next_step,
                 "model_sha256": checkpoint.model_sha256,
                 "checkpoint_metrics": checkpoint_metrics,
                 "loss_sum": total_loss_sum,
@@ -430,7 +488,7 @@ class GlobalStepCoordinator:
             {
                 "format": "orcacolony_global_step_receipt_v1",
                 "state": "step_complete",
-                "step": 1,
+                "step": next_step,
                 "model_sha256": checkpoint.model_sha256,
                 "checkpoint_metrics": checkpoint_metrics,
                 "assignments": [
@@ -629,6 +687,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--browser-root", type=Path, required=True)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--lease-seconds", type=int, default=120)
+    parser.add_argument("--resume-from", type=Path)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     return parser
@@ -648,6 +707,7 @@ def main() -> None:
             args.state,
             worker_count=args.workers,
             lease_seconds=args.lease_seconds,
+            resume_from=args.resume_from,
         )
     )
     server = create_http_server(
