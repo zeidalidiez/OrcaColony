@@ -1,7 +1,9 @@
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
+from orcacolony.artifacts import PackedDataset, build_dataset_artifacts
 from orcacolony.campaign_run import CampaignCoordinator
 from orcacolony.multiworker import LeasedGradient
 from orcacolony.participants import ParticipantRegistry
@@ -53,6 +55,36 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
     tmp_path: Path,
 ) -> None:
     campaign = load_campaign(CONFIG)
+    corpus = (
+        "A small fox found a red ball and shared it with a bird.\n"
+        "<|endoftext|>\n"
+        "A little boat crossed the pond and came safely home.\n"
+        "<|endoftext|>\n"
+    ) * 200
+    artifact_dir = tmp_path / "dataset"
+    manifest = build_dataset_artifacts(
+        train_bytes=corpus.encode("utf-8"),
+        validation_bytes=corpus[: len(corpus) // 2].encode("utf-8"),
+        output_dir=artifact_dir,
+        source={
+            "dataset": "test/campaign-stories",
+            "revision": "test-revision",
+            "license": "cdla-sharing-1.0",
+        },
+        vocab_size=300,
+        context_length=campaign.model.context_length,
+    )
+    dataset = PackedDataset.load(artifact_dir)
+    campaign = replace(
+        campaign,
+        dataset={
+            "format": manifest["format"],
+            "manifest_sha256": dataset.revision,
+            "tokenizer_sha256": manifest["tokenizer"]["sha256"],
+            "train_sha256": manifest["files"]["train.safetensors"],
+            "validation_sha256": manifest["files"]["validation.safetensors"],
+        },
+    )
     participants = participants_for(campaign.campaign["id"])
     state_dir = tmp_path / "campaign"
     coordinator = CampaignCoordinator.create(
@@ -61,6 +93,7 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
         participants=participants,
         worker_count=2,
         target_steps=2,
+        dataset=dataset,
     )
 
     for expected_step in (1, 2):
@@ -86,12 +119,14 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
         (state_dir / "accepted-work.json").read_text(encoding="utf-8")
     )
     assert len(ledger["entries"]) == 4
+    assert ledger["dataset_revision"] == dataset.revision
     assert [entry["checkpoint_step"] for entry in ledger["entries"]] == [1, 1, 2, 2]
 
     recovered = CampaignCoordinator.load(
         campaign,
         state_dir,
         participants=participants,
+        dataset=dataset,
     )
     assert recovered.status()["state"] == "campaign_complete"
     assert recovered.status()["completed_steps"] == 2

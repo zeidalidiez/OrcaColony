@@ -16,6 +16,8 @@ from safetensors.torch import save_file as save_safetensors_file
 from torch import Tensor, nn
 from torch.nn import functional as F
 
+from .artifacts import PackedDataset
+
 
 @dataclass(frozen=True)
 class ModelConfig:
@@ -58,6 +60,7 @@ class CampaignConfig:
     campaign: Mapping[str, object]
     model: ModelConfig
     training: TrainingConfig
+    dataset: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -185,6 +188,7 @@ def load_campaign(path: str | Path) -> CampaignConfig:
         campaign=payload["campaign"],
         model=ModelConfig(**payload["model"]),
         training=TrainingConfig(**payload["training"]),
+        dataset=payload.get("dataset"),
     )
 
 
@@ -205,9 +209,51 @@ def build_model(campaign: CampaignConfig) -> VolunteerDecoder:
     return model
 
 
-def fixture_batch(campaign: CampaignConfig, cursor: int = 0) -> tuple[Tensor, Tensor]:
+def validate_dataset_artifacts(
+    campaign: CampaignConfig,
+    dataset: PackedDataset | None,
+) -> None:
+    if campaign.dataset is None:
+        if dataset is not None:
+            raise ValueError("campaign does not declare external dataset artifacts")
+        return
+    if dataset is None:
+        raise ValueError("campaign requires external dataset artifacts")
+    expected = campaign.dataset
+    checks = {
+        "manifest_sha256": dataset.revision,
+        "tokenizer_sha256": dataset.manifest["tokenizer"]["sha256"],
+        "train_sha256": dataset.manifest["files"]["train.safetensors"],
+        "validation_sha256": dataset.manifest["files"]["validation.safetensors"],
+    }
+    for key, actual in checks.items():
+        if expected.get(key) != actual:
+            raise ValueError(f"campaign dataset identity mismatch: {key}")
+    if int(dataset.manifest["packing"]["context_length"]) != campaign.model.context_length:
+        raise ValueError("campaign and dataset context lengths do not match")
+    if int(dataset.manifest["tokenizer"]["vocab_size"]) > campaign.model.vocabulary_size:
+        raise ValueError("tokenizer vocabulary exceeds the campaign model vocabulary")
+    if campaign.training.dataset_sequences > dataset.train_inputs.shape[0]:
+        raise ValueError("campaign requests more sequences than the packed dataset contains")
+    if int(dataset.train_targets.max()) >= campaign.model.vocabulary_size:
+        raise ValueError("packed dataset token ID exceeds the model vocabulary")
+
+
+def fixture_batch(
+    campaign: CampaignConfig,
+    cursor: int = 0,
+    dataset: PackedDataset | None = None,
+) -> tuple[Tensor, Tensor]:
     model = campaign.model
     training = campaign.training
+    if campaign.dataset is not None:
+        if dataset is None:
+            raise ValueError("campaign requires external dataset artifacts")
+        return dataset.batch(
+            cursor=cursor,
+            batch_size=training.batch_size,
+            sequence_limit=training.dataset_sequences,
+        )
     positions = torch.arange(model.context_length + 1, dtype=torch.long)
     rows = []
     for offset in range(training.batch_size):
@@ -228,9 +274,13 @@ def tensor_sha256(tensors: Mapping[str, Tensor]) -> str:
     return hashlib.sha256(save_safetensors(canonical)).hexdigest()
 
 
-def compute_fixture(campaign: CampaignConfig) -> FixtureResult:
+def compute_fixture(
+    campaign: CampaignConfig,
+    dataset: PackedDataset | None = None,
+) -> FixtureResult:
+    validate_dataset_artifacts(campaign, dataset)
     model = build_model(campaign)
-    inputs, targets = fixture_batch(campaign)
+    inputs, targets = fixture_batch(campaign, dataset=dataset)
     logits = model(inputs)
     loss_sum = F.cross_entropy(
         logits.reshape(-1, campaign.model.vocabulary_size),
@@ -318,6 +368,11 @@ def _save_checkpoint(
         "step": step,
         "optimizer_step": optimizer_step,
         "dataset_cursor": dataset_cursor,
+        "dataset_revision": (
+            campaign.dataset["manifest_sha256"]
+            if campaign.dataset is not None
+            else "synthetic-fixture-v1"
+        ),
         "loss_history": loss_history,
         "model": {
             "file": model_path.name,
@@ -352,6 +407,13 @@ def _load_checkpoint(
         raise ValueError("checkpoint campaign does not match configuration")
     if state["architecture_revision"] != campaign.model.architecture_revision:
         raise ValueError("checkpoint architecture revision does not match configuration")
+    expected_dataset_revision = (
+        campaign.dataset["manifest_sha256"]
+        if campaign.dataset is not None
+        else "synthetic-fixture-v1"
+    )
+    if state.get("dataset_revision", "synthetic-fixture-v1") != expected_dataset_revision:
+        raise ValueError("checkpoint dataset revision does not match configuration")
 
     model_path = checkpoint_dir / state["model"]["file"]
     optimizer_path = checkpoint_dir / state["optimizer"]["file"]
@@ -385,7 +447,9 @@ def run_training(
     output_dir: str | Path,
     target_steps: int | None = None,
     resume_from: str | Path | None = None,
+    dataset: PackedDataset | None = None,
 ) -> TrainingResult:
+    validate_dataset_artifacts(campaign, dataset)
     output_dir = Path(output_dir)
     target_steps = campaign.training.steps if target_steps is None else target_steps
     if resume_from is None:
@@ -404,7 +468,7 @@ def run_training(
 
     model.train()
     while step < target_steps:
-        inputs, targets = fixture_batch(campaign, dataset_cursor)
+        inputs, targets = fixture_batch(campaign, dataset_cursor, dataset)
         optimizer.zero_grad(set_to_none=True)
         logits = model(inputs)
         loss_sum = F.cross_entropy(
@@ -443,11 +507,13 @@ def run_training(
 def export_fixture(
     campaign: CampaignConfig,
     output_dir: str | Path,
+    dataset: PackedDataset | None = None,
 ) -> FixtureExportResult:
+    validate_dataset_artifacts(campaign, dataset)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     model = build_model(campaign)
-    inputs, targets = fixture_batch(campaign)
+    inputs, targets = fixture_batch(campaign, dataset=dataset)
     logits = model(inputs)
     loss_sum = F.cross_entropy(
         logits.reshape(-1, campaign.model.vocabulary_size),
@@ -501,6 +567,9 @@ def export_fixture(
         "objective": campaign.campaign["objective"],
         "loss_mask": campaign.campaign["loss_mask"],
         "loss_reduction": "sum",
+        "dataset_revision": (
+            dataset.revision if dataset is not None else "synthetic-fixture-v1"
+        ),
         "loss_sum": float(loss_sum.detach()),
         "loss_weight_sum": targets.numel(),
         "compute_dtype": campaign.training.compute_dtype,
@@ -532,6 +601,7 @@ def _build_parser() -> argparse.ArgumentParser:
     train.add_argument("--output", type=Path, required=True)
     train.add_argument("--steps", type=int)
     train.add_argument("--resume", type=Path)
+    train.add_argument("--dataset-artifacts", type=Path)
 
     fixture = subparsers.add_parser(
         "fixture",
@@ -539,18 +609,25 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     fixture.add_argument("--config", type=Path, required=True)
     fixture.add_argument("--output", type=Path, required=True)
+    fixture.add_argument("--dataset-artifacts", type=Path)
     return parser
 
 
 def main() -> None:
     args = _build_parser().parse_args()
     campaign = load_campaign(args.config)
+    dataset = (
+        PackedDataset.load(args.dataset_artifacts)
+        if args.dataset_artifacts is not None
+        else None
+    )
     if args.command == "train":
         result = run_training(
             campaign,
             output_dir=args.output,
             target_steps=args.steps,
             resume_from=args.resume,
+            dataset=dataset,
         )
         summary = {
             "campaign_id": campaign.campaign["id"],
@@ -563,7 +640,7 @@ def main() -> None:
             "model_sha256": result.model_sha256,
         }
     else:
-        fixture = export_fixture(campaign, args.output)
+        fixture = export_fixture(campaign, args.output, dataset=dataset)
         summary = {
             "campaign_id": campaign.campaign["id"],
             "fixture_dir": str(fixture.output_dir),

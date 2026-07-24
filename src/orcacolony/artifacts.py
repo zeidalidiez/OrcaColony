@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 from urllib.request import Request, urlopen
 
 import torch
+from safetensors.torch import load_file as load_safetensors_file
 from safetensors.torch import save_file as save_safetensors_file
 from tokenizers import Tokenizer
 from tokenizers.decoders import ByteLevel as ByteLevelDecoder
@@ -36,6 +38,98 @@ TINYSTORIES_SOURCE = {
         "sha256": "94e431816c4cce81ff71e4408ff8d3bda9a42e8d2663986697c3954288cb38b4",
     },
 }
+
+
+@dataclass(frozen=True)
+class PackedDataset:
+    root: Path
+    manifest: Mapping[str, object]
+    revision: str
+    train_inputs: torch.Tensor
+    train_targets: torch.Tensor
+    validation_inputs: torch.Tensor
+    validation_targets: torch.Tensor
+
+    @classmethod
+    def load(cls, root: str | Path) -> PackedDataset:
+        root = Path(root)
+        manifest_path = root / "manifest.json"
+        manifest_bytes = manifest_path.read_bytes()
+        manifest = json.loads(manifest_bytes)
+        if manifest.get("format") != "orcacolony_dataset_artifacts_v1":
+            raise ValueError("unsupported dataset artifact format")
+        files = manifest.get("files")
+        if not isinstance(files, dict):
+            raise ValueError("dataset artifact file manifest is missing")
+        for filename, expected_sha256 in files.items():
+            path = root / filename
+            if not path.is_file() or _sha256_file(path) != expected_sha256:
+                raise ValueError(f"dataset artifact digest mismatch: {filename}")
+
+        train = load_safetensors_file(str(root / "train.safetensors"))
+        validation = load_safetensors_file(str(root / "validation.safetensors"))
+        train_inputs, train_targets = _validate_packed_split(train, "train")
+        validation_inputs, validation_targets = _validate_packed_split(
+            validation, "validation"
+        )
+        context_length = int(manifest["packing"]["context_length"])
+        if (
+            train_inputs.shape[1] != context_length
+            or validation_inputs.shape[1] != context_length
+        ):
+            raise ValueError("packed dataset context length does not match manifest")
+        if train_inputs.shape[0] != int(manifest["packing"]["train_sequences"]):
+            raise ValueError("packed training sequence count does not match manifest")
+        if validation_inputs.shape[0] != int(
+            manifest["packing"]["validation_sequences"]
+        ):
+            raise ValueError("packed validation sequence count does not match manifest")
+        return cls(
+            root=root,
+            manifest=manifest,
+            revision=_sha256_bytes(manifest_bytes),
+            train_inputs=train_inputs,
+            train_targets=train_targets,
+            validation_inputs=validation_inputs,
+            validation_targets=validation_targets,
+        )
+
+    def batch(
+        self,
+        *,
+        cursor: int,
+        batch_size: int,
+        sequence_limit: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if batch_size <= 0 or sequence_limit <= 0:
+            raise ValueError("dataset batch dimensions must be positive")
+        if sequence_limit > self.train_inputs.shape[0]:
+            raise ValueError("campaign dataset sequence limit exceeds packed data")
+        indices = torch.tensor(
+            [(cursor + offset) % sequence_limit for offset in range(batch_size)],
+            dtype=torch.int64,
+        )
+        return (
+            self.train_inputs.index_select(0, indices).to(torch.int64),
+            self.train_targets.index_select(0, indices).to(torch.int64),
+        )
+
+
+def _validate_packed_split(
+    tensors: Mapping[str, torch.Tensor],
+    split: str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if set(tensors) != {"input_ids", "target_ids"}:
+        raise ValueError(f"packed {split} tensors have unexpected names")
+    inputs = tensors["input_ids"]
+    targets = tensors["target_ids"]
+    if inputs.ndim != 2 or targets.shape != inputs.shape:
+        raise ValueError(f"packed {split} tensors have invalid shapes")
+    if inputs.dtype != torch.int32 or targets.dtype != torch.int32:
+        raise ValueError(f"packed {split} tensors must use int32")
+    if not torch.equal(inputs[:, 1:], targets[:, :-1]):
+        raise ValueError(f"packed {split} targets are not shifted inputs")
+    return inputs, targets
 
 
 def _canonical_json(payload: Mapping[str, object]) -> str:
@@ -160,7 +254,11 @@ def build_dataset_artifacts(
         f"Source: `{source.get('dataset', 'unknown')}`\n\n"
         f"Revision: `{source.get('revision', 'unknown')}`\n\n"
         f"License: `{source.get('license', 'unknown')}`\n\n"
-        f"License URL: {source.get('license_url', 'not supplied')}\n",
+        f"License URL: {source.get('license_url', 'not supplied')}\n\n"
+        "Changes: OrcaColony selected fixed byte prefixes, removed any trailing "
+        "incomplete story, trained a byte-level BPE tokenizer on the training "
+        "subset, encoded the text, and packed shifted input/target tensors. "
+        "These files are modified and rearranged data, not the original raw files.\n",
         encoding="utf-8",
     )
 

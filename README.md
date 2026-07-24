@@ -105,4 +105,21 @@ uv run python -m orcacolony.artifacts \
 
 The default build downloads 16 MiB of training data and 2 MiB of validation data, trims both to complete stories, and packs shifted input/target sequences of length 256 into safetensors. Two independent builds were byte-identical. The measured artifact contains 18,544 training stories, 2,502 validation stories, 15,666 training sequences, and 1,934 validation sequences. Its tokenizer SHA-256 is `7cb0fc243e7fa2bcfb9e1087ece80f3cbffc642d2c53f3213edaab218d0139bb`.
 
-Source revision, complete-source hashes, subset hashes, tokenizer identity, packing metadata, file hashes, attribution, and license URL are frozen in the generated manifest and notice. See [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md). The builder is complete; wiring these packed sequences into the distributed campaign is the next runtime slice.
+Source revision, complete-source hashes, subset hashes, tokenizer identity, packing metadata, file hashes, attribution, transformations, and license URL are frozen in the generated manifest and notice. See [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md).
+
+Run the T1 browser campaign directly against those frozen artifacts:
+
+```bash
+uv run python -m orcacolony.campaign_run \
+  --config campaign/t1-tinystories-smoke.json \
+  --participants campaign/t1-tinystories-local-participants.json \
+  --dataset-artifacts .artifacts/tinystories-t1-v1 \
+  --state .artifacts/t1-tinystories-campaign \
+  --browser-root spikes/burn-browser-gradient/www \
+  --workers 2 \
+  --target-steps 2
+```
+
+The verified continuous CPU/WASM run consumed decoded TinyStories sequences rather than synthetic fixture tokens, completed four browser assignments and two optimizer steps, and carried dataset manifest revision `99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af` through every assignment, campaign lock, checkpoint, and ledger entry. Mean training loss moved from `9.075937747955322` to `8.720811367034912`; the final browser-applied checkpoint matched the centralized reference with cosine similarity `0.9999999999999996` and relative L2 error `2.8234941806709188e-8`.
+
+This remains a two-step correctness smoke, not the multi-day Milestone 4 training run.

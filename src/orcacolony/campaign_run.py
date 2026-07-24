@@ -7,6 +7,7 @@ import shutil
 import threading
 from pathlib import Path
 
+from .artifacts import PackedDataset
 from .multiworker import (
     GlobalStepCoordinator,
     LeasedGradient,
@@ -28,12 +29,14 @@ class CampaignCoordinator:
         participants: ParticipantRegistry,
         state: dict[str, object],
         current: GlobalStepCoordinator,
+        dataset: PackedDataset | None = None,
     ) -> None:
         self.campaign = campaign
         self.state_dir = state_dir
         self.participants = participants
         self._state = state
         self._current = current
+        self.dataset = dataset
         self._lock = threading.RLock()
         self.rounds_dir = state_dir / "rounds"
         self.checkpoints_dir = state_dir / "checkpoints"
@@ -47,6 +50,7 @@ class CampaignCoordinator:
         worker_count: int,
         target_steps: int,
         lease_seconds: int = 120,
+        dataset: PackedDataset | None = None,
     ) -> CampaignCoordinator:
         if target_steps < 1:
             raise ValueError("campaign target steps must be positive")
@@ -67,12 +71,16 @@ class CampaignCoordinator:
             worker_count=worker_count,
             participants=participants,
             lease_seconds=lease_seconds,
+            dataset=dataset,
         )
         state: dict[str, object] = {
             "format": "orcacolony_campaign_state_v1",
             "campaign_id": campaign.campaign["id"],
             "campaign_revision": _revision(_campaign_payload(campaign)),
             "participants_revision": participants.revision,
+            "dataset_revision": (
+                dataset.revision if dataset is not None else "synthetic-fixture-v1"
+            ),
             "worker_count": worker_count,
             "lease_seconds": lease_seconds,
             "target_steps": target_steps,
@@ -82,7 +90,7 @@ class CampaignCoordinator:
             "checkpoints": [],
             "last_checkpoint_metrics": None,
         }
-        coordinator = cls(campaign, state_dir, participants, state, current)
+        coordinator = cls(campaign, state_dir, participants, state, current, dataset)
         coordinator._write_state()
         coordinator._write_lock()
         coordinator._write_ledger()
@@ -94,6 +102,7 @@ class CampaignCoordinator:
         campaign: CampaignConfig,
         state_dir: str | Path,
         participants: ParticipantRegistry,
+        dataset: PackedDataset | None = None,
     ) -> CampaignCoordinator:
         state_dir = Path(state_dir)
         state = json.loads(
@@ -107,13 +116,19 @@ class CampaignCoordinator:
             raise ValueError("campaign revision mismatch")
         if state.get("participants_revision") != participants.revision:
             raise ValueError("participant revision mismatch")
+        expected_dataset_revision = (
+            dataset.revision if dataset is not None else "synthetic-fixture-v1"
+        )
+        if state.get("dataset_revision", "synthetic-fixture-v1") != expected_dataset_revision:
+            raise ValueError("campaign dataset revision mismatch")
         current_path = state_dir / str(state["current_round"])
         current = GlobalStepCoordinator.load(
             campaign,
             current_path,
             participants=participants,
+            dataset=dataset,
         )
-        coordinator = cls(campaign, state_dir, participants, state, current)
+        coordinator = cls(campaign, state_dir, participants, state, current, dataset)
         lock_path = state_dir / "campaign-lock.json"
         if (
             not lock_path.is_file()
@@ -176,6 +191,9 @@ class CampaignCoordinator:
             "campaign_id": self._state["campaign_id"],
             "campaign_revision": self._state["campaign_revision"],
             "participants_revision": self._state["participants_revision"],
+            "dataset_revision": self._state.get(
+                "dataset_revision", "synthetic-fixture-v1"
+            ),
             "worker_count": self._state["worker_count"],
             "target_steps": self._state["target_steps"],
             "assignment_protocol_revision": 1,
@@ -236,6 +254,7 @@ class CampaignCoordinator:
                 self.campaign,
                 next_path,
                 participants=self.participants,
+                dataset=self.dataset,
             )
         else:
             next_round = GlobalStepCoordinator.create(
@@ -245,6 +264,7 @@ class CampaignCoordinator:
                 participants=self.participants,
                 lease_seconds=int(self._state["lease_seconds"]),
                 resume_from=checkpoint,
+                dataset=self.dataset,
             )
         self._current = next_round
         self._state["current_round"] = next_relative.as_posix()
@@ -266,6 +286,9 @@ class CampaignCoordinator:
                 "format": "orcacolony_campaign_accepted_work_v1",
                 "campaign_id": self._state["campaign_id"],
                 "participants_revision": self._state["participants_revision"],
+                "dataset_revision": self._state.get(
+                    "dataset_revision", "synthetic-fixture-v1"
+                ),
                 "entries": entries,
             },
         )
@@ -289,6 +312,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--participants", type=Path, required=True)
+    parser.add_argument("--dataset-artifacts", type=Path)
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--browser-root", type=Path, required=True)
     parser.add_argument("--workers", type=int, default=2)
@@ -306,11 +330,17 @@ def main() -> None:
         args.participants,
         campaign_id=str(campaign.campaign["id"]),
     )
+    dataset = (
+        PackedDataset.load(args.dataset_artifacts)
+        if args.dataset_artifacts is not None
+        else None
+    )
     if (args.state / "campaign-state.json").is_file():
         coordinator = CampaignCoordinator.load(
             campaign,
             args.state,
             participants=participants,
+            dataset=dataset,
         )
         if coordinator.status()["target_steps"] != args.target_steps:
             raise ValueError("target steps do not match the campaign lock")
@@ -322,6 +352,7 @@ def main() -> None:
             worker_count=args.workers,
             target_steps=args.target_steps,
             lease_seconds=args.lease_seconds,
+            dataset=dataset,
         )
     server = create_http_server(
         coordinator,  # type: ignore[arg-type]

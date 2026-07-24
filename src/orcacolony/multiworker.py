@@ -23,6 +23,7 @@ from safetensors.torch import save_file as save_safetensors_file
 from torch import Tensor
 from torch.nn import functional as F
 
+from .artifacts import PackedDataset
 from .coordinator import _tensor_metrics
 from .participants import ParticipantRegistry, load_participants
 from .reference import (
@@ -34,6 +35,7 @@ from .reference import (
     build_model,
     fixture_batch,
     run_training,
+    validate_dataset_artifacts,
 )
 
 
@@ -94,6 +96,7 @@ def _campaign_payload(campaign: CampaignConfig) -> dict[str, object]:
         "campaign": dict(campaign.campaign),
         "model": asdict(campaign.model),
         "training": asdict(campaign.training),
+        "dataset": dict(campaign.dataset) if campaign.dataset is not None else None,
     }
 
 
@@ -103,6 +106,7 @@ class GlobalStepCoordinator:
         campaign: CampaignConfig,
         state_dir: Path,
         state: dict[str, object],
+        dataset: PackedDataset | None = None,
     ) -> None:
         self.campaign = campaign
         self.state_dir = state_dir
@@ -113,6 +117,7 @@ class GlobalStepCoordinator:
         self.reference_dir = state_dir / "reference-step-1"
         self.checkpoint_dir = state_dir / "checkpoint"
         self._state = state
+        self.dataset = dataset
         self.participants = ParticipantRegistry.from_payload(
             state["participants"],  # type: ignore[arg-type]
             campaign_id=str(campaign.campaign["id"]),
@@ -128,6 +133,7 @@ class GlobalStepCoordinator:
         participants: ParticipantRegistry,
         lease_seconds: int = 60,
         resume_from: str | Path | None = None,
+        dataset: PackedDataset | None = None,
     ) -> GlobalStepCoordinator:
         if worker_count < 2:
             raise ValueError("multi-worker proof requires at least two workers")
@@ -137,6 +143,7 @@ class GlobalStepCoordinator:
             raise ValueError("lease duration must be positive")
         if participants.campaign_id != campaign.campaign["id"]:
             raise ValueError("participant registry campaign mismatch")
+        validate_dataset_artifacts(campaign, dataset)
 
         state_dir = Path(state_dir)
         if state_dir.exists() and any(state_dir.iterdir()):
@@ -187,9 +194,10 @@ class GlobalStepCoordinator:
             state_dir / "reference-step-1",
             target_steps=base_step + 1,
             resume_from=(state_dir / "base-checkpoint" if resume_from is not None else None),
+            dataset=dataset,
         )
 
-        inputs, targets = fixture_batch(campaign, dataset_cursor)
+        inputs, targets = fixture_batch(campaign, dataset_cursor, dataset)
         rows_per_assignment = campaign.training.batch_size // worker_count
         assignments: list[dict[str, object]] = []
         for index in range(worker_count):
@@ -213,6 +221,9 @@ class GlobalStepCoordinator:
             basis = {
                 "campaign_id": campaign.campaign["id"],
                 "checkpoint_sha256": checkpoint_sha256,
+                "dataset_revision": (
+                    dataset.revision if dataset is not None else "synthetic-fixture-v1"
+                ),
                 "model": {
                     "vocab_size": campaign.model.vocabulary_size,
                     "context_length": campaign.model.context_length,
@@ -264,6 +275,9 @@ class GlobalStepCoordinator:
             "participants": participants.as_payload(),
             "participants_revision": participants.revision,
             "checkpoint_sha256": checkpoint_sha256,
+            "dataset_revision": (
+                dataset.revision if dataset is not None else "synthetic-fixture-v1"
+            ),
             "worker_count": worker_count,
             "lease_seconds": lease_seconds,
             "state": "waiting_for_results",
@@ -278,7 +292,7 @@ class GlobalStepCoordinator:
             "checkpoint_metrics": None,
         }
         _atomic_json(state_dir / "global-state.json", state)
-        coordinator = cls(campaign, state_dir, state)
+        coordinator = cls(campaign, state_dir, state, dataset)
         coordinator._write_campaign_lock()
         coordinator._write_accepted_ledger()
         return coordinator
@@ -289,13 +303,20 @@ class GlobalStepCoordinator:
         campaign: CampaignConfig,
         state_dir: str | Path,
         participants: ParticipantRegistry,
+        dataset: PackedDataset | None = None,
     ) -> GlobalStepCoordinator:
+        validate_dataset_artifacts(campaign, dataset)
         state_dir = Path(state_dir)
         state = json.loads((state_dir / "global-state.json").read_text(encoding="utf-8"))
         if state.get("format") != "orcacolony_global_step_v1":
             raise ValueError("unsupported global-step state format")
         if state.get("campaign_id") != campaign.campaign["id"]:
             raise ValueError("global-step campaign does not match configuration")
+        expected_dataset_revision = (
+            dataset.revision if dataset is not None else "synthetic-fixture-v1"
+        )
+        if state.get("dataset_revision", "synthetic-fixture-v1") != expected_dataset_revision:
+            raise ValueError("global-step dataset revision mismatch")
         campaign_revision = _revision(_campaign_payload(campaign))
         migrated = "participants_revision" not in state
         if migrated:
@@ -330,9 +351,12 @@ class GlobalStepCoordinator:
             state["result_protocol_revision"] = 2
         if _sha256_file(state_dir / "model.safetensors") != state["checkpoint_sha256"]:
             raise ValueError("global-step checkpoint digest mismatch")
-        coordinator = cls(campaign, state_dir, state)
+        coordinator = cls(campaign, state_dir, state, dataset)
         state_changed = protocol_migrated
         for assignment in coordinator.assignments:
+            if "dataset_revision" not in assignment:
+                assignment["dataset_revision"] = expected_dataset_revision
+                state_changed = True
             if "model" not in assignment:
                 assignment["model"] = {
                     "vocab_size": campaign.model.vocabulary_size,
@@ -393,6 +417,9 @@ class GlobalStepCoordinator:
             "campaign_revision": self._state["campaign_revision"],
             "participants_revision": self._state["participants_revision"],
             "checkpoint_sha256": self._state["checkpoint_sha256"],
+            "dataset_revision": self._state.get(
+                "dataset_revision", "synthetic-fixture-v1"
+            ),
             "global_step": self._state["base_step"],
             "assignment_protocol_revision": 1,
             "result_protocol_revision": self._state.get(
@@ -437,6 +464,7 @@ class GlobalStepCoordinator:
                     "loss_sum": assignment["accepted_loss_sum"],
                     "loss_weight_sum": assignment["loss_weight_sum"],
                     "runtime_backend": assignment["runtime_backend"],
+                    "dataset_revision": assignment["dataset_revision"],
                 }
             )
         _atomic_json(
@@ -469,6 +497,7 @@ class GlobalStepCoordinator:
             "campaign_id": assignment["campaign_id"],
             "assignment_id": assignment_id,
             "checkpoint_sha256": assignment["checkpoint_sha256"],
+            "dataset_revision": assignment["dataset_revision"],
             "model": assignment["model"],
             "global_step": assignment["global_step"],
             "data_range": assignment["data_range"],
@@ -884,6 +913,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--participants", type=Path, required=True)
+    parser.add_argument("--dataset-artifacts", type=Path)
     parser.add_argument("--browser-root", type=Path, required=True)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--lease-seconds", type=int, default=120)
@@ -902,19 +932,29 @@ def main() -> None:
         args.participants,
         campaign_id=str(campaign.campaign["id"]),
     )
+    dataset = (
+        PackedDataset.load(args.dataset_artifacts)
+        if args.dataset_artifacts is not None
+        else None
+    )
     state_path = args.state / "global-state.json"
-    coordinator = (
-        GlobalStepCoordinator.load(campaign, args.state, participants=participants)
-        if state_path.is_file()
-        else GlobalStepCoordinator.create(
+    if state_path.is_file():
+        coordinator = GlobalStepCoordinator.load(
+            campaign,
+            args.state,
+            participants=participants,
+            dataset=dataset,
+        )
+    else:
+        coordinator = GlobalStepCoordinator.create(
             campaign,
             args.state,
             worker_count=args.workers,
             participants=participants,
             lease_seconds=args.lease_seconds,
             resume_from=args.resume_from,
+            dataset=dataset,
         )
-    )
     server = create_http_server(
         coordinator,
         args.browser_root,

@@ -8,11 +8,16 @@ esac
 spike="$root/spikes/burn-browser-gradient"
 config="${ORCACOLONY_CONFIG:-$root/campaign/t0-smoke.json}"
 fixture="${ORCACOLONY_FIXTURE_DIR:-$root/.artifacts/browser-fixture}"
+dataset_args=()
+if [[ -n "${ORCACOLONY_DATASET_ARTIFACTS:-}" ]]; then
+  dataset_args=(--dataset-artifacts "$ORCACOLONY_DATASET_ARTIFACTS")
+fi
 
 cd "$root"
 uv run python -m orcacolony.reference fixture \
   --config "$config" \
-  --output "$fixture"
+  --output "$fixture" \
+  "${dataset_args[@]}"
 
 wasm-pack build "$spike" \
   --target web \

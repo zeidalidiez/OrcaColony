@@ -1,8 +1,9 @@
 from pathlib import Path
 
+import torch
 from safetensors.torch import load_file
 
-from orcacolony.artifacts import build_dataset_artifacts
+from orcacolony.artifacts import PackedDataset, build_dataset_artifacts
 
 
 CORPUS = (
@@ -50,3 +51,10 @@ def test_dataset_artifacts_are_deterministic_and_pack_shifted_targets(
     assert packed["input_ids"].shape[1] == 16
     assert packed["target_ids"].shape == packed["input_ids"].shape
     assert (packed["input_ids"][:, 1:] == packed["target_ids"][:, :-1]).all()
+
+    dataset = PackedDataset.load(tmp_path / "first")
+    inputs, targets = dataset.batch(cursor=0, batch_size=2, sequence_limit=10)
+    assert inputs.dtype == torch.int64
+    assert targets.dtype == torch.int64
+    assert inputs.tolist() == packed["input_ids"][:2].tolist()
+    assert targets.tolist() == packed["target_ids"][:2].tolist()
