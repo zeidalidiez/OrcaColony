@@ -23,3 +23,16 @@ On July 24, 2026, the full T0 pass ran in Headless Chrome 150 on Windows WebGPU 
 - elapsed browser time, including initialization and readback: `7.23 s`
 
 This clears M1a for the Burn-first path; the TensorFlow.js fallback is not needed at this point.
+
+## Connected-worker proof
+
+Run the M1b coordinator instead of the static server to exercise assignment download, complete-gradient upload, validation, and one centrally applied optimizer step:
+
+```bash
+uv run python -m orcacolony.coordinator \
+  --config campaign/t0-smoke.json \
+  --state .artifacts/m1b \
+  --browser-root spikes/burn-browser-gradient/www
+```
+
+The verified browser round trip accepted all 52 tensors and produced a step-1 checkpoint with cosine similarity `0.9999999999820228` and relative L2 error `5.996203529187336e-6` against the canonical Python step.

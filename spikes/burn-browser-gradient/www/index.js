@@ -93,14 +93,22 @@ function compareGradients(expectedBuffer, actualBuffer) {
 
 async function run() {
   button.disabled = true;
-  show("Loading WASM and the M0 fixture…");
+  const connected = new URLSearchParams(location.search).has("connected");
+  show(connected ? "Loading the coordinator assignment…" : "Loading WASM and the M0 fixture…");
   try {
     if (!navigator.gpu) throw new Error("WebGPU is unavailable in this browser");
     const started = performance.now();
-    const [manifest, model, expectedGradients] = await Promise.all([
-      fetchOk("./fixture/fixture.json", "json"),
-      fetchOk("./fixture/model.safetensors"),
-      fetchOk("./fixture/gradients.safetensors"),
+    const manifest = await fetchOk(
+      connected ? "/api/v1/assignment" : "./fixture/fixture.json",
+      "json",
+    );
+    const modelUrl = connected ? manifest.model_url : "./fixture/model.safetensors";
+    const gradientUrl = connected
+      ? manifest.oracle_gradient_url
+      : "./fixture/gradients.safetensors";
+    const [model, expectedGradients] = await Promise.all([
+      fetchOk(modelUrl),
+      fetchOk(gradientUrl),
       init(),
     ]);
     const [batchSize, sequenceLength] = manifest.input_shape;
@@ -114,13 +122,15 @@ async function run() {
     );
     const actualGradientBytes = result.gradients();
     const gradientMetrics = compareGradients(expectedGradients, actualGradientBytes.buffer);
-    const lossAbsoluteError = Math.abs(result.loss_sum - manifest.loss_sum);
-    const lossRelativeError = lossAbsoluteError / Math.abs(manifest.loss_sum);
+    const expectedLossSum = connected ? manifest.expected_loss_sum : manifest.loss_sum;
+    const lossAbsoluteError = Math.abs(result.loss_sum - expectedLossSum);
+    const lossRelativeError = lossAbsoluteError / Math.abs(expectedLossSum);
     const summary = {
       backend: "Burn 0.21 Autodiff<Wgpu<f32, i32>>",
+      mode: connected ? "connected-worker" : "local-parity",
       batch_shape: manifest.input_shape,
       model_parameter_count: manifest.parameter_count,
-      expected_loss_sum: manifest.loss_sum,
+      expected_loss_sum: expectedLossSum,
       browser_loss_sum: result.loss_sum,
       loss_weight_sum: result.loss_weight_sum,
       loss_absolute_error: lossAbsoluteError,
@@ -132,6 +142,23 @@ async function run() {
       summary.loss_relative_error <= 0.002 &&
       gradientMetrics.cosine_similarity >= 0.999 &&
       gradientMetrics.relative_l2_error <= 0.01;
+    if (connected) {
+      show("Uploading the complete gradient to the coordinator…");
+      const response = await fetch(manifest.result_url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "X-Orca-Checkpoint-Sha256": manifest.checkpoint_sha256,
+          "X-Orca-Loss-Sum": String(result.loss_sum),
+          "X-Orca-Loss-Weight-Sum": String(result.loss_weight_sum),
+        },
+        body: actualGradientBytes,
+      });
+      const receipt = await response.json();
+      if (!response.ok) throw new Error(`coordinator rejected result: ${receipt.error}`);
+      summary.coordinator = receipt;
+      summary.connected_step_complete = receipt.accepted === true && receipt.step === 1;
+    }
     window.orcacolonyResult = summary;
     console.log("ORCACOLONY_RESULT", JSON.stringify(summary));
     show(summary);

@@ -1,6 +1,6 @@
 # OrcaColony
 
-OrcaColony is a volunteer-compute framework for training one small open model at a time. The Milestone 0 reference and Milestone 1a browser-gradient proof described in [SPEC.md](SPEC.md) are runnable.
+OrcaColony is a volunteer-compute framework for training one small open model at a time. The Milestone 0 reference and Milestone 1 browser-gradient/connected-worker proofs described in [SPEC.md](SPEC.md) are runnable.
 
 ## Development
 
@@ -18,3 +18,15 @@ The fixture command exports the model, deterministic token batch, summed gradien
 ## Browser feasibility proof
 
 The bounded Burn/WebGPU spike in [`spikes/burn-browser-gradient`](spikes/burn-browser-gradient) loads that exact fixture, performs browser forward/backward, exports every gradient, and compares it with the Python oracle. Its measured M1a result is recorded with the spike.
+
+Build it, then run the M1b coordinator from a fresh state directory:
+
+```bash
+bash spikes/burn-browser-gradient/build-browser.sh
+uv run python -m orcacolony.coordinator \
+  --config campaign/t0-smoke.json \
+  --state .artifacts/m1b \
+  --browser-root spikes/burn-browser-gradient/www
+```
+
+Open the URL printed by the coordinator. The browser receives one checkpoint-bound assignment, uploads all gradients, and the coordinator validates them, applies the canonical optimizer step, and writes a new checkpoint plus `receipt.json`.
