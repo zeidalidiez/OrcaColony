@@ -84,6 +84,7 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
             "train_sha256": manifest["files"]["train.safetensors"],
             "validation_sha256": manifest["files"]["validation.safetensors"],
         },
+        evaluation={"validation_sequences": 4, "batch_size": 2},
     )
     participants = participants_for(campaign.campaign["id"])
     state_dir = tmp_path / "campaign"
@@ -95,6 +96,7 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
         target_steps=2,
         dataset=dataset,
     )
+    assert (state_dir / "checkpoints" / "step-00000000").is_dir()
 
     for expected_step in (1, 2):
         for worker_id in ("worker-a", "worker-b"):
@@ -121,6 +123,15 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
     assert len(ledger["entries"]) == 4
     assert ledger["dataset_revision"] == dataset.revision
     assert [entry["checkpoint_step"] for entry in ledger["entries"]] == [1, 1, 2, 2]
+    evaluations = json.loads(
+        (state_dir / "evaluations.json").read_text(encoding="utf-8")
+    )
+    assert [entry["step"] for entry in evaluations["entries"]] == [0, 1, 2]
+    assert all(entry["mean_loss"] > 0 for entry in evaluations["entries"])
+    assert all(
+        entry["dataset_revision"] == dataset.revision
+        for entry in evaluations["entries"]
+    )
 
     recovered = CampaignCoordinator.load(
         campaign,

@@ -114,6 +114,26 @@ class PackedDataset:
             self.train_targets.index_select(0, indices).to(torch.int64),
         )
 
+    def validation_batch(
+        self,
+        *,
+        cursor: int,
+        batch_size: int,
+        sequence_limit: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if batch_size <= 0 or sequence_limit <= 0:
+            raise ValueError("validation batch dimensions must be positive")
+        if sequence_limit > self.validation_inputs.shape[0]:
+            raise ValueError("evaluation sequence limit exceeds packed validation data")
+        indices = torch.tensor(
+            [(cursor + offset) % sequence_limit for offset in range(batch_size)],
+            dtype=torch.int64,
+        )
+        return (
+            self.validation_inputs.index_select(0, indices).to(torch.int64),
+            self.validation_targets.index_select(0, indices).to(torch.int64),
+        )
+
 
 def _validate_packed_split(
     tensors: Mapping[str, torch.Tensor],

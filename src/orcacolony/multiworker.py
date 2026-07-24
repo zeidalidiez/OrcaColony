@@ -92,12 +92,15 @@ def _revision(payload: Mapping[str, object]) -> str:
 
 
 def _campaign_payload(campaign: CampaignConfig) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "campaign": dict(campaign.campaign),
         "model": asdict(campaign.model),
         "training": asdict(campaign.training),
         "dataset": dict(campaign.dataset) if campaign.dataset is not None else None,
     }
+    if campaign.evaluation is not None:
+        payload["evaluation"] = dict(campaign.evaluation)
+    return payload
 
 
 class GlobalStepCoordinator:

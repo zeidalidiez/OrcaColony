@@ -18,7 +18,7 @@ from .multiworker import (
     create_http_server,
 )
 from .participants import ParticipantRegistry, load_participants
-from .reference import CampaignConfig, load_campaign
+from .reference import CampaignConfig, evaluate_checkpoint, load_campaign, run_training
 
 
 class CampaignCoordinator:
@@ -89,11 +89,29 @@ class CampaignCoordinator:
             "current_round": current_relative.as_posix(),
             "checkpoints": [],
             "last_checkpoint_metrics": None,
+            "evaluations": [],
+            "last_evaluation": None,
+            "baseline_checkpoint": None,
         }
         coordinator = cls(campaign, state_dir, participants, state, current, dataset)
+        if campaign.evaluation is not None:
+            if dataset is None:
+                raise ValueError("campaign evaluation requires dataset artifacts")
+            baseline_relative = Path("checkpoints") / "step-00000000"
+            baseline = run_training(
+                campaign,
+                state_dir / baseline_relative,
+                target_steps=0,
+                dataset=dataset,
+            )
+            if baseline.model_sha256 != current.status()["checkpoint_sha256"]:
+                raise ValueError("baseline checkpoint does not match campaign initialization")
+            state["baseline_checkpoint"] = baseline_relative.as_posix()
+            coordinator._evaluate_versioned_checkpoint(0, baseline.checkpoint_dir)
         coordinator._write_state()
         coordinator._write_lock()
         coordinator._write_ledger()
+        coordinator._write_evaluations()
         return coordinator
 
     @classmethod
@@ -121,6 +139,9 @@ class CampaignCoordinator:
         )
         if state.get("dataset_revision", "synthetic-fixture-v1") != expected_dataset_revision:
             raise ValueError("campaign dataset revision mismatch")
+        state.setdefault("evaluations", [])
+        state.setdefault("last_evaluation", None)
+        state.setdefault("baseline_checkpoint", None)
         current_path = state_dir / str(state["current_round"])
         current = GlobalStepCoordinator.load(
             campaign,
@@ -138,6 +159,8 @@ class CampaignCoordinator:
             raise ValueError("campaign lock mismatch")
         coordinator._advance_if_ready()
         coordinator._write_ledger()
+        coordinator._write_evaluations()
+        coordinator._write_state()
         return coordinator
 
     @property
@@ -203,6 +226,47 @@ class CampaignCoordinator:
     def _write_lock(self) -> None:
         _atomic_json(self.state_dir / "campaign-lock.json", self._lock_payload())
 
+    def _write_evaluations(self) -> None:
+        _atomic_json(
+            self.state_dir / "evaluations.json",
+            {
+                "format": "orcacolony_campaign_evaluations_v1",
+                "campaign_id": self._state["campaign_id"],
+                "dataset_revision": self._state.get(
+                    "dataset_revision", "synthetic-fixture-v1"
+                ),
+                "profile": (
+                    dict(self.campaign.evaluation)
+                    if self.campaign.evaluation is not None
+                    else None
+                ),
+                "entries": self._state["evaluations"],
+            },
+        )
+
+    def _evaluate_versioned_checkpoint(self, step: int, checkpoint: Path) -> None:
+        if self.campaign.evaluation is None:
+            return
+        if self.dataset is None:
+            raise ValueError("campaign evaluation requires dataset artifacts")
+        evaluations: list[dict[str, object]] = self._state[  # type: ignore[assignment]
+            "evaluations"
+        ]
+        existing = next(
+            (entry for entry in evaluations if int(entry["step"]) == step),
+            None,
+        )
+        if existing is None:
+            existing = evaluate_checkpoint(
+                self.campaign,
+                checkpoint,
+                self.dataset,
+            )
+            evaluations.append(existing)
+            evaluations.sort(key=lambda entry: int(entry["step"]))
+        self._state["last_evaluation"] = existing
+        self._write_evaluations()
+
     def _version_checkpoint(self, step: int) -> Path:
         destination = self.checkpoints_dir / f"step-{step:08d}"
         source = self._current.checkpoint_dir
@@ -240,6 +304,7 @@ class CampaignCoordinator:
         self._state["last_checkpoint_metrics"] = self._current.status()[
             "checkpoint_metrics"
         ]
+        self._evaluate_versioned_checkpoint(completed_step, checkpoint)
 
         if completed_step >= int(self._state["target_steps"]):
             self._state["state"] = "campaign_complete"
@@ -302,6 +367,7 @@ class CampaignCoordinator:
             "target_steps": self._state["target_steps"],
             "current_step": current["step"],
             "checkpoint_metrics": self._state["last_checkpoint_metrics"],
+            "last_evaluation": self._state["last_evaluation"],
             "current_round": current,
         }
 

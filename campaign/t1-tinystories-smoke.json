@@ -42,5 +42,11 @@
     "tokenizer_sha256": "7cb0fc243e7fa2bcfb9e1087ece80f3cbffc642d2c53f3213edaab218d0139bb",
     "train_sha256": "a1e065dc862c48d7d39a98e50c7250648b6702514c440cbef1f156f7657b5e6d",
     "validation_sha256": "a8a8868b8a2a6aa14b53f9cb18d6e47a027e90532df7607a1297817bd692c706"
+  },
+  "evaluation": {
+    "metric": "held_out_cross_entropy",
+    "checkpoint_selection": "lowest_mean_loss",
+    "validation_sequences": 16,
+    "batch_size": 2
   }
 }

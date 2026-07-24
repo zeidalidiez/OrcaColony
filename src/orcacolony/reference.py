@@ -61,6 +61,7 @@ class CampaignConfig:
     model: ModelConfig
     training: TrainingConfig
     dataset: Mapping[str, object] | None = None
+    evaluation: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -189,6 +190,7 @@ def load_campaign(path: str | Path) -> CampaignConfig:
         model=ModelConfig(**payload["model"]),
         training=TrainingConfig(**payload["training"]),
         dataset=payload.get("dataset"),
+        evaluation=payload.get("evaluation"),
     )
 
 
@@ -216,6 +218,8 @@ def validate_dataset_artifacts(
     if campaign.dataset is None:
         if dataset is not None:
             raise ValueError("campaign does not declare external dataset artifacts")
+        if campaign.evaluation is not None:
+            raise ValueError("campaign evaluation requires external dataset artifacts")
         return
     if dataset is None:
         raise ValueError("campaign requires external dataset artifacts")
@@ -237,6 +241,23 @@ def validate_dataset_artifacts(
         raise ValueError("campaign requests more sequences than the packed dataset contains")
     if int(dataset.train_targets.max()) >= campaign.model.vocabulary_size:
         raise ValueError("packed dataset token ID exceeds the model vocabulary")
+    if campaign.evaluation is not None:
+        if campaign.evaluation.get("metric", "held_out_cross_entropy") != (
+            "held_out_cross_entropy"
+        ):
+            raise ValueError("unsupported campaign evaluation metric")
+        if campaign.evaluation.get(
+            "checkpoint_selection", "lowest_mean_loss"
+        ) != "lowest_mean_loss":
+            raise ValueError("unsupported checkpoint selection rule")
+        validation_sequences = int(campaign.evaluation["validation_sequences"])
+        evaluation_batch_size = int(campaign.evaluation["batch_size"])
+        if validation_sequences <= 0 or evaluation_batch_size <= 0:
+            raise ValueError("evaluation dimensions must be positive")
+        if validation_sequences > dataset.validation_inputs.shape[0]:
+            raise ValueError(
+                "campaign evaluation exceeds the packed validation dataset"
+            )
 
 
 def fixture_batch(
@@ -351,12 +372,18 @@ def _save_checkpoint(
     for name, parameter in model.named_parameters():
         parameter_state = optimizer.state[parameter]
         optimizer_tensors[f"exp_avg.{name}"] = (
-            parameter_state["exp_avg"].detach().cpu().contiguous()
+            parameter_state.get("exp_avg", torch.zeros_like(parameter))
+            .detach()
+            .cpu()
+            .contiguous()
         )
         optimizer_tensors[f"exp_avg_sq.{name}"] = (
-            parameter_state["exp_avg_sq"].detach().cpu().contiguous()
+            parameter_state.get("exp_avg_sq", torch.zeros_like(parameter))
+            .detach()
+            .cpu()
+            .contiguous()
         )
-        optimizer_step = int(parameter_state["step"].item())
+        optimizer_step = int(parameter_state.get("step", torch.tensor(step)).item())
     save_safetensors_file(optimizer_tensors, str(optimizer_tmp))
     os.replace(optimizer_tmp, optimizer_path)
 
@@ -442,6 +469,57 @@ def _load_checkpoint(
     )
 
 
+def evaluate_checkpoint(
+    campaign: CampaignConfig,
+    checkpoint_dir: str | Path,
+    dataset: PackedDataset,
+) -> dict[str, object]:
+    validate_dataset_artifacts(campaign, dataset)
+    if campaign.evaluation is None:
+        raise ValueError("campaign does not define an evaluation profile")
+    checkpoint_dir = Path(checkpoint_dir)
+    model, _, step, _, _ = _load_checkpoint(campaign, checkpoint_dir)
+    sequence_count = int(campaign.evaluation["validation_sequences"])
+    batch_size = int(campaign.evaluation["batch_size"])
+    loss_sum = 0.0
+    loss_weight_sum = 0
+    model.eval()
+    with torch.no_grad():
+        cursor = 0
+        while cursor < sequence_count:
+            current_batch_size = min(batch_size, sequence_count - cursor)
+            inputs, targets = dataset.validation_batch(
+                cursor=cursor,
+                batch_size=current_batch_size,
+                sequence_limit=sequence_count,
+            )
+            logits = model(inputs)
+            batch_loss = F.cross_entropy(
+                logits.reshape(-1, campaign.model.vocabulary_size),
+                targets.reshape(-1),
+                reduction="sum",
+            )
+            loss_sum += float(batch_loss)
+            loss_weight_sum += targets.numel()
+            cursor += current_batch_size
+    mean_loss = loss_sum / loss_weight_sum
+    checkpoint_state = json.loads(
+        (checkpoint_dir / "state.json").read_text(encoding="utf-8")
+    )
+    return {
+        "format": "orcacolony_evaluation_v1",
+        "campaign_id": campaign.campaign["id"],
+        "step": step,
+        "dataset_revision": dataset.revision,
+        "checkpoint_sha256": checkpoint_state["model"]["sha256"],
+        "validation_sequences": sequence_count,
+        "loss_sum": loss_sum,
+        "loss_weight_sum": loss_weight_sum,
+        "mean_loss": mean_loss,
+        "perplexity": math.exp(mean_loss),
+    }
+
+
 def run_training(
     campaign: CampaignConfig,
     output_dir: str | Path,
@@ -463,7 +541,7 @@ def run_training(
             campaign,
             Path(resume_from),
         )
-    if target_steps <= step:
+    if target_steps < step or (target_steps == step and resume_from is not None):
         raise ValueError("target_steps must be greater than the checkpoint step")
 
     model.train()
