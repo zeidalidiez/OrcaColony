@@ -14,7 +14,13 @@ function show(message) {
 
 async function fetchOk(url, kind = "arrayBuffer", options) {
   const response = await fetch(url, options);
-  if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+  if (!response.ok) {
+    const body = await response.text();
+    const error = new Error(`${url}: HTTP ${response.status}: ${body}`);
+    error.status = response.status;
+    error.responseBody = body;
+    throw error;
+  }
   return response[kind]();
 }
 
@@ -98,8 +104,10 @@ function compareGradients(expectedBuffer, actualBuffer) {
 
 async function run() {
   button.disabled = true;
-  const cpuWorkerId = pageParams.get("cpu");
-  const workerId = pageParams.get("worker") ?? cpuWorkerId;
+  const continuous = pageParams.has("loop") || pageParams.has("cpu-loop");
+  const cpuWorkerId = pageParams.get("cpu") ?? pageParams.get("cpu-loop");
+  const workerId =
+    pageParams.get("worker") ?? pageParams.get("loop") ?? cpuWorkerId;
   const workerToken = fragmentParams.get("token");
   const connected = pageParams.has("connected") || workerId !== null;
   const requestedBackend =
@@ -110,6 +118,7 @@ async function run() {
     throw new Error(`unsupported backend: ${requestedBackend}`);
   }
   show(connected ? "Loading the coordinator assignment…" : "Loading WASM and the M0 fixture…");
+  let runAgain = false;
   try {
     if (requestedBackend === "webgpu" && !navigator.gpu) {
       throw new Error("WebGPU is unavailable in this browser");
@@ -192,17 +201,40 @@ async function run() {
       summary.connected_step_complete =
         receipt.step_complete ?? (receipt.accepted === true && receipt.step === 1);
     }
+    if (continuous) {
+      const campaignStatus = await fetchOk("/api/v1/status", "json");
+      summary.campaign = campaignStatus;
+      summary.campaign_complete = campaignStatus.state === "campaign_complete";
+      runAgain = !summary.campaign_complete;
+    }
     window.orcacolonyResult = summary;
     console.log("ORCACOLONY_RESULT", JSON.stringify(summary));
     show(summary);
     result.free();
   } catch (error) {
+    const retryableConflict =
+      continuous &&
+      error?.status === 409 &&
+      /no assignment available|campaign target is complete/.test(error.responseBody ?? "");
+    if (retryableConflict) {
+      const campaignStatus = await fetchOk("/api/v1/status", "json");
+      const waiting = {
+        waiting_for_assignment: campaignStatus.state !== "campaign_complete",
+        campaign_complete: campaignStatus.state === "campaign_complete",
+        campaign: campaignStatus,
+      };
+      window.orcacolonyResult = waiting;
+      show(waiting);
+      runAgain = !waiting.campaign_complete;
+      return;
+    }
     const failure = { error: error instanceof Error ? error.stack || error.message : String(error) };
     window.orcacolonyResult = failure;
     console.error("ORCACOLONY_ERROR", failure.error);
     show(failure);
   } finally {
     button.disabled = false;
+    if (runAgain) window.setTimeout(run, 1000);
   }
 }
 
@@ -211,5 +243,7 @@ if (
   pageParams.has("autorun") ||
   pageParams.has("connected") ||
   pageParams.has("worker") ||
-  pageParams.has("cpu")
+  pageParams.has("cpu") ||
+  pageParams.has("loop") ||
+  pageParams.has("cpu-loop")
 ) run();

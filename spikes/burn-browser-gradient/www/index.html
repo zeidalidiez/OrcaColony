@@ -18,7 +18,7 @@
   <h1>OrcaColony Burn browser gradient worker</h1>
   <p>Loads the exact T0 checkpoint and batch, runs summed causal-LM backward with Burn WebGPU or CPU/WASM, exports every FP32 gradient, and compares it with the Python oracle.</p>
   <button id="run">Run T0 backward pass</button>
-  <p class="note">WebGPU is the default when available; add <code>?backend=cpu</code> to force the CPU/WASM path.</p>
+  <p class="note">WebGPU is the default when available; add <code>?backend=cpu</code> for one CPU run or <code>?cpu-loop=&lt;worker-id&gt;</code> for a continuous campaign worker.</p>
   <pre id="output">Ready.</pre>
   <script type="module" src="./index.js"></script>
 </body>
