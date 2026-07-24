@@ -493,6 +493,10 @@ def export_fixture(
         "loss_sum": float(loss_sum.detach()),
         "loss_weight_sum": targets.numel(),
         "compute_dtype": campaign.training.compute_dtype,
+        "input_ids": inputs.reshape(-1).tolist(),
+        "input_shape": list(inputs.shape),
+        "target_ids": targets.reshape(-1).tolist(),
+        "target_shape": list(targets.shape),
         "tensor_order": sorted(gradients),
         "files": files,
     }

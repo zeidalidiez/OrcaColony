@@ -1,10 +1,10 @@
 # OrcaColony
 
-OrcaColony is a volunteer-compute framework for training one small open model at a time. The project is currently implementing the Milestone 0 single-process reference described in [SPEC.md](SPEC.md).
+OrcaColony is a volunteer-compute framework for training one small open model at a time. The Milestone 0 reference and Milestone 1a browser-gradient proof described in [SPEC.md](SPEC.md) are runnable.
 
 ## Development
 
-Requires Python 3.11 or newer and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.11 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync --dev
@@ -14,3 +14,7 @@ uv run python -m orcacolony.reference train --config campaign/t0-smoke.json --ou
 ```
 
 The fixture command exports the model, deterministic token batch, summed gradients, and exact hashes needed by the browser parity spike. The training command writes a JSON summary and a resumable safetensors checkpoint under `.artifacts/m0`.
+
+## Browser feasibility proof
+
+The bounded Burn/WebGPU spike in [`spikes/burn-browser-gradient`](spikes/burn-browser-gradient) loads that exact fixture, performs browser forward/backward, exports every gradient, and compares it with the Python oracle. Its measured M1a result is recorded with the spike.
