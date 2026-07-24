@@ -1,0 +1,21 @@
+{
+  "format": "orcacolony_participants_v1",
+  "campaign_id": "orcacolony-t0-smoke-v1",
+  "participants": [
+    {
+      "contributor_id": "local-smoke",
+      "worker_ids": [
+        "browser-a",
+        "browser-b"
+      ],
+      "worker_token_sha256": {
+        "browser-a": "b8641c72b84ba2407f35715ed055ae125be327126779c30ffc2fc2b49aae38ac",
+        "browser-b": "8b658c9b74a3cd2ae4cb2d105e42859a1f7ca2cf926acc104a36a85198d74424"
+      },
+      "credit": {
+        "public": false,
+        "display_name": null
+      }
+    }
+  ]
+}

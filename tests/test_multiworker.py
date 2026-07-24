@@ -1,3 +1,4 @@
+import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -12,10 +13,39 @@ from orcacolony.multiworker import (
     LeasedGradient,
     create_http_server,
 )
+from orcacolony.participants import ParticipantRegistry
 from orcacolony.reference import load_campaign
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
+
+
+def participants_for(campaign_id: object) -> ParticipantRegistry:
+    worker_ids = [
+        "browser-a",
+        "browser-b",
+        "worker-a",
+        "worker-b",
+        "worker-c",
+    ]
+    return ParticipantRegistry.from_payload(
+        {
+            "format": "orcacolony_participants_v1",
+            "campaign_id": campaign_id,
+            "participants": [
+                {
+                    "contributor_id": "test-contributor",
+                    "worker_ids": worker_ids,
+                    "worker_token_sha256": {
+                        worker_id: hashlib.sha256(b"test-token").hexdigest()
+                        for worker_id in worker_ids
+                    },
+                    "credit": {"public": False, "display_name": None},
+                }
+            ],
+        },
+        campaign_id=str(campaign_id),
+    )
 
 
 def submission_for(
@@ -38,14 +68,16 @@ def test_two_non_overlapping_workers_match_one_reference_global_step(
     tmp_path: Path,
 ) -> None:
     campaign = load_campaign(CONFIG)
+    participants = participants_for(campaign.campaign["id"])
     coordinator = GlobalStepCoordinator.create(
         campaign,
         tmp_path / "coordinator",
         worker_count=2,
+        participants=participants,
         lease_seconds=60,
     )
-    first = coordinator.lease("worker-a", now=100)
-    second = coordinator.lease("worker-b", now=100)
+    first = coordinator.lease("worker-a", worker_token="test-token", now=100)
+    second = coordinator.lease("worker-b", worker_token="test-token", now=100)
 
     assert first["data_range"] == [0, 2]
     assert second["data_range"] == [2, 4]
@@ -73,16 +105,20 @@ def test_expired_attempt_is_rejected_and_accepted_work_replays_after_restart(
     tmp_path: Path,
 ) -> None:
     campaign = load_campaign(CONFIG)
+    participants = participants_for(campaign.campaign["id"])
     state_dir = tmp_path / "coordinator"
     coordinator = GlobalStepCoordinator.create(
         campaign,
         state_dir,
         worker_count=2,
+        participants=participants,
         lease_seconds=10,
     )
-    expired = coordinator.lease("worker-a", now=100)
-    replacement = coordinator.lease("worker-b", now=111)
-    other = coordinator.lease("worker-c", now=111)
+    expired = coordinator.lease("worker-a", worker_token="test-token", now=100)
+    replacement = coordinator.lease(
+        "worker-b", worker_token="test-token", now=111
+    )
+    other = coordinator.lease("worker-c", worker_token="test-token", now=111)
 
     assert replacement["assignment_id"] == expired["assignment_id"]
     assert replacement["attempt"] == 2
@@ -101,7 +137,11 @@ def test_expired_attempt_is_rejected_and_accepted_work_replays_after_restart(
     )
     assert coordinator.status()["state"] == "ready_to_finalize"
 
-    recovered = GlobalStepCoordinator.load(campaign, state_dir)
+    recovered = GlobalStepCoordinator.load(
+        campaign,
+        state_dir,
+        participants=participants,
+    )
 
     assert recovered.status()["state"] == "step_complete"
     assert recovered.status()["checkpoint_metrics"]["relative_l2_error"] < 1e-6
@@ -110,15 +150,17 @@ def test_expired_attempt_is_rejected_and_accepted_work_replays_after_restart(
 
     (recovered.checkpoint_dir / "model.safetensors").write_bytes(b"corrupt")
     with pytest.raises(ValueError, match="checkpoint digest mismatch"):
-        GlobalStepCoordinator.load(campaign, state_dir)
+        GlobalStepCoordinator.load(campaign, state_dir, participants=participants)
 
 
 def test_http_leases_two_workers_and_closes_the_global_step(tmp_path: Path) -> None:
     campaign = load_campaign(CONFIG)
+    participants = participants_for(campaign.campaign["id"])
     coordinator = GlobalStepCoordinator.create(
         campaign,
         tmp_path / "coordinator",
         worker_count=2,
+        participants=participants,
     )
     browser_root = tmp_path / "browser"
     browser_root.mkdir()
@@ -132,7 +174,11 @@ def test_http_leases_two_workers_and_closes_the_global_step(tmp_path: Path) -> N
     try:
         for worker_id in ("browser-a", "browser-b"):
             query = urlencode({"worker_id": worker_id})
-            with urlopen(f"{base_url}/api/v1/assignment?{query}") as response:
+            assignment_request = Request(
+                f"{base_url}/api/v1/assignment?{query}",
+                headers={"X-Orca-Worker-Token": "test-token"},
+            )
+            with urlopen(assignment_request) as response:
                 assignment = json.load(response)
             request = Request(
                 f"{base_url}{assignment['result_url']}",
@@ -166,23 +212,26 @@ def test_next_global_step_resumes_model_optimizer_and_dataset_cursor(
     tmp_path: Path,
 ) -> None:
     campaign = load_campaign(CONFIG)
+    participants = participants_for(campaign.campaign["id"])
     first = GlobalStepCoordinator.create(
         campaign,
         tmp_path / "step-1",
         worker_count=2,
+        participants=participants,
     )
     for worker_id in ("worker-a", "worker-b"):
-        assignment = first.lease(worker_id, now=100)
+        assignment = first.lease(worker_id, worker_token="test-token", now=100)
         first.accept(submission_for(first, assignment), now=101)
 
     second = GlobalStepCoordinator.create(
         campaign,
         tmp_path / "step-2",
         worker_count=2,
+        participants=participants,
         resume_from=first.checkpoint_dir,
     )
-    second_a = second.lease("worker-a", now=200)
-    second_b = second.lease("worker-b", now=200)
+    second_a = second.lease("worker-a", worker_token="test-token", now=200)
+    second_b = second.lease("worker-b", worker_token="test-token", now=200)
 
     assert second_a["global_step"] == 1
     assert second_a["data_range"] == [4, 6]

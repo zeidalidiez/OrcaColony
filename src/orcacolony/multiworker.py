@@ -8,7 +8,7 @@ import os
 import shutil
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -24,6 +24,7 @@ from torch import Tensor
 from torch.nn import functional as F
 
 from .coordinator import _tensor_metrics
+from .participants import ParticipantRegistry, load_participants
 from .reference import (
     CampaignConfig,
     _create_optimizer,
@@ -72,6 +73,24 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
     os.replace(temporary, path)
 
 
+def _revision(payload: Mapping[str, object]) -> str:
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _campaign_payload(campaign: CampaignConfig) -> dict[str, object]:
+    return {
+        "campaign": dict(campaign.campaign),
+        "model": asdict(campaign.model),
+        "training": asdict(campaign.training),
+    }
+
+
 class GlobalStepCoordinator:
     def __init__(
         self,
@@ -88,6 +107,10 @@ class GlobalStepCoordinator:
         self.reference_dir = state_dir / "reference-step-1"
         self.checkpoint_dir = state_dir / "checkpoint"
         self._state = state
+        self.participants = ParticipantRegistry.from_payload(
+            state["participants"],  # type: ignore[arg-type]
+            campaign_id=str(campaign.campaign["id"]),
+        )
         self._lock = threading.Lock()
 
     @classmethod
@@ -96,6 +119,7 @@ class GlobalStepCoordinator:
         campaign: CampaignConfig,
         state_dir: str | Path,
         worker_count: int,
+        participants: ParticipantRegistry,
         lease_seconds: int = 60,
         resume_from: str | Path | None = None,
     ) -> GlobalStepCoordinator:
@@ -105,6 +129,8 @@ class GlobalStepCoordinator:
             raise ValueError("training batch size must be divisible by worker count")
         if lease_seconds <= 0:
             raise ValueError("lease duration must be positive")
+        if participants.campaign_id != campaign.campaign["id"]:
+            raise ValueError("participant registry campaign mismatch")
 
         state_dir = Path(state_dir)
         if state_dir.exists() and any(state_dir.iterdir()):
@@ -207,6 +233,7 @@ class GlobalStepCoordinator:
                     "state": "open",
                     "attempt": 0,
                     "leased_by": None,
+                    "contributor_id": None,
                     "lease_token": None,
                     "lease_expires_at": None,
                     "result_file": None,
@@ -218,6 +245,9 @@ class GlobalStepCoordinator:
         state: dict[str, object] = {
             "format": "orcacolony_global_step_v1",
             "campaign_id": campaign.campaign["id"],
+            "campaign_revision": _revision(_campaign_payload(campaign)),
+            "participants": participants.as_payload(),
+            "participants_revision": participants.revision,
             "checkpoint_sha256": checkpoint_sha256,
             "worker_count": worker_count,
             "lease_seconds": lease_seconds,
@@ -232,13 +262,17 @@ class GlobalStepCoordinator:
             "checkpoint_metrics": None,
         }
         _atomic_json(state_dir / "global-state.json", state)
-        return cls(campaign, state_dir, state)
+        coordinator = cls(campaign, state_dir, state)
+        coordinator._write_campaign_lock()
+        coordinator._write_accepted_ledger()
+        return coordinator
 
     @classmethod
     def load(
         cls,
         campaign: CampaignConfig,
         state_dir: str | Path,
+        participants: ParticipantRegistry,
     ) -> GlobalStepCoordinator:
         state_dir = Path(state_dir)
         state = json.loads((state_dir / "global-state.json").read_text(encoding="utf-8"))
@@ -246,9 +280,40 @@ class GlobalStepCoordinator:
             raise ValueError("unsupported global-step state format")
         if state.get("campaign_id") != campaign.campaign["id"]:
             raise ValueError("global-step campaign does not match configuration")
+        campaign_revision = _revision(_campaign_payload(campaign))
+        migrated = "participants_revision" not in state
+        if migrated:
+            state.setdefault("base_step", 0)
+            state.setdefault("dataset_cursor", 0)
+            state.setdefault("loss_history", [])
+            state.setdefault("has_base_checkpoint", False)
+            state["campaign_revision"] = campaign_revision
+            state["participants"] = participants.as_payload()
+            state["participants_revision"] = participants.revision
+            for assignment in state["assignments"]:
+                worker_id = assignment.get("leased_by")
+                if worker_id is None:
+                    assignment["contributor_id"] = None
+                    continue
+                participant = participants.participant_for_worker(str(worker_id))
+                if participant is None:
+                    raise ValueError(
+                        f"existing worker is not allowlisted: {worker_id}"
+                    )
+                assignment["contributor_id"] = participant.contributor_id
+            _atomic_json(state_dir / "global-state.json", state)
+        elif state.get("participants_revision") != participants.revision:
+            raise ValueError("participant revision mismatch")
+        if state.get("campaign_revision") != campaign_revision:
+            raise ValueError("campaign revision mismatch")
         if _sha256_file(state_dir / "model.safetensors") != state["checkpoint_sha256"]:
             raise ValueError("global-step checkpoint digest mismatch")
         coordinator = cls(campaign, state_dir, state)
+        lock_path = state_dir / "campaign-lock.json"
+        if migrated:
+            coordinator._write_campaign_lock()
+        elif not lock_path.exists() or json.loads(lock_path.read_text(encoding="utf-8")) != coordinator._campaign_lock_payload():
+            raise ValueError("campaign lock mismatch")
         if state["state"] != "step_complete" and coordinator._all_accepted():
             with coordinator._lock:
                 coordinator._state["state"] = "ready_to_finalize"
@@ -270,6 +335,7 @@ class GlobalStepCoordinator:
                 != checkpoint_state["optimizer"]["sha256"]
             ):
                 raise ValueError("completed global-step checkpoint digest mismatch")
+        coordinator._write_accepted_ledger()
         return coordinator
 
     @property
@@ -278,6 +344,66 @@ class GlobalStepCoordinator:
 
     def _write_state(self) -> None:
         _atomic_json(self.state_dir / "global-state.json", self._state)
+
+    def _campaign_lock_payload(self) -> dict[str, object]:
+        return {
+            "format": "orcacolony_campaign_lock_v1",
+            "campaign_id": self._state["campaign_id"],
+            "campaign_revision": self._state["campaign_revision"],
+            "participants_revision": self._state["participants_revision"],
+            "checkpoint_sha256": self._state["checkpoint_sha256"],
+            "global_step": self._state["base_step"],
+            "assignment_protocol_revision": 1,
+            "result_protocol_revision": 1,
+        }
+
+    def _write_campaign_lock(self) -> None:
+        _atomic_json(
+            self.state_dir / "campaign-lock.json",
+            self._campaign_lock_payload(),
+        )
+
+    def _write_accepted_ledger(self) -> None:
+        entries: list[dict[str, object]] = []
+        for assignment in sorted(
+            self.assignments,
+            key=lambda value: value["data_range"][0],
+        ):
+            if assignment["state"] != "accepted":
+                continue
+            contributor_id = str(assignment["contributor_id"])
+            participant = next(
+                value
+                for value in self.participants.participants
+                if value.contributor_id == contributor_id
+            )
+            public_credit = (
+                {"display_name": participant.display_name}
+                if participant.public_credit
+                else None
+            )
+            entries.append(
+                {
+                    "assignment_id": assignment["assignment_id"],
+                    "global_step": assignment["global_step"],
+                    "data_range": assignment["data_range"],
+                    "attempt": assignment["attempt"],
+                    "worker_id": assignment["leased_by"],
+                    "contributor_id": contributor_id,
+                    "public_credit": public_credit,
+                    "loss_sum": assignment["accepted_loss_sum"],
+                    "loss_weight_sum": assignment["loss_weight_sum"],
+                }
+            )
+        _atomic_json(
+            self.state_dir / "accepted-work.json",
+            {
+                "format": "orcacolony_accepted_work_v1",
+                "campaign_id": self._state["campaign_id"],
+                "participants_revision": self._state["participants_revision"],
+                "entries": entries,
+            },
+        )
 
     def _all_accepted(self) -> bool:
         return all(assignment["state"] == "accepted" for assignment in self.assignments)
@@ -316,9 +442,23 @@ class GlobalStepCoordinator:
             "result_url": f"/api/v1/results/{assignment_id}",
         }
 
-    def lease(self, worker_id: str, now: float | None = None) -> dict[str, object]:
+    def lease(
+        self,
+        worker_id: str,
+        worker_token: str | None = None,
+        now: float | None = None,
+    ) -> dict[str, object]:
         if not worker_id:
             raise ValueError("worker identity is required")
+        participant = self.participants.participant_for_worker(worker_id)
+        if participant is None:
+            raise ValueError("worker is not allowlisted for this campaign")
+        if not self.participants.credential_is_valid(
+            participant,
+            worker_id,
+            worker_token,
+        ):
+            raise ValueError("worker credential is invalid")
         now = time.time() if now is None else now
         with self._lock:
             if self._state["state"] == "step_complete":
@@ -352,6 +492,7 @@ class GlobalStepCoordinator:
                     "state": "leased",
                     "attempt": attempt,
                     "leased_by": worker_id,
+                    "contributor_id": participant.contributor_id,
                     "lease_token": lease_token,
                     "lease_expires_at": now + int(self._state["lease_seconds"]),
                 }
@@ -412,6 +553,7 @@ class GlobalStepCoordinator:
                 "ready_to_finalize" if self._all_accepted() else "waiting_for_results"
             )
             self._write_state()
+            self._write_accepted_ledger()
             if self._all_accepted() and finalize:
                 self._finalize_locked()
             return self._receipt(assignment)
@@ -585,7 +727,10 @@ class _GlobalStepHandler(SimpleHTTPRequestHandler):
         if path == "/api/v1/assignment":
             worker_id = parse_qs(parsed.query).get("worker_id", [""])[0]
             try:
-                assignment = self.coordinator.lease(worker_id)
+                assignment = self.coordinator.lease(
+                    worker_id,
+                    worker_token=self.headers.get("X-Orca-Worker-Token"),
+                )
             except ValueError as error:
                 self._send_json({"error": str(error)}, HTTPStatus.CONFLICT)
                 return
@@ -684,6 +829,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--state", type=Path, required=True)
+    parser.add_argument("--participants", type=Path, required=True)
     parser.add_argument("--browser-root", type=Path, required=True)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--lease-seconds", type=int, default=120)
@@ -698,14 +844,19 @@ def main() -> None:
 
     args = _build_parser().parse_args()
     campaign = load_campaign(args.config)
+    participants = load_participants(
+        args.participants,
+        campaign_id=str(campaign.campaign["id"]),
+    )
     state_path = args.state / "global-state.json"
     coordinator = (
-        GlobalStepCoordinator.load(campaign, args.state)
+        GlobalStepCoordinator.load(campaign, args.state, participants=participants)
         if state_path.is_file()
         else GlobalStepCoordinator.create(
             campaign,
             args.state,
             worker_count=args.workers,
+            participants=participants,
             lease_seconds=args.lease_seconds,
             resume_from=args.resume_from,
         )
@@ -721,7 +872,10 @@ def main() -> None:
             {
                 "campaign_id": campaign.campaign["id"],
                 "state": coordinator.status()["state"],
-                "url": f"http://{args.host}:{server.server_port}/?worker=browser-a",
+                "url_template": (
+                    f"http://{args.host}:{server.server_port}/"
+                    "?worker=<worker-id>#token=<worker-token>"
+                ),
                 "workers": args.workers,
             },
             sort_keys=True,

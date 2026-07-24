@@ -3,13 +3,14 @@ import init, { run_gradient } from "./pkg/orcacolony_burn_browser_gradient.js";
 const button = document.querySelector("#run");
 const output = document.querySelector("#output");
 const pageParams = new URLSearchParams(location.search);
+const fragmentParams = new URLSearchParams(location.hash.slice(1));
 
 function show(message) {
   output.textContent = typeof message === "string" ? message : JSON.stringify(message, null, 2);
 }
 
-async function fetchOk(url, kind = "arrayBuffer") {
-  const response = await fetch(url);
+async function fetchOk(url, kind = "arrayBuffer", options) {
+  const response = await fetch(url, options);
   if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
   return response[kind]();
 }
@@ -95,6 +96,7 @@ function compareGradients(expectedBuffer, actualBuffer) {
 async function run() {
   button.disabled = true;
   const workerId = pageParams.get("worker");
+  const workerToken = fragmentParams.get("token");
   const connected = pageParams.has("connected") || workerId !== null;
   show(connected ? "Loading the coordinator assignment…" : "Loading WASM and the M0 fixture…");
   try {
@@ -103,7 +105,13 @@ async function run() {
     const assignmentUrl = workerId
       ? `/api/v1/assignment?worker_id=${encodeURIComponent(workerId)}`
       : "/api/v1/assignment";
-    const manifest = await fetchOk(connected ? assignmentUrl : "./fixture/fixture.json", "json");
+    const manifest = await fetchOk(
+      connected ? assignmentUrl : "./fixture/fixture.json",
+      "json",
+      connected && workerToken
+        ? { headers: { "X-Orca-Worker-Token": workerToken } }
+        : undefined,
+    );
     const modelUrl = connected ? manifest.model_url : "./fixture/model.safetensors";
     const gradientUrl = connected
       ? manifest.oracle_gradient_url
