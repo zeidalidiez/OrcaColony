@@ -93,3 +93,16 @@ bash spikes/burn-browser-gradient/build-browser.sh
 The verified browser results covered all 76 tensors and 6,901,760 gradient values. CPU/WASM completed one batch-1 pass in `2.285 s` with cosine similarity `0.9999999999994084`; WebGPU completed it in `9.466 s` with cosine similarity `0.9999999999986344`. A continuous CPU/WASM worker then completed a two-shard, two-step T1 campaign with preserved AdamW state, two versioned checkpoints, and four ledger entries. Its final checkpoint matched the resumed Python reference with cosine similarity `0.9999999999999996` and relative L2 error `2.9341757103884218e-8`.
 
 This proves the T1 runtime and coordination scale using deterministic synthetic tokens. It is not yet the Milestone 4 language-model campaign; the frozen redistributable corpus, tokenizer, evaluation set, and multi-day trusted run remain separate promotion requirements.
+
+## Frozen TinyStories artifacts
+
+Build a reproducible, license-noticed TinyStories subset and an 8,192-entry byte-level BPE tokenizer from the pinned upstream revision:
+
+```bash
+uv run python -m orcacolony.artifacts \
+  --output .artifacts/tinystories-t1-v1
+```
+
+The default build downloads 16 MiB of training data and 2 MiB of validation data, trims both to complete stories, and packs shifted input/target sequences of length 256 into safetensors. Two independent builds were byte-identical. The measured artifact contains 18,544 training stories, 2,502 validation stories, 15,666 training sequences, and 1,934 validation sequences. Its tokenizer SHA-256 is `7cb0fc243e7fa2bcfb9e1087ece80f3cbffc642d2c53f3213edaab218d0139bb`.
+
+Source revision, complete-source hashes, subset hashes, tokenizer identity, packing metadata, file hashes, attribution, and license URL are frozen in the generated manifest and notice. See [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md). The builder is complete; wiring these packed sequences into the distributed campaign is the next runtime slice.
