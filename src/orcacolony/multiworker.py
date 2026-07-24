@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import math
 import os
+import re
 import shutil
 import threading
 import time
@@ -768,6 +770,18 @@ class GlobalStepCoordinator:
             ],
         }
 
+    def public_status(self) -> dict[str, object]:
+        status = self.status()
+        status["assignments"] = [
+            {
+                key: value
+                for key, value in assignment.items()
+                if key != "leased_by"
+            }
+            for assignment in status["assignments"]
+        ]
+        return status
+
 
 class _GlobalStepHandler(SimpleHTTPRequestHandler):
     def __init__(
@@ -775,10 +789,49 @@ class _GlobalStepHandler(SimpleHTTPRequestHandler):
         *args: object,
         coordinator: GlobalStepCoordinator,
         directory: str,
+        public_origin: str | None,
         **kwargs: object,
     ) -> None:
         self.coordinator = coordinator
+        self.public_origin = public_origin
         super().__init__(*args, directory=directory, **kwargs)
+
+    def end_headers(self) -> None:
+        if (
+            self.public_origin is not None
+            and self.public_origin == self.headers.get("Origin")
+        ):
+            self.send_header("Access-Control-Allow-Origin", self.public_origin)
+            self.send_header("Vary", "Origin")
+        super().end_headers()
+
+    def do_OPTIONS(self) -> None:
+        if (
+            self.public_origin is None
+            or self.headers.get("Origin") != self.public_origin
+            or not urlsplit(self.path).path.startswith("/api/v1/")
+        ):
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            ", ".join(
+                (
+                    "Content-Type",
+                    "X-Orca-Worker-Token",
+                    "X-Orca-Lease-Token",
+                    "X-Orca-Checkpoint-Sha256",
+                    "X-Orca-Loss-Sum",
+                    "X-Orca-Loss-Weight-Sum",
+                    "X-Orca-Runtime-Backend",
+                )
+            ),
+        )
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _send_json(
         self,
@@ -822,7 +875,19 @@ class _GlobalStepHandler(SimpleHTTPRequestHandler):
             self._send_json(assignment)
             return
         if path == "/api/v1/status":
-            self._send_json(self.coordinator.status())
+            public_status = getattr(self.coordinator, "public_status", None)
+            self._send_json(
+                public_status() if public_status is not None else self.coordinator.status()
+            )
+            return
+        if path == "/api/v1/dashboard":
+            dashboard = getattr(self.coordinator, "dashboard", None)
+            if dashboard is None:
+                self._send_json(
+                    {"error": "dashboard is unavailable"}, HTTPStatus.NOT_FOUND
+                )
+                return
+            self._send_json(dashboard())
             return
         if path == "/api/v1/artifacts/model.safetensors":
             self._send_artifact(self.coordinator.initial_model_path)
@@ -888,21 +953,85 @@ class _GlobalStepHandler(SimpleHTTPRequestHandler):
         )
 
 
+def normalize_http_origin(origin: str) -> str:
+    if any(
+        character.isspace()
+        or ord(character) < 32
+        or character in {'"', "'", "<", ">", "\\"}
+        for character in origin
+    ):
+        raise ValueError("public origin contains invalid characters")
+    parsed = urlsplit(origin)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("public origin must be an HTTP(S) origin without a path")
+    hostname = parsed.hostname
+    if parsed.scheme == "http":
+        try:
+            loopback = ipaddress.ip_address(hostname.split("%", 1)[0]).is_loopback
+        except ValueError:
+            loopback = hostname == "localhost"
+        if not loopback:
+            raise ValueError("public origin must use HTTPS except on loopback")
+    if "%" in hostname:
+        raise ValueError("public origin hostname is invalid")
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        try:
+            hostname = hostname.encode("idna").decode("ascii")
+        except UnicodeError as error:
+            raise ValueError("public origin hostname is invalid") from error
+        labels = hostname.split(".")
+        if (
+            len(hostname) > 253
+            or all(label.isdigit() or label.startswith("0x") for label in labels)
+            or any(
+                not label
+                or len(label) > 63
+                or re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label)
+                is None
+                for label in labels
+            )
+        ):
+            raise ValueError("public origin hostname is invalid")
+    else:
+        hostname = f"[{address.compressed}]" if address.version == 6 else str(address)
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError("public origin has an invalid port") from error
+    default_port = 80 if parsed.scheme == "http" else 443
+    port_suffix = f":{port}" if port is not None and port != default_port else ""
+    return f"{parsed.scheme}://{hostname}{port_suffix}"
+
+
 def create_http_server(
     coordinator: GlobalStepCoordinator,
     browser_root: str | Path,
     host: str = "127.0.0.1",
     port: int = 8000,
+    public_origin: str | None = None,
 ) -> ThreadingHTTPServer:
     browser_root = Path(browser_root).resolve()
     if not (browser_root / "index.html").is_file():
         raise ValueError(f"browser root does not contain index.html: {browser_root}")
+    if public_origin is not None:
+        public_origin = normalize_http_origin(public_origin)
 
     def handler(*args: object, **kwargs: object) -> _GlobalStepHandler:
         return _GlobalStepHandler(
             *args,
             coordinator=coordinator,
             directory=str(browser_root),
+            public_origin=public_origin,
             **kwargs,
         )
 
@@ -923,6 +1052,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--resume-from", type=Path)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--public-origin")
     return parser
 
 
@@ -963,6 +1093,7 @@ def main() -> None:
         args.browser_root,
         host=args.host,
         port=args.port,
+        public_origin=args.public_origin,
     )
     print(
         json.dumps(

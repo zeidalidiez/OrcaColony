@@ -5,6 +5,8 @@ import json
 import os
 import shutil
 import threading
+from collections.abc import Mapping
+from dataclasses import asdict
 from pathlib import Path
 
 from .artifacts import PackedDataset
@@ -19,6 +21,16 @@ from .multiworker import (
 )
 from .participants import ParticipantRegistry, load_participants
 from .reference import CampaignConfig, evaluate_checkpoint, load_campaign, run_training
+
+
+_PUBLIC_DATASET_SOURCE_FIELDS = (
+    "dataset",
+    "dataset_card",
+    "license",
+    "license_url",
+    "revision",
+    "selection",
+)
 
 
 class CampaignCoordinator:
@@ -359,7 +371,7 @@ class CampaignCoordinator:
         )
 
     def status(self) -> dict[str, object]:
-        current = self._current.status()
+        current = self._current.public_status()
         return {
             "state": self._state["state"],
             "campaign_id": self._state["campaign_id"],
@@ -368,8 +380,200 @@ class CampaignCoordinator:
             "current_step": current["step"],
             "checkpoint_metrics": self._state["last_checkpoint_metrics"],
             "last_evaluation": self._state["last_evaluation"],
+            "evaluation_gate": self.evaluation_gate(),
             "current_round": current,
         }
+
+    def _dashboard_ledger_entries(self) -> list[dict[str, object]]:
+        payload = json.loads(
+            (self.state_dir / "accepted-work.json").read_text(encoding="utf-8")
+        )
+        entries = [dict(entry) for entry in payload["entries"]]
+        completed_rounds = {
+            str(checkpoint["round"]) for checkpoint in self._state["checkpoints"]
+        }
+        if str(self._state["current_round"]) not in completed_rounds:
+            current = json.loads(
+                (self._current.state_dir / "accepted-work.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            next_step = int(self._state["completed_steps"]) + 1
+            entries.extend(
+                {**entry, "checkpoint_step": next_step}
+                for entry in current["entries"]
+            )
+        entries.sort(
+            key=lambda value: (
+                int(value["checkpoint_step"]),
+                int(value["data_range"][0]),
+            )
+        )
+        return entries
+
+    def evaluation_gate(self) -> dict[str, object] | None:
+        if self.campaign.evaluation is None:
+            return None
+        gate = self.campaign.evaluation.get("success_gate")
+        if not isinstance(gate, Mapping):
+            return None
+        evaluations = self._state["evaluations"]
+        if not evaluations:
+            return {
+                "metric": "mean_loss",
+                "state": "pending",
+                "minimum_improvement_from_initialization": float(
+                    gate["minimum_improvement_from_initialization"]
+                ),
+            }
+        baseline = next(
+            (entry for entry in evaluations if int(entry["step"]) == 0),
+            None,
+        )
+        latest = max(evaluations, key=lambda entry: int(entry["step"]))
+        if baseline is None:
+            raise ValueError("evaluation success gate requires an initialization baseline")
+        improvement = float(baseline["mean_loss"]) - float(latest["mean_loss"])
+        minimum = float(gate["minimum_improvement_from_initialization"])
+        complete = int(self._state["completed_steps"]) >= int(
+            self._state["target_steps"]
+        )
+        gate_state = "pending"
+        if complete:
+            gate_state = "passed" if improvement >= minimum else "failed"
+        return {
+            "metric": "mean_loss",
+            "state": gate_state,
+            "minimum_improvement_from_initialization": minimum,
+            "observed_improvement_from_initialization": improvement,
+            "baseline_step": int(baseline["step"]),
+            "evaluated_step": int(latest["step"]),
+        }
+
+    def dashboard(self) -> dict[str, object]:
+        with self._lock:
+            status = self.status()
+            entries = self._dashboard_ledger_entries()
+            participant_by_id = {
+                participant.contributor_id: participant
+                for participant in self.participants.participants
+            }
+            contributor_totals: dict[str, dict[str, int]] = {}
+            public_ledger: list[dict[str, object]] = []
+            for entry in entries:
+                contributor_id = str(entry["contributor_id"])
+                totals = contributor_totals.setdefault(
+                    contributor_id,
+                    {"accepted_assignments": 0, "accepted_tokens": 0},
+                )
+                totals["accepted_assignments"] += 1
+                totals["accepted_tokens"] += int(entry["loss_weight_sum"])
+                public_ledger.append(
+                    {
+                        "contribution_id": entry["assignment_id"],
+                        "checkpoint_step": entry["checkpoint_step"],
+                        "accepted_tokens": entry["loss_weight_sum"],
+                        "runtime_backend": entry["runtime_backend"],
+                        "credit": (
+                            entry["public_credit"]["display_name"]
+                            if entry["public_credit"] is not None
+                            else "Anonymous"
+                        ),
+                    }
+                )
+
+            acknowledgements: list[dict[str, object]] = []
+            anonymous_count = 0
+            for contributor_id, totals in sorted(contributor_totals.items()):
+                participant = participant_by_id[contributor_id]
+                if participant.public_credit:
+                    acknowledgements.append(
+                        {"display_name": participant.display_name, **totals}
+                    )
+                else:
+                    anonymous_count += 1
+
+            current_round = status["current_round"]
+            assignment_states = [
+                assignment["state"] for assignment in current_round["assignments"]
+            ]
+            source: dict[str, object] = {"dataset": "synthetic-fixture-v1"}
+            dataset_packing: dict[str, object] | None = None
+            if self.dataset is not None:
+                manifest_source = self.dataset.manifest.get("source")
+                if isinstance(manifest_source, Mapping):
+                    source = {
+                        field: manifest_source[field]
+                        for field in _PUBLIC_DATASET_SOURCE_FIELDS
+                        if field in manifest_source
+                        and isinstance(
+                            manifest_source[field], (str, int, float, bool)
+                        )
+                    }
+                manifest_packing = self.dataset.manifest.get("packing")
+                if isinstance(manifest_packing, Mapping):
+                    dataset_packing = {
+                        field: manifest_packing[field]
+                        for field in (
+                            "context_length",
+                            "train_sequences",
+                            "train_tokens",
+                            "validation_sequences",
+                            "validation_tokens",
+                        )
+                        if field in manifest_packing
+                        and isinstance(manifest_packing[field], int)
+                    }
+            accepted_tokens = sum(
+                totals["accepted_tokens"] for totals in contributor_totals.values()
+            )
+            return {
+                "format": "orcacolony_public_dashboard_v1",
+                "campaign": {
+                    "id": self._state["campaign_id"],
+                    "objective": self.campaign.campaign["objective"],
+                    "state": self._state["state"],
+                },
+                "model": {
+                    **asdict(self.campaign.model),
+                    "parameter_count": self._current.assignments[0][
+                        "parameter_count"
+                    ],
+                },
+                "dataset": {
+                    "revision": self._state["dataset_revision"],
+                    "source": source,
+                    "packing": dataset_packing,
+                },
+                "progress": {
+                    "completed_steps": self._state["completed_steps"],
+                    "target_steps": self._state["target_steps"],
+                    "accepted_assignments": len(entries),
+                    "target_assignments": int(self._state["target_steps"])
+                    * int(self._state["worker_count"]),
+                    "accepted_tokens": accepted_tokens,
+                    "open_assignments": assignment_states.count("open"),
+                    "leased_assignments": assignment_states.count("leased"),
+                },
+                "checkpoint": {
+                    "sha256": current_round["model_sha256"]
+                    or current_round["checkpoint_sha256"],
+                    "download_url": (
+                        "/api/v1/checkpoint/model.safetensors"
+                        if int(self._state["completed_steps"]) > 0
+                        else None
+                    ),
+                    "parity": self._state["last_checkpoint_metrics"],
+                },
+                "evaluations": [dict(entry) for entry in self._state["evaluations"]],
+                "evaluation_gate": self.evaluation_gate(),
+                "contributors": {
+                    "active_count": len(contributor_totals),
+                    "anonymous_count": anonymous_count,
+                    "acknowledgements": acknowledgements,
+                },
+                "public_ledger": public_ledger,
+            }
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -386,6 +590,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lease-seconds", type=int, default=120)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--public-origin")
     return parser
 
 
@@ -425,6 +630,7 @@ def main() -> None:
         args.browser_root,
         host=args.host,
         port=args.port,
+        public_origin=args.public_origin,
     )
     print(
         json.dumps(

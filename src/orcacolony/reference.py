@@ -254,6 +254,24 @@ def validate_dataset_artifacts(
         evaluation_batch_size = int(campaign.evaluation["batch_size"])
         if validation_sequences <= 0 or evaluation_batch_size <= 0:
             raise ValueError("evaluation dimensions must be positive")
+        if evaluation_batch_size > validation_sequences:
+            raise ValueError("evaluation batch size exceeds validation sequence count")
+        success_gate = campaign.evaluation.get("success_gate")
+        if success_gate is not None:
+            if not isinstance(success_gate, Mapping):
+                raise ValueError("evaluation success gate must be a mapping")
+            if success_gate.get("metric") != "mean_loss":
+                raise ValueError("unsupported evaluation success-gate metric")
+            minimum_value = success_gate.get(
+                "minimum_improvement_from_initialization"
+            )
+            if isinstance(minimum_value, bool) or not isinstance(
+                minimum_value, (int, float)
+            ):
+                raise ValueError("evaluation success-gate improvement must be numeric")
+            minimum_improvement = float(minimum_value)
+            if not math.isfinite(minimum_improvement) or minimum_improvement <= 0:
+                raise ValueError("evaluation success-gate improvement must be positive")
         if validation_sequences > dataset.validation_inputs.shape[0]:
             raise ValueError(
                 "campaign evaluation exceeds the packed validation dataset"

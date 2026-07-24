@@ -1,6 +1,6 @@
 # OrcaColony
 
-OrcaColony is a volunteer-compute framework for training one small open model at a time. The Milestone 0 through early Milestone 3 reference, browser, connected-worker, multi-worker, checkpoint-continuation, trusted-participant, and attribution proofs described in [SPEC.md](SPEC.md) are runnable.
+OrcaColony is a volunteer-compute framework for training one small open model at a time. The Milestone 0 through Milestone 3 reference, browser, multi-worker, persistent campaign, trusted-participant, live dashboard, evaluation, and publication paths described in [SPEC.md](SPEC.md) are runnable. A bounded local T1 preflight now exercises the Milestone 4 system profile through 12 real-data optimizer steps; the planned remote trusted-participant campaign remains an operator deployment milestone.
 
 ## Development
 
@@ -78,6 +78,8 @@ uv run python -m orcacolony.campaign_run \
 
 Open `http://localhost:8000/?cpu-loop=browser-a#token=local-browser-a` to keep one CPU/WASM worker requesting assignments until the target is complete; use `?loop=<worker-id>` for the automatic WebGPU path. The verified continuous browser processed both shards across two rounds without reloads, produced `checkpoints/step-00000001` and `checkpoints/step-00000002`, retained four attribution-ledger entries, survived a coordinator restart, and finished step 2 with cosine similarity `0.9999999999999722` and relative L2 error `2.3485458071128626e-7` against the resumed Python reference.
 
+The worker page also shows live optimizer-step and accepted-token progress, frozen model and dataset provenance, checkpoint evaluation history, opt-in contributor acknowledgements, and a privacy-filtered public work ledger. It polls `/api/v1/dashboard` without a worker credential. For a frontend hosted on a separate static origin, build the release site with an operator-pinned coordinator URL and pass that static site's exact origin as `--public-origin` to the coordinator. Remote worker execution refuses a coordinator supplied only through a mutable query parameter. Keep participant manifests and credentials off the static host; credentials remain in URL fragments and are sent only in worker API headers.
+
 `campaign/t0-local-participants.json` contains development-only worker identities. Replace it with an owner-approved manifest before exposing a coordinator to another participant; unknown workers remain denied by default.
 
 ## T1 scale proof
@@ -124,4 +126,32 @@ The verified continuous CPU/WASM run consumed decoded TinyStories sequences rath
 
 The frozen held-out profile evaluates the initialization checkpoint and every completed checkpoint on the first 16 packed validation sequences. In the verified run, held-out mean cross-entropy moved from `9.041835904121399` at initialization to `8.723058700561523` after step 1 and `8.514237880706787` after step 2. Results and checkpoint hashes are persisted in `evaluations.json`, and the campaign survives restart without duplicating evaluations.
 
-This remains a two-step correctness smoke, not the multi-day Milestone 4 training run.
+Export a completed campaign as a deterministic, privacy-filtered release directory:
+
+```bash
+uv run python -m orcacolony.release \
+  --config campaign/t1-tinystories-smoke.json \
+  --participants campaign/t1-tinystories-local-participants.json \
+  --dataset-artifacts .artifacts/tinystories-t1-v2 \
+  --campaign-state .artifacts/t1-tinystories-campaign \
+  --browser-root spikes/burn-browser-gradient/www \
+  --public-coordinator-url https://coordinator.example \
+  --output .artifacts/t1-tinystories-release
+```
+
+The bundle selects the checkpoint with the lowest frozen held-out loss and includes its model, optimizer and restart metadata; exact packed data and tokenizer; evaluation records; a public dashboard snapshot and privacy-filtered contribution ledger; the fixture-free static browser site; a canonical release manifest; and `SHA256SUMS`. Participant manifests and credentials are deliberately excluded.
+
+## Bounded T1 system proof
+
+`campaign/t1-tinystories-system-proof.json` extends the same frozen T1 campaign profile to 12 optimizer steps and declares a pre-run success gate requiring held-out mean-loss improvement of at least `0.5` from initialization. A completed local run used two concurrently active, separately attributed CPU/WASM browser identities and produced:
+
+- 12 canonical optimizer steps from 24 accepted browser assignments and 6,144 accepted tokens;
+- balanced public acknowledgements of 12 assignments and 3,072 tokens for each browser identity;
+- 13 immutable evaluations covering initialization and steps 1 through 12;
+- held-out mean loss `9.041835904121399 → 7.640471279621124`, an improvement of `1.4013646245002747`, passing the declared gate;
+- a final 6,901,760-value checkpoint with relative L2 error `4.431320086521597e-9`, maximum absolute error `2.679882982192794e-8`, and cosine similarity `1.0` against the resumed centralized reference; and
+- a successful completed-campaign restart plus a deterministic public release bundle whose complete `SHA256SUMS` verified.
+
+The exported site was also served from a separate static origin with a pinned campaign and coordinator origin; a real CPU/WASM browser completed a cross-origin assignment/result cycle through exact-origin CORS. Remote non-loopback origins require HTTPS.
+
+This is the bounded local preflight for Milestone 4. The planned several-day campaign with distinct remote, owner-approved participants still requires an operator-selected HTTPS deployment and those participant approvals.

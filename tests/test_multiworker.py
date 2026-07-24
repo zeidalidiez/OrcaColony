@@ -12,6 +12,7 @@ from orcacolony.multiworker import (
     GlobalStepCoordinator,
     LeasedGradient,
     create_http_server,
+    normalize_http_origin,
 )
 from orcacolony.participants import ParticipantRegistry
 from orcacolony.reference import load_campaign
@@ -166,13 +167,34 @@ def test_http_leases_two_workers_and_closes_the_global_step(tmp_path: Path) -> N
     browser_root = tmp_path / "browser"
     browser_root.mkdir()
     (browser_root / "index.html").write_text("OrcaColony", encoding="utf-8")
-    server = create_http_server(coordinator, browser_root, port=0)
+    public_origin = "https://workers.example"
+    server = create_http_server(
+        coordinator,
+        browser_root,
+        port=0,
+        public_origin=public_origin,
+    )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base_url = f"http://127.0.0.1:{server.server_port}"
 
     receipts = []
     try:
+        preflight = Request(
+            f"{base_url}/api/v1/assignment",
+            method="OPTIONS",
+            headers={
+                "Origin": public_origin,
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "X-Orca-Worker-Token",
+            },
+        )
+        with urlopen(preflight) as response:
+            assert response.status == 204
+            assert response.headers["Access-Control-Allow-Origin"] == public_origin
+            assert "X-Orca-Worker-Token" in response.headers[
+                "Access-Control-Allow-Headers"
+            ]
         for worker_id in ("browser-a", "browser-b"):
             query = urlencode({"worker_id": worker_id})
             assignment_request = Request(
@@ -208,6 +230,27 @@ def test_http_leases_two_workers_and_closes_the_global_step(tmp_path: Path) -> N
     assert receipts[0]["step_complete"] is False
     assert receipts[1]["step_complete"] is True
     assert status["state"] == "step_complete"
+    assert "browser-a" not in json.dumps(status, sort_keys=True)
+    assert "browser-b" not in json.dumps(status, sort_keys=True)
+
+
+def test_public_origin_is_canonical_and_rejects_credentials() -> None:
+    assert normalize_http_origin("https://Workers.Example:443/") == "https://workers.example"
+    assert normalize_http_origin("http://[::1]:8000") == "http://[::1]:8000"
+    with pytest.raises(ValueError, match="without a path"):
+        normalize_http_origin("https://user:password@workers.example")
+    with pytest.raises(ValueError, match="HTTPS except on loopback"):
+        normalize_http_origin("http://workers.example")
+    with pytest.raises(ValueError, match="invalid characters"):
+        normalize_http_origin('https://workers.example" onload="alert(1)')
+    with pytest.raises(ValueError, match="hostname is invalid"):
+        normalize_http_origin("https://workers.example%22x")
+    with pytest.raises(ValueError, match="hostname is invalid"):
+        normalize_http_origin("https://[fe80::1%25eth0]")
+    with pytest.raises(ValueError, match="invalid characters"):
+        normalize_http_origin("https://workers.example\nevil")
+    with pytest.raises(ValueError, match="hostname is invalid"):
+        normalize_http_origin("https://127.1")
 
 
 def test_next_global_step_resumes_model_optimizer_and_dataset_cursor(

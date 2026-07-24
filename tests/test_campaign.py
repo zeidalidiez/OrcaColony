@@ -70,6 +70,7 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
             "dataset": "test/campaign-stories",
             "revision": "test-revision",
             "license": "cdla-sharing-1.0",
+            "internal_note": "must-not-be-public",
         },
         vocab_size=300,
         context_length=campaign.model.context_length,
@@ -84,7 +85,14 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
             "train_sha256": manifest["files"]["train.safetensors"],
             "validation_sha256": manifest["files"]["validation.safetensors"],
         },
-        evaluation={"validation_sequences": 4, "batch_size": 2},
+        evaluation={
+            "validation_sequences": 4,
+            "batch_size": 2,
+            "success_gate": {
+                "metric": "mean_loss",
+                "minimum_improvement_from_initialization": 100.0,
+            },
+        },
     )
     participants = participants_for(campaign.campaign["id"])
     state_dir = tmp_path / "campaign"
@@ -109,12 +117,17 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
                 submission_for(coordinator, assignment),
                 now=expected_step * 100 + 1,
             )
+            if expected_step == 1 and worker_id == "worker-a":
+                live_dashboard = coordinator.dashboard()
+                assert live_dashboard["progress"]["accepted_assignments"] == 1
+                assert live_dashboard["public_ledger"][0]["checkpoint_step"] == 1
         assert (state_dir / "checkpoints" / f"step-{expected_step:08d}").is_dir()
 
     status = coordinator.status()
     assert status["state"] == "campaign_complete"
     assert status["completed_steps"] == 2
     assert status["target_steps"] == 2
+    assert status["evaluation_gate"]["state"] == "failed"
     assert status["checkpoint_metrics"]["relative_l2_error"] < 1e-6
 
     ledger = json.loads(
@@ -132,6 +145,24 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
         entry["dataset_revision"] == dataset.revision
         for entry in evaluations["entries"]
     )
+    dashboard = coordinator.dashboard()
+    assert dashboard["progress"]["completed_steps"] == 2
+    assert dashboard["progress"]["accepted_assignments"] == 4
+    assert dashboard["progress"]["accepted_tokens"] == sum(
+        entry["loss_weight_sum"] for entry in ledger["entries"]
+    )
+    assert dashboard["contributors"] == {
+        "active_count": 1,
+        "anonymous_count": 1,
+        "acknowledgements": [],
+    }
+    assert len(dashboard["public_ledger"]) == 4
+    serialized_dashboard = json.dumps(dashboard)
+    assert "campaign-test" not in serialized_dashboard
+    assert "worker-a" not in serialized_dashboard
+    assert "worker-b" not in serialized_dashboard
+    assert dashboard["dataset"]["source"]["dataset"] == "test/campaign-stories"
+    assert "internal_note" not in dashboard["dataset"]["source"]
 
     recovered = CampaignCoordinator.load(
         campaign,
