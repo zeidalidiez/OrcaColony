@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$(cd "$(dirname "$0")/../.." && pwd -W)"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+case "$(uname -s)" in
+  CYGWIN* | MINGW* | MSYS*) root="$(cygpath -m "$root")" ;;
+esac
 spike="$root/spikes/burn-browser-gradient"
 fixture="$root/.artifacts/browser-fixture"
 
