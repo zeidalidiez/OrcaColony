@@ -18,13 +18,17 @@ use js_sys::Uint8Array;
 use safetensors::tensor::{Dtype, TensorView, serialize};
 use wasm_bindgen::prelude::*;
 
-const VOCAB_SIZE: usize = 4096;
-const CONTEXT_LENGTH: usize = 128;
-const N_LAYERS: usize = 4;
-const D_MODEL: usize = 128;
-const N_HEADS: usize = 2;
-const D_FF: usize = 512;
 const LAYER_NORM_EPSILON: f64 = 1.0e-5;
+
+#[derive(Clone, Copy)]
+struct ModelSpec {
+    vocab_size: usize,
+    context_length: usize,
+    d_model: usize,
+    num_heads: usize,
+    num_layers: usize,
+    d_ff: usize,
+}
 
 type BaseBackend = Wgpu<f32, i32>;
 type TrainingBackend = Autodiff<BaseBackend>;
@@ -38,30 +42,30 @@ struct SelfAttention<B: BackendTrait> {
 }
 
 impl<B: BackendTrait> SelfAttention<B> {
-    fn new(device: &B::Device) -> Self {
+    fn new(spec: ModelSpec, device: &B::Device) -> Self {
         Self {
-            qkv: LinearConfig::new(D_MODEL, 3 * D_MODEL).init(device),
-            output: LinearConfig::new(D_MODEL, D_MODEL).init(device),
+            qkv: LinearConfig::new(spec.d_model, 3 * spec.d_model).init(device),
+            output: LinearConfig::new(spec.d_model, spec.d_model).init(device),
         }
     }
 
-    fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
+    fn forward(&self, input: Tensor<B, 3>, spec: ModelSpec) -> Tensor<B, 3> {
         let [batch_size, sequence_length, _] = input.dims();
         let qkv = self.qkv.forward(input);
         let chunks = qkv.chunk(3, 2);
-        let head_dim = D_MODEL / N_HEADS;
+        let head_dim = spec.d_model / spec.num_heads;
 
         let query = chunks[0]
             .clone()
-            .reshape([batch_size, sequence_length, N_HEADS, head_dim])
+            .reshape([batch_size, sequence_length, spec.num_heads, head_dim])
             .swap_dims(1, 2);
         let key = chunks[1]
             .clone()
-            .reshape([batch_size, sequence_length, N_HEADS, head_dim])
+            .reshape([batch_size, sequence_length, spec.num_heads, head_dim])
             .swap_dims(1, 2);
         let value = chunks[2]
             .clone()
-            .reshape([batch_size, sequence_length, N_HEADS, head_dim])
+            .reshape([batch_size, sequence_length, spec.num_heads, head_dim])
             .swap_dims(1, 2);
 
         let context = attention(
@@ -76,7 +80,7 @@ impl<B: BackendTrait> SelfAttention<B> {
             },
         )
         .swap_dims(1, 2)
-        .reshape([batch_size, sequence_length, D_MODEL]);
+        .reshape([batch_size, sequence_length, spec.d_model]);
 
         self.output.forward(context)
     }
@@ -89,10 +93,10 @@ struct Mlp<B: BackendTrait> {
 }
 
 impl<B: BackendTrait> Mlp<B> {
-    fn new(device: &B::Device) -> Self {
+    fn new(spec: ModelSpec, device: &B::Device) -> Self {
         Self {
-            input: LinearConfig::new(D_MODEL, D_FF).init(device),
-            output: LinearConfig::new(D_FF, D_MODEL).init(device),
+            input: LinearConfig::new(spec.d_model, spec.d_ff).init(device),
+            output: LinearConfig::new(spec.d_ff, spec.d_model).init(device),
         }
     }
 
@@ -110,22 +114,25 @@ struct DecoderBlock<B: BackendTrait> {
 }
 
 impl<B: BackendTrait> DecoderBlock<B> {
-    fn new(device: &B::Device) -> Self {
+    fn new(spec: ModelSpec, device: &B::Device) -> Self {
         let norm = || {
-            LayerNormConfig::new(D_MODEL)
+            LayerNormConfig::new(spec.d_model)
                 .with_epsilon(LAYER_NORM_EPSILON)
                 .init(device)
         };
         Self {
             attention_norm: norm(),
-            attention: SelfAttention::new(device),
+            attention: SelfAttention::new(spec, device),
             mlp_norm: norm(),
-            mlp: Mlp::new(device),
+            mlp: Mlp::new(spec, device),
         }
     }
 
-    fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
-        let hidden = input.clone() + self.attention.forward(self.attention_norm.forward(input));
+    fn forward(&self, input: Tensor<B, 3>, spec: ModelSpec) -> Tensor<B, 3> {
+        let hidden = input.clone()
+            + self
+                .attention
+                .forward(self.attention_norm.forward(input), spec);
         hidden.clone() + self.mlp.forward(self.mlp_norm.forward(hidden))
     }
 }
@@ -139,20 +146,23 @@ struct VolunteerDecoder<B: BackendTrait> {
 }
 
 impl<B: BackendTrait> VolunteerDecoder<B> {
-    fn new(device: &B::Device) -> Self {
+    fn new(spec: ModelSpec, device: &B::Device) -> Self {
         Self {
-            token_embedding: EmbeddingConfig::new(VOCAB_SIZE, D_MODEL).init(device),
-            position_embedding: EmbeddingConfig::new(CONTEXT_LENGTH, D_MODEL).init(device),
-            blocks: (0..N_LAYERS).map(|_| DecoderBlock::new(device)).collect(),
-            final_norm: LayerNormConfig::new(D_MODEL)
+            token_embedding: EmbeddingConfig::new(spec.vocab_size, spec.d_model).init(device),
+            position_embedding: EmbeddingConfig::new(spec.context_length, spec.d_model)
+                .init(device),
+            blocks: (0..spec.num_layers)
+                .map(|_| DecoderBlock::new(spec, device))
+                .collect(),
+            final_norm: LayerNormConfig::new(spec.d_model)
                 .with_epsilon(LAYER_NORM_EPSILON)
                 .init(device),
         }
     }
 
-    fn forward(&self, input_ids: Tensor<B, 2, Int>) -> Tensor<B, 3> {
+    fn forward(&self, input_ids: Tensor<B, 2, Int>, spec: ModelSpec) -> Tensor<B, 3> {
         let [batch_size, sequence_length] = input_ids.dims();
-        assert!(sequence_length <= CONTEXT_LENGTH);
+        assert!(sequence_length <= spec.context_length);
 
         let positions = Tensor::<B, 1, Int>::arange(0..sequence_length as i64, &input_ids.device())
             .reshape([1, sequence_length])
@@ -160,13 +170,13 @@ impl<B: BackendTrait> VolunteerDecoder<B> {
         let mut hidden =
             self.token_embedding.forward(input_ids) + self.position_embedding.forward(positions);
         for block in &self.blocks {
-            hidden = block.forward(hidden);
+            hidden = block.forward(hidden, spec);
         }
         let hidden = self.final_norm.forward(hidden);
-        let hidden = hidden.reshape([batch_size * sequence_length, D_MODEL]);
+        let hidden = hidden.reshape([batch_size * sequence_length, spec.d_model]);
         hidden
             .matmul(self.token_embedding.weight.val().transpose())
-            .reshape([batch_size, sequence_length, VOCAB_SIZE])
+            .reshape([batch_size, sequence_length, spec.vocab_size])
     }
 }
 
@@ -433,13 +443,24 @@ async fn run_gradient_with_backend<B>(
     target_ids: Vec<i32>,
     batch_size: usize,
     sequence_length: usize,
+    spec: ModelSpec,
     device: &B::Device,
 ) -> Result<GradientRun, JsValue>
 where
     B: AutodiffBackend<FloatElem = f32, IntElem = i32>,
 {
-    if sequence_length > CONTEXT_LENGTH {
-        return Err(js_error("sequence length exceeds T0 context length"));
+    if spec.vocab_size == 0
+        || spec.context_length == 0
+        || spec.d_model == 0
+        || spec.num_heads == 0
+        || spec.num_layers == 0
+        || spec.d_ff == 0
+        || spec.d_model % spec.num_heads != 0
+    {
+        return Err(js_error("model dimensions are invalid"));
+    }
+    if sequence_length > spec.context_length {
+        return Err(js_error("sequence length exceeds model context length"));
     }
     let loss_weight_sum = batch_size
         .checked_mul(sequence_length)
@@ -450,7 +471,7 @@ where
         ));
     }
 
-    let mut model = VolunteerDecoder::<B>::new(device);
+    let mut model = VolunteerDecoder::<B>::new(spec, device);
     let mut store = SafetensorsStore::from_bytes(Some(model_bytes))
         .with_from_adapter(PyTorchToBurnAdapter)
         .with_key_remapping(r"^blocks\.(\d+)\.mlp\.0\.", "blocks.$1.mlp.input.")
@@ -465,7 +486,9 @@ where
     );
     let targets =
         Tensor::<B, 1, Int>::from_data(TensorData::new(target_ids, [loss_weight_sum]), device);
-    let logits = model.forward(inputs).reshape([loss_weight_sum, VOCAB_SIZE]);
+    let logits = model
+        .forward(inputs, spec)
+        .reshape([loss_weight_sum, spec.vocab_size]);
     let log_probabilities = burn::tensor::activation::log_softmax(logits, 1);
     let selected = log_probabilities.gather(1, targets.reshape([loss_weight_sum, 1]));
     let loss = selected.sum().neg();
@@ -492,6 +515,12 @@ pub async fn run_gradient(
     target_ids: Vec<i32>,
     batch_size: usize,
     sequence_length: usize,
+    vocab_size: usize,
+    context_length: usize,
+    d_model: usize,
+    num_heads: usize,
+    num_layers: usize,
+    d_ff: usize,
 ) -> Result<GradientRun, JsValue> {
     console_error_panic_hook::set_once();
     let device = WgpuDevice::default();
@@ -502,6 +531,14 @@ pub async fn run_gradient(
         target_ids,
         batch_size,
         sequence_length,
+        ModelSpec {
+            vocab_size,
+            context_length,
+            d_model,
+            num_heads,
+            num_layers,
+            d_ff,
+        },
         &device,
     )
     .await
@@ -514,6 +551,12 @@ pub async fn run_gradient_cpu(
     target_ids: Vec<i32>,
     batch_size: usize,
     sequence_length: usize,
+    vocab_size: usize,
+    context_length: usize,
+    d_model: usize,
+    num_heads: usize,
+    num_layers: usize,
+    d_ff: usize,
 ) -> Result<GradientRun, JsValue> {
     console_error_panic_hook::set_once();
     let device = NdArrayDevice::Cpu;
@@ -523,6 +566,14 @@ pub async fn run_gradient_cpu(
         target_ids,
         batch_size,
         sequence_length,
+        ModelSpec {
+            vocab_size,
+            context_length,
+            d_model,
+            num_heads,
+            num_layers,
+            d_ff,
+        },
         &device,
     )
     .await

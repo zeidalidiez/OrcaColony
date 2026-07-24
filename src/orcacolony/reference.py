@@ -467,7 +467,10 @@ def export_fixture(
         str(model_path),
     )
     save_safetensors_file(
-        {"input_ids": inputs, "target_ids": targets},
+        {
+            "input_ids": inputs.detach().clone().contiguous(),
+            "target_ids": targets.detach().clone().contiguous(),
+        },
         str(batch_path),
     )
     gradients = {
@@ -486,6 +489,14 @@ def export_fixture(
         "campaign_id": campaign.campaign["id"],
         "architecture": campaign.model.architecture,
         "architecture_revision": campaign.model.architecture_revision,
+        "model": {
+            "vocab_size": campaign.model.vocabulary_size,
+            "context_length": campaign.model.context_length,
+            "d_model": campaign.model.width,
+            "num_heads": campaign.model.heads,
+            "num_layers": campaign.model.layers,
+            "d_ff": campaign.model.mlp_width,
+        },
         "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
         "objective": campaign.campaign["objective"],
         "loss_mask": campaign.campaign["loss_mask"],

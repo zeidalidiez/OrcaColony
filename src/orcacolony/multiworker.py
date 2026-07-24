@@ -213,6 +213,14 @@ class GlobalStepCoordinator:
             basis = {
                 "campaign_id": campaign.campaign["id"],
                 "checkpoint_sha256": checkpoint_sha256,
+                "model": {
+                    "vocab_size": campaign.model.vocabulary_size,
+                    "context_length": campaign.model.context_length,
+                    "d_model": campaign.model.width,
+                    "num_heads": campaign.model.heads,
+                    "num_layers": campaign.model.layers,
+                    "d_ff": campaign.model.mlp_width,
+                },
                 "global_step": base_step,
                 "data_range": [dataset_cursor + start, dataset_cursor + end],
                 "input_ids": assignment_inputs.reshape(-1).tolist(),
@@ -325,6 +333,16 @@ class GlobalStepCoordinator:
         coordinator = cls(campaign, state_dir, state)
         state_changed = protocol_migrated
         for assignment in coordinator.assignments:
+            if "model" not in assignment:
+                assignment["model"] = {
+                    "vocab_size": campaign.model.vocabulary_size,
+                    "context_length": campaign.model.context_length,
+                    "d_model": campaign.model.width,
+                    "num_heads": campaign.model.heads,
+                    "num_layers": campaign.model.layers,
+                    "d_ff": campaign.model.mlp_width,
+                }
+                state_changed = True
             if "runtime_backend" not in assignment:
                 assignment["runtime_backend"] = (
                     "legacy-unknown" if assignment["state"] == "accepted" else None
@@ -451,6 +469,7 @@ class GlobalStepCoordinator:
             "campaign_id": assignment["campaign_id"],
             "assignment_id": assignment_id,
             "checkpoint_sha256": assignment["checkpoint_sha256"],
+            "model": assignment["model"],
             "global_step": assignment["global_step"],
             "data_range": assignment["data_range"],
             "input_ids": assignment["input_ids"],

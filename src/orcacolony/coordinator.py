@@ -142,6 +142,7 @@ class ConnectedCoordinator:
         assignment_basis = {
             "campaign_id": fixture["campaign_id"],
             "checkpoint_sha256": fixture["files"]["model.safetensors"],
+            "model": fixture["model"],
             "step": 0,
             "input_ids": fixture["input_ids"],
             "input_shape": fixture["input_shape"],

@@ -1,11 +1,19 @@
+import json
 from pathlib import Path
 
 import pytest
+from safetensors.torch import load_file
 
-from orcacolony.reference import compute_fixture, load_campaign, run_training
+from orcacolony.reference import (
+    compute_fixture,
+    export_fixture,
+    load_campaign,
+    run_training,
+)
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
+T1_CONFIG = Path(__file__).parents[1] / "campaign" / "t1-smoke.json"
 
 
 def test_t0_fixture_has_exact_model_identity_and_deterministic_gradient() -> None:
@@ -42,3 +50,23 @@ def test_checkpoint_resume_matches_an_uninterrupted_training_run(tmp_path: Path)
     assert (split_dir / "model.safetensors").is_file()
     assert (split_dir / "optimizer.safetensors").is_file()
     assert (split_dir / "state.json").is_file()
+
+
+def test_t1_fixture_exports_the_dynamic_browser_model_contract(tmp_path: Path) -> None:
+    campaign = load_campaign(T1_CONFIG)
+    fixture = export_fixture(campaign, tmp_path / "t1-fixture")
+    manifest = json.loads(
+        (fixture.output_dir / "fixture.json").read_text(encoding="utf-8")
+    )
+    gradients = load_file(str(fixture.output_dir / "gradients.safetensors"))
+
+    assert manifest["model"] == {
+        "vocab_size": 8192,
+        "context_length": 256,
+        "d_model": 256,
+        "num_heads": 4,
+        "num_layers": 6,
+        "d_ff": 1024,
+    }
+    assert manifest["parameter_count"] == 6_901_760
+    assert sum(tensor.numel() for tensor in gradients.values()) == 6_901_760

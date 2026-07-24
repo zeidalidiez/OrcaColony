@@ -52,3 +52,7 @@ The same client also completes the M2 two-worker proof through `python -m orcaco
 Passing `--resume-from <previous-state>/checkpoint` continues the canonical model, AdamW state, step number, dataset cursor, and loss history. A verified second browser round used ranges `[4, 6]` and `[6, 8]` and matched the resumed Python step with relative L2 error `2.185048989144713e-7`.
 
 `python -m orcacolony.campaign_run` promotes and versions completed checkpoints and opens subsequent rounds automatically. `?loop=<worker-id>` keeps a WebGPU worker active for the whole campaign; `?cpu-loop=<worker-id>` does the same with CPU/WASM. A verified continuous CPU/WASM worker completed four assignments across two rounds without page reloads, produced step-1 and step-2 checkpoint directories plus one campaign ledger, and matched the final Python checkpoint with relative L2 error `2.3485458071128626e-7`.
+
+## Dynamic T1 scale proof
+
+The worker model dimensions now come from the exact assignment rather than compile-time T0 constants. With `campaign/t1-smoke.json`, the unchanged WASM module loaded a 6,901,760-parameter, 6-layer, width-256 model and exported all 76 gradient tensors. CPU/WASM reached relative L2 error `6.297321030850067e-7` in `2.285 s`; WebGPU reached `1.4272976248000147e-6` in `9.466 s`. A subsequent two-step connected T1 campaign finished with checkpoint relative L2 error `2.9341757103884218e-8`.

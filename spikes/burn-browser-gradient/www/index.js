@@ -144,6 +144,16 @@ async function run() {
       init(),
     ]);
     const [batchSize, sequenceLength] = manifest.input_shape;
+    const modelSpec =
+      manifest.model ??
+      {
+        vocab_size: 4096,
+        context_length: 128,
+        d_model: 128,
+        num_heads: 2,
+        num_layers: 4,
+        d_ff: 512,
+      };
     show(`Running Burn forward/backward and reading all gradients from ${requestedBackend}…`);
     const runGradient = requestedBackend === "cpu" ? run_gradient_cpu : run_gradient;
     const result = await runGradient(
@@ -152,6 +162,12 @@ async function run() {
       Int32Array.from(manifest.target_ids),
       batchSize,
       sequenceLength,
+      modelSpec.vocab_size,
+      modelSpec.context_length,
+      modelSpec.d_model,
+      modelSpec.num_heads,
+      modelSpec.num_layers,
+      modelSpec.d_ff,
     );
     const actualGradientBytes = result.gradients();
     const gradientMetrics = compareGradients(expectedGradients, actualGradientBytes.buffer);
@@ -167,6 +183,7 @@ async function run() {
       worker_id: workerId,
       batch_shape: manifest.input_shape,
       model_parameter_count: manifest.parameter_count,
+      model: modelSpec,
       expected_loss_sum: expectedLossSum,
       browser_loss_sum: result.loss_sum,
       loss_weight_sum: result.loss_weight_sum,

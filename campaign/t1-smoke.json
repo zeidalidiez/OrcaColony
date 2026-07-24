@@ -1,0 +1,39 @@
+{
+  "campaign": {
+    "id": "orcacolony-t1-smoke-v1",
+    "objective": "causal_lm",
+    "loss_mask": "all_target_tokens"
+  },
+  "model": {
+    "architecture": "volunteer_decoder_v1",
+    "architecture_revision": 1,
+    "layers": 6,
+    "width": 256,
+    "heads": 4,
+    "mlp_width": 1024,
+    "vocabulary_size": 8192,
+    "context_length": 256,
+    "positional_encoding": "learned_absolute",
+    "layer_norm_epsilon": 0.00001,
+    "gelu_approximation": "tanh",
+    "attention_bias": true,
+    "linear_bias": true,
+    "tied_token_embeddings": true,
+    "parameters": 6901760
+  },
+  "training": {
+    "seed": 20260724,
+    "batch_size": 2,
+    "dataset_sequences": 16,
+    "active_vocabulary_size": 64,
+    "steps": 2,
+    "learning_rate": 0.0003,
+    "adam_beta1": 0.9,
+    "adam_beta2": 0.95,
+    "adam_epsilon": 1e-8,
+    "weight_decay": 0.01,
+    "max_gradient_norm": 1.0,
+    "compute_dtype": "float32",
+    "gradient_accumulation_dtype": "float32"
+  }
+}

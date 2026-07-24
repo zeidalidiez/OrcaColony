@@ -6,11 +6,12 @@ case "$(uname -s)" in
   CYGWIN* | MINGW* | MSYS*) root="$(cygpath -m "$root")" ;;
 esac
 spike="$root/spikes/burn-browser-gradient"
-fixture="$root/.artifacts/browser-fixture"
+config="${ORCACOLONY_CONFIG:-$root/campaign/t0-smoke.json}"
+fixture="${ORCACOLONY_FIXTURE_DIR:-$root/.artifacts/browser-fixture}"
 
 cd "$root"
 uv run python -m orcacolony.reference fixture \
-  --config campaign/t0-smoke.json \
+  --config "$config" \
   --output "$fixture"
 
 wasm-pack build "$spike" \
