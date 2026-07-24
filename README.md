@@ -62,4 +62,20 @@ uv run python -m orcacolony.multiworker \
 
 The verified two-step browser run advanced the checkpoint to step 2 and dataset cursor 8 while preserving AdamW state. Its step-2 model reached cosine similarity `0.999999999999976` and relative L2 error `2.185048989144713e-7` against the resumed Python reference.
 
+## Persistent multi-step campaign
+
+The campaign runner automatically promotes each completed global step, versions its checkpoint, opens the next round with the preserved optimizer and dataset cursor, and rebuilds a campaign-wide accepted-work ledger:
+
+```bash
+uv run python -m orcacolony.campaign_run \
+  --config campaign/t0-smoke.json \
+  --participants campaign/t0-local-participants.json \
+  --state .artifacts/campaign \
+  --browser-root spikes/burn-browser-gradient/www \
+  --workers 2 \
+  --target-steps 2
+```
+
+Run both worker URLs once per round. The verified two-round CPU/WASM campaign produced `checkpoints/step-00000001` and `checkpoints/step-00000002`, retained four attribution-ledger entries, survived a coordinator restart, and finished step 2 with cosine similarity `0.9999999999999722` and relative L2 error `2.3485458071128626e-7` against the resumed Python reference.
+
 `campaign/t0-local-participants.json` contains development-only worker identities. Replace it with an owner-approved manifest before exposing a coordinator to another participant; unknown workers remain denied by default.

@@ -50,3 +50,5 @@ The verified browser round trip accepted all 52 tensors and produced a step-1 ch
 The same client also completes the M2 two-worker proof through `python -m orcacolony.multiworker`. Two browser workers processed disjoint ranges `[0, 2]` and `[2, 4]`; their centrally aggregated checkpoint reached cosine similarity `0.9999999999820688` and relative L2 error `5.988475132799176e-6` against the full-batch Python step.
 
 Passing `--resume-from <previous-state>/checkpoint` continues the canonical model, AdamW state, step number, dataset cursor, and loss history. A verified second browser round used ranges `[4, 6]` and `[6, 8]` and matched the resumed Python step with relative L2 error `2.185048989144713e-7`.
+
+`python -m orcacolony.campaign_run` promotes and versions completed checkpoints and opens subsequent rounds automatically. A verified two-round CPU/WASM campaign completed four browser assignments, produced step-1 and step-2 checkpoint directories plus one campaign ledger, and matched the final Python checkpoint with relative L2 error `2.3485458071128626e-7`.
