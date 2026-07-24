@@ -1,4 +1,7 @@
-import init, { run_gradient } from "./pkg/orcacolony_burn_browser_gradient.js";
+import init, {
+  run_gradient,
+  run_gradient_cpu,
+} from "./pkg/orcacolony_burn_browser_gradient.js";
 
 const button = document.querySelector("#run");
 const output = document.querySelector("#output");
@@ -95,12 +98,22 @@ function compareGradients(expectedBuffer, actualBuffer) {
 
 async function run() {
   button.disabled = true;
-  const workerId = pageParams.get("worker");
+  const cpuWorkerId = pageParams.get("cpu");
+  const workerId = pageParams.get("worker") ?? cpuWorkerId;
   const workerToken = fragmentParams.get("token");
   const connected = pageParams.has("connected") || workerId !== null;
+  const requestedBackend =
+    (cpuWorkerId ? "cpu" : pageParams.get("backend")) ??
+    fragmentParams.get("backend") ??
+    (navigator.gpu ? "webgpu" : "cpu");
+  if (!new Set(["cpu", "webgpu"]).has(requestedBackend)) {
+    throw new Error(`unsupported backend: ${requestedBackend}`);
+  }
   show(connected ? "Loading the coordinator assignment…" : "Loading WASM and the M0 fixture…");
   try {
-    if (!navigator.gpu) throw new Error("WebGPU is unavailable in this browser");
+    if (requestedBackend === "webgpu" && !navigator.gpu) {
+      throw new Error("WebGPU is unavailable in this browser");
+    }
     const started = performance.now();
     const assignmentUrl = workerId
       ? `/api/v1/assignment?worker_id=${encodeURIComponent(workerId)}`
@@ -122,8 +135,9 @@ async function run() {
       init(),
     ]);
     const [batchSize, sequenceLength] = manifest.input_shape;
-    show("Running Burn forward/backward and reading all gradients from WebGPU…");
-    const result = await run_gradient(
+    show(`Running Burn forward/backward and reading all gradients from ${requestedBackend}…`);
+    const runGradient = requestedBackend === "cpu" ? run_gradient_cpu : run_gradient;
+    const result = await runGradient(
       new Uint8Array(model),
       Int32Array.from(manifest.input_ids),
       Int32Array.from(manifest.target_ids),
@@ -136,7 +150,10 @@ async function run() {
     const lossAbsoluteError = Math.abs(result.loss_sum - expectedLossSum);
     const lossRelativeError = lossAbsoluteError / Math.abs(expectedLossSum);
     const summary = {
-      backend: "Burn 0.21 Autodiff<Wgpu<f32, i32>>",
+      backend:
+        requestedBackend === "cpu"
+          ? "Burn 0.21 Autodiff<NdArray<f32, i32>>"
+          : "Burn 0.21 Autodiff<Wgpu<f32, i32>>",
       mode: connected ? "connected-worker" : "local-parity",
       worker_id: workerId,
       batch_shape: manifest.input_shape,
@@ -160,6 +177,8 @@ async function run() {
         "X-Orca-Checkpoint-Sha256": manifest.checkpoint_sha256,
         "X-Orca-Loss-Sum": String(result.loss_sum),
         "X-Orca-Loss-Weight-Sum": String(result.loss_weight_sum),
+        "X-Orca-Runtime-Backend":
+          requestedBackend === "cpu" ? "burn-ndarray-f32" : "burn-webgpu-f32",
       };
       if (manifest.lease_token) headers["X-Orca-Lease-Token"] = manifest.lease_token;
       const response = await fetch(manifest.result_url, {
@@ -188,4 +207,9 @@ async function run() {
 }
 
 button.addEventListener("click", run);
-if (pageParams.has("autorun") || pageParams.has("connected") || pageParams.has("worker")) run();
+if (
+  pageParams.has("autorun") ||
+  pageParams.has("connected") ||
+  pageParams.has("worker") ||
+  pageParams.has("cpu")
+) run();

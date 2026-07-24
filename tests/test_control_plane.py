@@ -25,6 +25,7 @@ def submission_for(
         safetensors=coordinator.oracle_gradient_path(
             str(assignment["assignment_id"])
         ).read_bytes(),
+        runtime_backend="python-oracle-f32",
     )
 
 
@@ -93,6 +94,10 @@ def test_allowlist_is_default_deny_and_accepted_work_keeps_credit_private(
     assert ledger["entries"][0]["public_credit"] == {
         "display_name": "Local Owner"
     }
+    assert all(
+        entry["runtime_backend"] == "python-oracle-f32"
+        for entry in ledger["entries"]
+    )
     assert ledger["entries"][1]["public_credit"] is None
     assert ledger["entries"][1]["contributor_id"] == "trusted-private"
     assert GlobalStepCoordinator.load(

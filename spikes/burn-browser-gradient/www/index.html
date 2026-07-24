@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OrcaColony Burn WebGPU gradient spike</title>
+  <title>OrcaColony Burn browser gradient worker</title>
   <style>
     :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
     body { max-width: 900px; margin: 3rem auto; padding: 0 1.25rem; background: #0b1220; color: #dbeafe; }
@@ -15,10 +15,10 @@
   </style>
 </head>
 <body>
-  <h1>OrcaColony Burn/WebGPU gradient spike</h1>
-  <p>Loads the exact M0 T0 checkpoint and batch, runs summed causal-LM backward in browser WebGPU, exports every FP32 gradient, and compares it with the Python oracle.</p>
+  <h1>OrcaColony Burn browser gradient worker</h1>
+  <p>Loads the exact T0 checkpoint and batch, runs summed causal-LM backward with Burn WebGPU or CPU/WASM, exports every FP32 gradient, and compares it with the Python oracle.</p>
   <button id="run">Run T0 backward pass</button>
-  <p class="note">The first run compiles WebGPU kernels and can take a while.</p>
+  <p class="note">WebGPU is the default when available; add <code>?backend=cpu</code> to force the CPU/WASM path.</p>
   <pre id="output">Ready.</pre>
   <script type="module" src="./index.js"></script>
 </body>

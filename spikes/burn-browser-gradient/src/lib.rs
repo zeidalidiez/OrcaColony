@@ -1,6 +1,7 @@
 use burn::{
     backend::{
         Autodiff,
+        ndarray::{NdArray, NdArrayDevice},
         wgpu::{Wgpu, WgpuDevice, graphics::AutoGraphicsApi, init_setup_async},
     },
     module::{Module, Param},
@@ -27,7 +28,8 @@ const LAYER_NORM_EPSILON: f64 = 1.0e-5;
 
 type BaseBackend = Wgpu<f32, i32>;
 type TrainingBackend = Autodiff<BaseBackend>;
-type Gradients = <TrainingBackend as AutodiffBackend>::Gradients;
+type CpuBaseBackend = NdArray<f32, i32>;
+type CpuTrainingBackend = Autodiff<CpuBaseBackend>;
 
 #[derive(Module, Debug)]
 struct SelfAttention<B: BackendTrait> {
@@ -180,12 +182,15 @@ struct OwnedTensor {
     bytes: Vec<u8>,
 }
 
-async fn push_1d(
+async fn push_1d<B>(
     tensors: &mut Vec<OwnedTensor>,
     name: String,
-    parameter: &Param<Tensor<TrainingBackend, 1>>,
-    grads: &mut Gradients,
-) -> Result<(), JsValue> {
+    parameter: &Param<Tensor<B, 1>>,
+    grads: &mut B::Gradients,
+) -> Result<(), JsValue>
+where
+    B: AutodiffBackend<FloatElem = f32, IntElem = i32>,
+{
     let gradient = parameter
         .val()
         .grad_remove(grads)
@@ -206,13 +211,16 @@ async fn push_1d(
     Ok(())
 }
 
-async fn push_2d(
+async fn push_2d<B>(
     tensors: &mut Vec<OwnedTensor>,
     name: String,
-    parameter: &Param<Tensor<TrainingBackend, 2>>,
-    grads: &mut Gradients,
+    parameter: &Param<Tensor<B, 2>>,
+    grads: &mut B::Gradients,
     transpose_to_pytorch: bool,
-) -> Result<(), JsValue> {
+) -> Result<(), JsValue>
+where
+    B: AutodiffBackend<FloatElem = f32, IntElem = i32>,
+{
     let gradient = parameter
         .val()
         .grad_remove(grads)
@@ -238,10 +246,13 @@ async fn push_2d(
     Ok(())
 }
 
-async fn collect_gradients(
-    model: &VolunteerDecoder<TrainingBackend>,
-    grads: &mut Gradients,
-) -> Result<Vec<OwnedTensor>, JsValue> {
+async fn collect_gradients<B>(
+    model: &VolunteerDecoder<B>,
+    grads: &mut B::Gradients,
+) -> Result<Vec<OwnedTensor>, JsValue>
+where
+    B: AutodiffBackend<FloatElem = f32, IntElem = i32>,
+{
     let mut tensors = Vec::new();
     push_2d(
         &mut tensors,
@@ -416,15 +427,17 @@ impl GradientRun {
     }
 }
 
-#[wasm_bindgen]
-pub async fn run_gradient(
+async fn run_gradient_with_backend<B>(
     model_bytes: Vec<u8>,
     input_ids: Vec<i32>,
     target_ids: Vec<i32>,
     batch_size: usize,
     sequence_length: usize,
-) -> Result<GradientRun, JsValue> {
-    console_error_panic_hook::set_once();
+    device: &B::Device,
+) -> Result<GradientRun, JsValue>
+where
+    B: AutodiffBackend<FloatElem = f32, IntElem = i32>,
+{
     if sequence_length > CONTEXT_LENGTH {
         return Err(js_error("sequence length exceeds T0 context length"));
     }
@@ -437,10 +450,7 @@ pub async fn run_gradient(
         ));
     }
 
-    let device = WgpuDevice::default();
-    init_setup_async::<AutoGraphicsApi>(&device, Default::default()).await;
-
-    let mut model = VolunteerDecoder::<TrainingBackend>::new(&device);
+    let mut model = VolunteerDecoder::<B>::new(device);
     let mut store = SafetensorsStore::from_bytes(Some(model_bytes))
         .with_from_adapter(PyTorchToBurnAdapter)
         .with_key_remapping(r"^blocks\.(\d+)\.mlp\.0\.", "blocks.$1.mlp.input.")
@@ -449,14 +459,12 @@ pub async fn run_gradient(
         .load_from(&mut store)
         .map_err(|error| js_error(format!("checkpoint load failed: {error}")))?;
 
-    let inputs = Tensor::<TrainingBackend, 2, Int>::from_data(
+    let inputs = Tensor::<B, 2, Int>::from_data(
         TensorData::new(input_ids, [batch_size, sequence_length]),
-        &device,
+        device,
     );
-    let targets = Tensor::<TrainingBackend, 1, Int>::from_data(
-        TensorData::new(target_ids, [loss_weight_sum]),
-        &device,
-    );
+    let targets =
+        Tensor::<B, 1, Int>::from_data(TensorData::new(target_ids, [loss_weight_sum]), device);
     let logits = model.forward(inputs).reshape([loss_weight_sum, VOCAB_SIZE]);
     let log_probabilities = burn::tensor::activation::log_softmax(logits, 1);
     let selected = log_probabilities.gather(1, targets.reshape([loss_weight_sum, 1]));
@@ -475,4 +483,47 @@ pub async fn run_gradient(
         loss_weight_sum: loss_weight_sum as u32,
         gradient_bytes,
     })
+}
+
+#[wasm_bindgen]
+pub async fn run_gradient(
+    model_bytes: Vec<u8>,
+    input_ids: Vec<i32>,
+    target_ids: Vec<i32>,
+    batch_size: usize,
+    sequence_length: usize,
+) -> Result<GradientRun, JsValue> {
+    console_error_panic_hook::set_once();
+    let device = WgpuDevice::default();
+    init_setup_async::<AutoGraphicsApi>(&device, Default::default()).await;
+    run_gradient_with_backend::<TrainingBackend>(
+        model_bytes,
+        input_ids,
+        target_ids,
+        batch_size,
+        sequence_length,
+        &device,
+    )
+    .await
+}
+
+#[wasm_bindgen]
+pub async fn run_gradient_cpu(
+    model_bytes: Vec<u8>,
+    input_ids: Vec<i32>,
+    target_ids: Vec<i32>,
+    batch_size: usize,
+    sequence_length: usize,
+) -> Result<GradientRun, JsValue> {
+    console_error_panic_hook::set_once();
+    let device = NdArrayDevice::Cpu;
+    run_gradient_with_backend::<CpuTrainingBackend>(
+        model_bytes,
+        input_ids,
+        target_ids,
+        batch_size,
+        sequence_length,
+        &device,
+    )
+    .await
 }

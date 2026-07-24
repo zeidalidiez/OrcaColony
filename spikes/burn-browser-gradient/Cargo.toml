@@ -8,7 +8,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-burn = { version = "0.21.0", default-features = false, features = ["std", "autodiff", "webgpu"] }
+burn = { version = "0.21.0", default-features = false, features = ["std", "autodiff", "ndarray", "webgpu"] }
 burn-store = { version = "0.21.0", default-features = false, features = ["std", "safetensors"] }
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.4", features = ["wasm_js"] }

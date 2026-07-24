@@ -45,6 +45,12 @@ class LeasedGradient:
     loss_sum: float
     loss_weight_sum: int
     safetensors: bytes
+    runtime_backend: str
+
+
+RUNTIME_BACKENDS = frozenset(
+    {"burn-ndarray-f32", "burn-webgpu-f32", "python-oracle-f32"}
+)
 
 
 @dataclass(frozen=True)
@@ -238,6 +244,7 @@ class GlobalStepCoordinator:
                     "lease_expires_at": None,
                     "result_file": None,
                     "accepted_loss_sum": None,
+                    "runtime_backend": None,
                     "gradient_metrics": None,
                 }
             )
@@ -257,6 +264,7 @@ class GlobalStepCoordinator:
             "dataset_cursor": dataset_cursor,
             "loss_history": loss_history,
             "has_base_checkpoint": resume_from is not None,
+            "result_protocol_revision": 2,
             "assignments": assignments,
             "model_sha256": None,
             "checkpoint_metrics": None,
@@ -306,11 +314,26 @@ class GlobalStepCoordinator:
             raise ValueError("participant revision mismatch")
         if state.get("campaign_revision") != campaign_revision:
             raise ValueError("campaign revision mismatch")
+        protocol_migrated = (
+            "result_protocol_revision" not in state
+            and state["state"] != "step_complete"
+        )
+        if protocol_migrated:
+            state["result_protocol_revision"] = 2
         if _sha256_file(state_dir / "model.safetensors") != state["checkpoint_sha256"]:
             raise ValueError("global-step checkpoint digest mismatch")
         coordinator = cls(campaign, state_dir, state)
+        state_changed = protocol_migrated
+        for assignment in coordinator.assignments:
+            if "runtime_backend" not in assignment:
+                assignment["runtime_backend"] = (
+                    "legacy-unknown" if assignment["state"] == "accepted" else None
+                )
+                state_changed = True
+        if state_changed:
+            coordinator._write_state()
         lock_path = state_dir / "campaign-lock.json"
-        if migrated:
+        if migrated or protocol_migrated:
             coordinator._write_campaign_lock()
         elif not lock_path.exists() or json.loads(lock_path.read_text(encoding="utf-8")) != coordinator._campaign_lock_payload():
             raise ValueError("campaign lock mismatch")
@@ -354,7 +377,9 @@ class GlobalStepCoordinator:
             "checkpoint_sha256": self._state["checkpoint_sha256"],
             "global_step": self._state["base_step"],
             "assignment_protocol_revision": 1,
-            "result_protocol_revision": 1,
+            "result_protocol_revision": self._state.get(
+                "result_protocol_revision", 1
+            ),
         }
 
     def _write_campaign_lock(self) -> None:
@@ -393,6 +418,7 @@ class GlobalStepCoordinator:
                     "public_credit": public_credit,
                     "loss_sum": assignment["accepted_loss_sum"],
                     "loss_weight_sum": assignment["loss_weight_sum"],
+                    "runtime_backend": assignment["runtime_backend"],
                 }
             )
         _atomic_json(
@@ -440,6 +466,10 @@ class GlobalStepCoordinator:
             "model_url": "/api/v1/artifacts/model.safetensors",
             "oracle_gradient_url": f"/api/v1/oracle/{assignment_id}.safetensors",
             "result_url": f"/api/v1/results/{assignment_id}",
+            "result_protocol_revision": self._state.get(
+                "result_protocol_revision", 1
+            ),
+            "runtime_backends": sorted(RUNTIME_BACKENDS),
         }
 
     def lease(
@@ -523,6 +553,8 @@ class GlobalStepCoordinator:
                 raise ValueError("loss weight does not match assignment")
             if not math.isfinite(submission.loss_sum):
                 raise ValueError("loss sum must be finite")
+            if submission.runtime_backend not in RUNTIME_BACKENDS:
+                raise ValueError("runtime backend is not supported")
             expected_loss = float(assignment["expected_loss_sum"])
             if abs(submission.loss_sum - expected_loss) / abs(expected_loss) > 0.002:
                 raise ValueError("loss sum is outside the M2 tolerance")
@@ -544,6 +576,7 @@ class GlobalStepCoordinator:
                     "state": "accepted",
                     "result_file": result_file,
                     "accepted_loss_sum": submission.loss_sum,
+                    "runtime_backend": submission.runtime_backend,
                     "gradient_metrics": gradient_metrics,
                     "lease_token": None,
                     "lease_expires_at": None,
@@ -639,6 +672,7 @@ class GlobalStepCoordinator:
                         "attempt": assignment["attempt"],
                         "data_range": assignment["data_range"],
                         "gradient_metrics": assignment["gradient_metrics"],
+                        "runtime_backend": assignment["runtime_backend"],
                     }
                     for assignment in self.assignments
                 ],
@@ -779,6 +813,7 @@ class _GlobalStepHandler(SimpleHTTPRequestHandler):
                 loss_sum=float(self.headers["X-Orca-Loss-Sum"]),
                 loss_weight_sum=int(self.headers["X-Orca-Loss-Weight-Sum"]),
                 safetensors=self.rfile.read(content_length),
+                runtime_backend=self.headers["X-Orca-Runtime-Backend"],
             )
             receipt = self.coordinator.accept(submission)
         except (KeyError, TypeError, ValueError, SafetensorError) as error:

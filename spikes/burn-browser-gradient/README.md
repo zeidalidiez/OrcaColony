@@ -1,6 +1,6 @@
-# Burn browser-gradient spike
+# Burn browser-gradient worker
 
-This bounded M1a spike loads the Python M0 T0 fixture into Burn, runs one summed-loss backward pass on browser WebGPU, and returns every FP32 gradient as a safetensors payload.
+This browser worker loads the Python M0 T0 fixture into Burn, runs one summed-loss backward pass on browser WebGPU or CPU/WASM, and returns every FP32 gradient as a safetensors payload.
 
 Build the generated browser bundle from the repository root:
 
@@ -9,7 +9,7 @@ bash spikes/burn-browser-gradient/build-browser.sh
 python -m http.server 8000 --directory spikes/burn-browser-gradient/www
 ```
 
-Then open <http://localhost:8000>. Generated fixture and `wasm-pack` output stay untracked.
+Then open <http://localhost:8000>. Add `?backend=cpu` to force the CPU/WASM backend. Generated fixture and `wasm-pack` output stay untracked.
 
 ## Verified result
 
@@ -23,6 +23,16 @@ On July 24, 2026, the full T0 pass ran in Headless Chrome 150 on Windows WebGPU 
 - elapsed browser time, including initialization and readback: `7.23 s`
 
 This clears M1a for the Burn-first path; the TensorFlow.js fallback is not needed at this point.
+
+The same full batch ran through `Autodiff<NdArray<f32, i32>>` in browser WASM:
+
+- summed loss: `4267.705078125`
+- gradient cosine similarity: `0.9999999999999276`
+- relative L2 error: `2.788216012272494e-7`
+- maximum absolute error: `0.0000762939453125`
+- elapsed browser time: `0.914 s`
+
+The CPU path is selected automatically when WebGPU is unavailable. Connected workers can force it with `?cpu=<worker-id>#token=<worker-token>`; result protocol v2 records `burn-ndarray-f32` or `burn-webgpu-f32` in the accepted-work ledger.
 
 ## Connected-worker proof
 

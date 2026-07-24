@@ -61,6 +61,7 @@ def submission_for(
         safetensors=coordinator.oracle_gradient_path(
             str(assignment["assignment_id"])
         ).read_bytes(),
+        runtime_backend="python-oracle-f32",
     )
 
 
@@ -192,6 +193,7 @@ def test_http_leases_two_workers_and_closes_the_global_step(tmp_path: Path) -> N
                     "X-Orca-Checkpoint-Sha256": assignment["checkpoint_sha256"],
                     "X-Orca-Loss-Sum": str(assignment["expected_loss_sum"]),
                     "X-Orca-Loss-Weight-Sum": str(assignment["loss_weight_sum"]),
+                    "X-Orca-Runtime-Backend": "python-oracle-f32",
                 },
             )
             with urlopen(request) as response:
