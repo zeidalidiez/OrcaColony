@@ -183,6 +183,8 @@ Completed within the first P3 measurement and native-baseline slice:
 - Fresh native downloads hash every artifact before atomic cache publication. Warm restart hashes the small manifest, validates exact membership/metadata, authenticates the resident shard, and checks every linear's semantic tensor digest on use without rescanning the complete base. Mutation, URL, membership, coordinator-reload, restart, persistent-session, and resident-compatibility tests fail closed or retain exact parity as appropriate.
 - Completed a two-process T1 TinyStories campaign across a deliberate coordinator restart. The cold worker transferred the 27,621,509-byte bundle; the warm worker transferred zero model and adapter bytes; neither cached a monolithic base. Both gradients were exact, process peaks were 371,679,232 and 372,981,760 bytes, and aggregate checkpoint relative L2 was `1.2317732405376926e-7`.
 - Evaluated the fixed use case at initialization and after the accepted connected checkpoint. Held-out mean loss over 16 declared TinyStories validation sequences improved from `9.041835904121399` to `9.041222333908081`.
+- Qualified mixed exact placement at T2 with one resident worker and one layer-bundle worker across a coordinator restart. Both gradients were bit-exact, aggregate checkpoint relative L2 was `2.1866353039878446e-7`, and held-out mean loss improved from `9.171425819396973` to `9.168077945709229`.
+- The connected T2 bundle worker reduced process peak RSS from `1,746,604,032` to `556,244,992` bytes (68.15%) versus resident execution. The tradeoff was a 2.238x gradient runtime and 1.116x cold fetch-plus-initialization time with essentially unchanged model payload size. Resident and bundle are therefore qualified as placements within one exact FP32 profile; approximate profiles remain separate.
 
 ### P4 — Qualify numerical and mixed execution profiles
 
@@ -224,11 +226,10 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Qualify the connected layer-bundle profile at T2 in a mixed resident/bundle campaign, preserving the fixed held-out TinyStories evaluation while measuring per-profile transfer, peak RSS, runtime, and exact aggregate/checkpoint behavior. Publish the P3 result before moving int8 into P4 as a distinct numerical trajectory.
+Start P4 by defining a separate homogeneous int8 numerical profile and measuring its multi-step trajectory against the fixed TinyStories evaluation and exact-FP32 control. Do not admit int8 into mixed exact aggregation unless that profile earns an explicit, independently justified acceptance contract.
 
 ## Remaining major work
 
-- Connected T2 and mixed resident/layer-bundle qualification.
 - Quantized-profile oracle, trajectory, and homogeneous-campaign proof in P4.
 - Profile certification and mixed-profile proof.
 - Rolling-submodel feasibility study.
@@ -252,6 +253,7 @@ Qualify the connected layer-bundle profile at T2 in a mixed resident/bundle camp
 - Advanced the immediate target to a real connected layer-bundle worker rather than stopping at the offline profile.
 - Bound layer-bundle identities and exact shard URLs into authenticated coordinator state/assignments, added fresh-download and warm-use cache authentication, and retained strict FP32 result acceptance under a distinct runtime provenance.
 - Completed a real T1 TinyStories campaign across a coordinator restart with exact gradients, zero warm model/adapter payload bytes, no monolithic worker cache, sub-`1.24e-7` checkpoint parity, and positive held-out loss movement.
+- Qualified resident and layer-bundle workers together at T2: exact per-worker gradients, sub-`2.19e-7` aggregate checkpoint parity, positive held-out movement, and 68.15% lower bundle-worker process peak RSS with the measured runtime/payload tradeoff preserved.
 
 ### 2026-07-24
 

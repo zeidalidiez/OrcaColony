@@ -182,6 +182,8 @@ The [`layer-bundle-fp32` proof](spikes/layer-bundle-fp32) retained the exact T2 
 
 The profile now runs through the connected native worker with `--publish-base-layer-bundle` on the coordinator and `--base-profile layer-bundle` on the worker. Authenticated assignments bind the base identity, manifest, ordered raw hashes/byte counts, and exact same-origin shard URLs; fresh downloads are hashed before atomic cache publication, and warm shards are reauthenticated semantically when used. A two-process T1 TinyStories campaign crossed a coordinator restart with exact gradients, transferred `27,621,509` model bytes on the cold worker and `0` on the warm worker, cached no monolithic base, matched the centralized checkpoint at relative L2 `1.2317732405376926e-7`, and improved declared held-out mean loss from `9.041835904121399` to `9.041222333908081`.
 
+A mixed T2 campaign then aggregated one resident and one layer-bundle worker under the same exact CPU FP32 contract. Both worker gradients were bit-exact; the aggregate checkpoint matched at relative L2 `2.1866353039878446e-7`, and held-out loss improved from `9.171425819396973` to `9.168077945709229`. The bundle worker reduced process peak RSS from `1,746,604,032` to `556,244,992` bytes (68.15%) at a 2.238x gradient-runtime cost and essentially unchanged cold model payload. This qualifies mixed resident/bundle placement, not mixed approximate numerical profiles.
+
 ## T1 scale proof
 
 `campaign/t1-smoke.json` raises the same dynamic browser runtime to the planned T1 shape: 6 layers, width 256, 4 heads, 8,192 tokens, context 256, and exactly 6,901,760 parameters. Build its synthetic parity fixture with:

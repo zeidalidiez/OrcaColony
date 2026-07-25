@@ -1,0 +1,69 @@
+{
+  "base_model_sha256": "47a536cd24b50e7a3bd7a36dc224e2e31774ab0c1c0738df0256e6f579fc15e5",
+  "bundle_artifact_count": 50,
+  "bundle_manifest_sha256": "605832705b40f5f76d964df6b7efb4995cf123af252271d27852739ecaf5c6ad",
+  "campaign_id": "orcacolony-t2-tinystories-memory-smoke-v1",
+  "campaign_state": "campaign_complete",
+  "checkpoint": {
+    "adapter_sha256": "4d8b66432d645444ec2108b650d485cdd14cd60fb4886df548652741a8c76884",
+    "cosine_similarity": 0.999999999999976,
+    "max_absolute_error": 3.8871075958013535e-07,
+    "relative_l2_error": 2.1866353039878446e-07,
+    "resume_state_sha256": "e2629dcf8a83c1f12e598bfc494f25bd92cc37d9fd5afea083dfe52b8896d43b",
+    "tensor_count": 24,
+    "value_count": 147456,
+    "weight_checkpoint_sha256": "a724ea56f2551c155bf38144ed13a603b84ca814a07371e9a2e801a4cc6fcd8c",
+    "worst_tensor": "blocks.0.attention.qkv.lora_b"
+  },
+  "coordinator_restart_between_assignments": true,
+  "dataset": {
+    "name": "roneneldan/TinyStories",
+    "revision": "99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af",
+    "validation_sequences": 4
+  },
+  "format": "orcacolony_mixed_exact_profiles_t2_proof_v1",
+  "held_out_evaluation": {
+    "improvement": 0.0033478736877441406,
+    "initialization": 9.171425819396973,
+    "initialization_perplexity": 9618.32891775003,
+    "metric": "mean_loss",
+    "step_1": 9.168077945709229,
+    "step_1_perplexity": 9586.181809700898
+  },
+  "mixed_exact_profiles_qualified": true,
+  "model_parameters": 91544064,
+  "profiles": [
+    {
+      "adapter_transfer_bytes": 592120,
+      "artifact_fetch_seconds": 1.5483667999797035,
+      "assignment_id": "e699a45c44f170ea45b11e59a19a6bd618558b6c86d6d620c1832eb8346f3ca1",
+      "assignment_transfer_bytes": 16674,
+      "cache_contains_monolithic_base": true,
+      "gradient_compute_seconds": 1.282371500012232,
+      "gradient_max_absolute_error": 0.0,
+      "gradient_relative_l2_error": 0.0,
+      "model_transfer_bytes": 366190504,
+      "process_peak_rss_bytes": 1746604032,
+      "result_transfer_bytes": 592120,
+      "runtime_backend": "python-native-cpu-f32",
+      "runtime_init_seconds": 1.7678548000112642,
+      "worker_id": "mixed-t2-resident"
+    },
+    {
+      "adapter_transfer_bytes": 592120,
+      "artifact_fetch_seconds": 2.129166200000327,
+      "assignment_id": "45ff5fe88d5a066c6dc6f83e7794a62b7c2d91a127f7c70f2804c8bf75e9b2b9",
+      "assignment_transfer_bytes": 16685,
+      "cache_contains_monolithic_base": false,
+      "gradient_compute_seconds": 2.8698199999926146,
+      "gradient_max_absolute_error": 0.0,
+      "gradient_relative_l2_error": 0.0,
+      "model_transfer_bytes": 366204436,
+      "process_peak_rss_bytes": 556244992,
+      "result_transfer_bytes": 592120,
+      "runtime_backend": "python-native-cpu-layer-bundle-f32",
+      "runtime_init_seconds": 1.5711015999841038,
+      "worker_id": "mixed-t2-bundle"
+    }
+  ]
+}

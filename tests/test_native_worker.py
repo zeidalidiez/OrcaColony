@@ -417,6 +417,37 @@ def test_connected_layer_bundle_t1_evidence_is_exact_and_evaluated() -> None:
     ]["initialization"]
 
 
+def test_mixed_exact_profile_t2_evidence_is_qualified_and_evaluated() -> None:
+    evidence_path = (
+        Path(__file__).parents[1]
+        / "spikes"
+        / "layer-bundle-fp32"
+        / "results"
+        / "mixed-t2.json"
+    )
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    resident, bundle = evidence["profiles"]
+
+    assert evidence["format"] == "orcacolony_mixed_exact_profiles_t2_proof_v1"
+    assert evidence["mixed_exact_profiles_qualified"] is True
+    assert evidence["coordinator_restart_between_assignments"] is True
+    assert evidence["campaign_state"] == "campaign_complete"
+    assert resident["runtime_backend"] == "python-native-cpu-f32"
+    assert bundle["runtime_backend"] == "python-native-cpu-layer-bundle-f32"
+    assert resident["cache_contains_monolithic_base"] is True
+    assert bundle["cache_contains_monolithic_base"] is False
+    assert bundle["process_peak_rss_bytes"] < resident["process_peak_rss_bytes"]
+    assert all(
+        profile["gradient_relative_l2_error"] == 0.0
+        and profile["gradient_max_absolute_error"] == 0.0
+        for profile in evidence["profiles"]
+    )
+    assert evidence["checkpoint"]["relative_l2_error"] < 1e-6
+    assert evidence["held_out_evaluation"]["step_1"] < evidence[
+        "held_out_evaluation"
+    ]["initialization"]
+
+
 @pytest.mark.parametrize(
     ("base_profile", "publish_base_layer_bundle"),
     (("resident", False), ("layer-bundle", True)),

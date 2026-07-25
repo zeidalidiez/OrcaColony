@@ -121,6 +121,24 @@ The cache contained one manifest, one resident shard, and 24 linear shards—no 
 
 The assignment binds the manifest SHA, `base_model_sha256`, ordered artifact names, raw SHA-256 values, exact byte counts, and exact same-origin URLs. Fresh downloads hash bytes before atomic cache publication. Warm startup hashes the small manifest, validates exact directory membership and file metadata, loads/authenticates the resident shard, and defers each linear's semantic tensor digest to first use. A mutated fresh publication, a changed URL, an unexpected cache member, or a semantically changed warm shard fails closed. `python-native-cpu-layer-bundle-f32` results are accepted only when that bundle was actually assigned; gradient, loss, and checkpoint tolerances are unchanged.
 
+## Mixed exact-profile T2 qualification
+
+[`mixed-t2.json`](results/mixed-t2.json) records a 91,544,064-parameter campaign with one `python-native-cpu-f32` worker and one `python-native-cpu-layer-bundle-f32` worker. They used separate caches, filled disjoint shards of the same global step, and were separated by a deliberate coordinator restart.
+
+| Measurement | Resident worker | Layer-bundle worker |
+|---|---:|---:|
+| Model payload | 366,190,504 B | 366,204,436 B |
+| Adapter payload | 592,120 B | 592,120 B |
+| Process peak RSS | 1,746,604,032 B | 556,244,992 B |
+| Artifact fetch | 1.548367 s | 2.129166 s |
+| Runtime initialization | 1.767855 s | 1.571102 s |
+| Gradient compute | 1.282372 s | 2.869820 s |
+| Gradient relative L2 / max error | 0 / 0 | 0 / 0 |
+
+The bundle worker reduced observed process peak RSS by **68.15%** while transferring effectively the same base payload (`+0.0038%` for the manifest/shard representation). Its gradient took **2.238x** resident runtime, and cold artifact-fetch-plus-initialization took **1.116x** resident. Mixed aggregation matched the centralized checkpoint at relative L2 `2.1866353039878446e-7` and maximum absolute error `3.8871075958013535e-7`. Held-out TinyStories mean loss over four declared sequences improved from `9.171425819396973` to `9.168077945709229`.
+
+This qualifies resident and layer-bundle placement as mixed implementations of the same exact CPU FP32 numerical profile. It does not qualify int8 or any other approximate profile for mixed aggregation.
+
 ## Decision and limits
 
 The connected slice establishes:
