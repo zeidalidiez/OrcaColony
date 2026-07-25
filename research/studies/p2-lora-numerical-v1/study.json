@@ -1,0 +1,73 @@
+{
+  "format": "orcacolony_study_v1",
+  "study_id": "p2-lora-numerical-v1",
+  "title": "P2 frozen-base LoRA numerical contract",
+  "hypothesis": "A frozen T0 base with an exact LoRA tensor manifest can preserve the v0.1 summed-loss worker contract and produce an adapter-only coordinator update identical to an independent mean-loss reference while leaving every base tensor unchanged.",
+  "status": "validated",
+  "use_case": {
+    "claim": "Establish a reproducible numerical foundation for later volunteer PEFT campaigns before adding browser, native, retry, or offload behavior.",
+    "baseline": {
+      "id": "dense-mean-loss-reference",
+      "label": "Independent dense-reference update",
+      "description": "A separately initialized frozen-base LoRA model performs direct mean-loss backward, one global-norm clip, and AdamW on the exact adapter tensor set."
+    },
+    "primary_metric": {
+      "id": "adapter-update-exact-match",
+      "label": "Exact adapter update match",
+      "description": "Ratio of required adapter tensors byte-equal to the independent reference after one optimizer step.",
+      "direction": "maximize",
+      "success_threshold": 1.0,
+      "unit": "ratio"
+    },
+    "repeated_validation_suite": {
+      "id": "peft-targeted-tests",
+      "label": "PEFT targeted regression suite",
+      "description": "Checks base freezing, complete deterministic gradients, exact update parity, manifest validation, deterministic export, and CLI execution.",
+      "revision": "git:5aff4392d3faf0eac740d43c28f57150a7929153:tests/test_peft.py"
+    },
+    "final_holdout_suite": {
+      "id": "real-cli-artifact-proof",
+      "label": "Real command-line artifact proof",
+      "description": "Two independent command-line exports must be byte-identical and every portable checksum must verify through sha256sum.",
+      "revision": "git:5aff4392d3faf0eac740d43c28f57150a7929153:orcacolony.peft"
+    },
+    "guardrails": [
+      {
+        "id": "frozen-base-unchanged",
+        "label": "Frozen base remains unchanged",
+        "description": "No base parameter changes during the submitted-gradient or independent-reference update."
+      },
+      {
+        "id": "complete-adapter-gradient-set",
+        "label": "Complete adapter gradient set",
+        "description": "Every and only manifest-declared adapter tensor has a finite FP32 gradient."
+      },
+      {
+        "id": "stable-dense-path",
+        "label": "Stable dense baseline remains green",
+        "description": "The complete repository regression suite passes without changing the shipped dense campaign path."
+      }
+    ]
+  },
+  "independent_variables": [
+    {
+      "id": "trainable-tensor-set",
+      "label": "Trainable tensor set",
+      "description": "Four combined attention-QKV LoRA pairs replace full dense trainability."
+    }
+  ],
+  "controlled_variables": [
+    {
+      "id": "t0-base-and-batch",
+      "label": "T0 base and deterministic batch",
+      "description": "The exact existing T0 architecture, initialization, token batch, loss reduction, optimizer hyperparameters, and clipping threshold remain fixed."
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "t0-lora-qkv-r4",
+      "role": "candidate",
+      "manifest": "experiments/t0-lora-qkv-r4.json"
+    }
+  ]
+}

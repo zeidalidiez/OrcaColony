@@ -1,0 +1,98 @@
+{
+  "format": "orcacolony_experiment_v1",
+  "study_id": "p2-lora-numerical-v1",
+  "experiment_id": "t0-lora-qkv-r4",
+  "title": "T0 rank-4 QKV LoRA numerical proof",
+  "status": "validated",
+  "subject": {
+    "kind": "numerical-proof",
+    "id": "t0-lora-qkv-r4",
+    "revision": "lora-manifest:241963f3c9bf996952023837875910906180050c6e4c076787450cc5c2958bbe"
+  },
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "5aff4392d3faf0eac740d43c28f57150a7929153",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/5aff4392d3faf0eac740d43c28f57150a7929153"
+    },
+    {
+      "id": "base-model",
+      "kind": "safetensors-sha256",
+      "revision": "d31269889b0154bb962bf976361ddc81d47498f1d3af9244eaf24d4ad9e1d060",
+      "uri": "generated:.artifacts/t0-lora-fixture-v1/base.safetensors"
+    },
+    {
+      "id": "lora-manifest",
+      "kind": "canonical-json-sha256",
+      "revision": "241963f3c9bf996952023837875910906180050c6e4c076787450cc5c2958bbe",
+      "uri": "campaign/t0-lora-smoke.json"
+    }
+  ],
+  "method": {
+    "training_method": {
+      "id": "frozen-base-lora",
+      "label": "Frozen-base LoRA",
+      "description": "Train rank-4 adapters on the combined QKV projection while every dense base parameter remains frozen."
+    },
+    "execution_topology": {
+      "id": "single-worker-gradient-and-coordinator-replay",
+      "label": "Independent worker gradient plus coordinator replay",
+      "description": "One oracle worker exports complete unnormalized adapter gradients and a separate coordinator model normalizes, clips, and applies them."
+    },
+    "memory_profiles": [
+      {
+        "id": "cpu-resident-fp32",
+        "label": "CPU-resident FP32",
+        "description": "Base, adapters, activations, and optimizer proof state remain in local CPU memory for this numerical fixture."
+      }
+    ],
+    "numerical_profiles": [
+      {
+        "id": "python-oracle-fp32",
+        "label": "Python oracle FP32",
+        "description": "PyTorch FP32 summed-loss backward and coordinator-owned FP32 normalization, clipping, and AdamW."
+      }
+    ]
+  },
+  "worker_profiles": [
+    {
+      "id": "local-python311-reference",
+      "label": "Local Python 3.11 reference worker",
+      "description": "A deterministic local CPU reference used to establish semantics before qualifying browser or native workers."
+    }
+  ],
+  "resource_budget": {
+    "limits": [
+      {
+        "id": "optimizer-steps",
+        "label": "Optimizer steps",
+        "value": 1,
+        "unit": "steps"
+      },
+      {
+        "id": "wall-time",
+        "label": "Maximum proof wall time",
+        "value": 120,
+        "unit": "seconds"
+      }
+    ]
+  },
+  "reproduction": {
+    "command": [
+      "uv",
+      "run",
+      "python",
+      "-m",
+      "orcacolony.peft",
+      "export-fixture",
+      "--campaign",
+      "campaign/t0-smoke.json",
+      "--lora",
+      "campaign/t0-lora-smoke.json",
+      "--output",
+      ".artifacts/t0-lora-fixture-v1"
+    ],
+    "notes": "Run from repository commit 5aff4392d3faf0eac740d43c28f57150a7929153, verify SHA256SUMS, repeat to a second output, and compare directories byte-for-byte."
+  }
+}

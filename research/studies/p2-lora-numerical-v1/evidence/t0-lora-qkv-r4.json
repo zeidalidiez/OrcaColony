@@ -1,0 +1,127 @@
+{
+  "format": "orcacolony_experiment_evidence_v1",
+  "study_id": "p2-lora-numerical-v1",
+  "experiment_id": "t0-lora-qkv-r4",
+  "outcome": "validated",
+  "completed_at": "2026-07-25T01:31:43Z",
+  "summary": "The exact frozen T0 base exported all 8 declared FP32 LoRA gradients, reproduced the independent mean-loss adapter update exactly, left every base parameter unchanged, produced two byte-identical artifact directories, and passed every repository test.",
+  "measurements": [
+    {
+      "id": "adapter-tensors",
+      "label": "Trainable adapter tensors",
+      "value": 8,
+      "unit": "tensors"
+    },
+    {
+      "id": "adapter-values",
+      "label": "Trainable adapter values",
+      "value": 8192,
+      "unit": "values"
+    },
+    {
+      "id": "loss-weight-sum",
+      "label": "Loss weight sum",
+      "value": 512,
+      "unit": "tokens"
+    },
+    {
+      "id": "loss-sum",
+      "label": "Summed causal-LM loss",
+      "value": 4267.70556640625,
+      "unit": "loss"
+    },
+    {
+      "id": "gradient-norm",
+      "label": "Global norm before clipping",
+      "value": 0.038248103111982346,
+      "unit": "l2"
+    },
+    {
+      "id": "deterministic-exports",
+      "label": "Byte-identical real exports",
+      "value": 2,
+      "unit": "exports"
+    },
+    {
+      "id": "repository-tests",
+      "label": "Passing repository tests",
+      "value": 30,
+      "unit": "tests"
+    }
+  ],
+  "evaluation": {
+    "primary_metric": {
+      "id": "adapter-update-exact-match",
+      "value": 1.0
+    },
+    "guardrails": [
+      {
+        "id": "frozen-base-unchanged",
+        "passed": true,
+        "detail": "Every frozen base parameter remained byte-equal after both update paths."
+      },
+      {
+        "id": "complete-adapter-gradient-set",
+        "passed": true,
+        "detail": "All 8 and only the 8 manifest-declared adapter tensors had finite FP32 gradients."
+      },
+      {
+        "id": "stable-dense-path",
+        "passed": true,
+        "detail": "All 30 repository tests passed, including every pre-existing dense, browser-contract, coordinator, campaign, and release test."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "adapter-update-parity",
+      "label": "Adapter update parity established",
+      "description": "Worker-style summed gradients normalized and clipped once by the coordinator produced exactly the same adapter tensors as direct mean-loss backward.",
+      "kind": "positive"
+    },
+    {
+      "id": "artifact-reproducibility",
+      "label": "Portable deterministic artifact proof",
+      "description": "Two command-line exports were byte-identical and all six listed files passed sha256sum verification after enforcing LF checksum records.",
+      "kind": "positive"
+    },
+    {
+      "id": "numerical-scope-only",
+      "label": "Numerical scope only",
+      "description": "This result validates Python semantics and artifact identity; it makes no claim about distributed throughput or model usefulness.",
+      "kind": "neutral"
+    }
+  ],
+  "limitations": [
+    "The proof uses deterministic synthetic T0 tokens and therefore does not establish useful adaptation quality.",
+    "No browser or native worker has yet computed the adapter gradients.",
+    "Adapter checkpoint restart, lease retry, multi-worker aggregation, evaluation, and release are not yet integrated.",
+    "RAM, quantized-base, and storage-offload behavior are outside this experiment."
+  ],
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "5aff4392d3faf0eac740d43c28f57150a7929153",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/5aff4392d3faf0eac740d43c28f57150a7929153"
+    },
+    {
+      "id": "fixture-manifest",
+      "kind": "sha256",
+      "revision": "6db595b6e1b7d6dbb2b8f99673fe37219c759c9feca1c8990bc2c4e15f1bd829",
+      "uri": "generated:.artifacts/t0-lora-fixture-v1/fixture.json"
+    },
+    {
+      "id": "adapter-gradient",
+      "kind": "safetensors-sha256",
+      "revision": "7ce16dfd740fd5a249257de6ab442943577b86917f9ae77604c5097ce1a5b8e2",
+      "uri": "generated:.artifacts/t0-lora-fixture-v1/gradients.safetensors"
+    },
+    {
+      "id": "updated-adapter",
+      "kind": "safetensors-sha256",
+      "revision": "93b8701db49573d20bdb59e50c9dd4a0d74eb5e4f5778005d4f21271f715d8c8",
+      "uri": "generated:.artifacts/t0-lora-fixture-v1/updated-adapter.safetensors"
+    }
+  ]
+}

@@ -118,6 +118,9 @@ Completed within the first P2 numerical slice:
 - Added the real `python -m orcacolony.peft export-fixture` command. It atomically exports the dense base, initial adapters, deterministic batch, complete adapter gradients, updated adapters, a self-describing proof manifest, and portable `SHA256SUMS`.
 - Produced two byte-identical real fixture exports and verified every checksum through `sha256sum -c`.
 - Recorded the updated adapter SHA-256 as `93b8701db49573d20bdb59e50c9dd4a0d74eb5e4f5778005d4f21271f715d8c8`; the global norm before the one allowed clipping operation was `0.038248103111982346`.
+- Published the `p2-lora-numerical-v1` study, experiment, and evidence manifests pinned to exporter commit `5aff4392d3faf0eac740d43c28f57150a7929153`.
+- Generated and checksum-verified the P2 research result with the exact-match metric and all three guardrails passing. Its limitations explicitly exclude browser/native parity, campaign restart/retry, offload, and useful adaptation quality.
+- Added a regression gate that rebuilds every committed research record, so invalid or unlinked studies fail the normal test suite.
 
 ### P3 — Qualify local memory tiers
 
@@ -173,7 +176,7 @@ The native worker is the first target for explicit offload. Browser support rema
 
 ## Immediate next bounded target
 
-Pin this exact exporter revision into a P2 study, record the verified fixture as a reproducible research result, and then begin browser adapter-gradient parity against the same artifacts. Campaign restart and a useful public base remain later P2 work.
+Begin browser adapter-gradient parity against the exact P2 base, adapter, batch, and gradient artifacts. First prove Burn CPU/WASM parity for the eight adapter tensors without changing the dense browser path; qualify WebGPU after the CPU contract is stable. Campaign restart and a useful public base remain later P2 work.
 
 ## Remaining major work
 
@@ -208,3 +211,4 @@ Pin this exact exporter revision into a P2 study, record the verified fixture as
 - Completed P1 with a committed study fixture, two byte-identical real CLI bundles, successful checksum verification, and explicit proof limitations.
 - Added the first P2 numerical vertical: deterministic frozen-base LoRA gradients and an exact coordinator-compatible adapter update matching an independent reference.
 - Added the exact LoRA manifest and deterministic artifact exporter, fixed checksum output to use portable LF records, and proved two real byte-identical exports with all hashes valid.
+- Published and rebuilt the validated `p2-lora-numerical-v1` research record while retaining explicit limits on what the proof establishes.

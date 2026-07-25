@@ -384,3 +384,42 @@ def test_record_cli_rejects_duplicate_json_fields(tmp_path: Path) -> None:
                 str(tmp_path / "unused-result"),
             ]
         )
+
+
+def test_all_committed_research_records_build(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repository_root = Path(__file__).parents[1]
+    study_paths = sorted(
+        (repository_root / "research" / "studies").glob("*/study.json")
+    )
+    assert study_paths
+
+    built = 0
+    for study_path in study_paths:
+        study = json.loads(study_path.read_text(encoding="utf-8"))
+        for reference in study["experiments"]:
+            experiment_id = reference["experiment_id"]
+            experiment_path = study_path.parent / reference["manifest"]
+            evidence_path = study_path.parent / "evidence" / f"{experiment_id}.json"
+            output = tmp_path / study["study_id"] / experiment_id
+            research.main(
+                [
+                    "record",
+                    "--study",
+                    str(study_path),
+                    "--experiment",
+                    str(experiment_path),
+                    "--evidence",
+                    str(evidence_path),
+                    "--output",
+                    str(output),
+                ]
+            )
+            capsys.readouterr()
+            assert (output / "result.json").is_file()
+            assert (output / "RESULT.md").is_file()
+            built += 1
+
+    assert built == 2
