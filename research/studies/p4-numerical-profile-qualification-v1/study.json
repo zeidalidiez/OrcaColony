@@ -1,0 +1,98 @@
+{
+  "format": "orcacolony_study_v1",
+  "study_id": "p4-numerical-profile-qualification-v1",
+  "title": "Profile-bound connected int8 across resident and layer-bundle placement",
+  "hypothesis": "A homogeneous per-output int8 frozen-base profile can execute authenticated T1 adapter work through both resident conversion and direct layer-bundle construction, survive coordinator restart, and improve the fixed TinyStories holdout while every worker gradient remains exact against an int8-specific oracle and exact FP32 remains a separate fail-closed profile.",
+  "status": "validated",
+  "use_case": {
+    "claim": "Qualify local P3 memory placements and P4 numerical admission without silently widening the exact-FP32 campaign contract.",
+    "baseline": {
+      "id": "exact-cpu-fp32-resident",
+      "label": "Exact CPU FP32 resident LoRA",
+      "description": "The connected baseline loads the complete authenticated FP32 base, returns bit-exact adapter gradients, and uses v1 implicit-exact checkpoints."
+    },
+    "primary_metric": {
+      "id": "connected-worker-gradient-relative-l2-max",
+      "label": "Maximum connected worker-to-int8-oracle gradient relative L2",
+      "description": "Maximum relative L2 across all resident-converted and direct-bundle int8 worker gradients in the two-step connected campaign.",
+      "direction": "minimize",
+      "success_threshold": 0.0,
+      "unit": "ratio"
+    },
+    "repeated_validation_suite": {
+      "id": "connected-int8-mixed-placement-restart",
+      "label": "Two-step connected mixed-placement int8 campaign",
+      "description": "Run one resident-converted and one direct-layer-bundle worker per optimizer step, restart the coordinator after step 1, and retain both persistent worker models.",
+      "revision": "8af895ce8a0ac5925d4a612afb94f5dc0a42ecad"
+    },
+    "final_holdout_suite": {
+      "id": "frozen-t1-tinystories-validation",
+      "label": "Frozen T1 TinyStories validation",
+      "description": "Evaluate initialization and both profile-bound checkpoints on the campaign-declared 16-sequence holdout.",
+      "revision": "a8a8868b8a2a6aa14b53f9cb18d6e47a027e90532df7607a1297817bd692c706"
+    },
+    "guardrails": [
+      {
+        "id": "profile-checkpoint-parity",
+        "label": "Profile-specific canonical checkpoint parity",
+        "description": "Every connected int8 checkpoint must remain below 1e-6 relative L2 against the centralized int8 step."
+      },
+      {
+        "id": "held-out-loss-non-regression",
+        "label": "Held-out loss non-regression",
+        "description": "The final int8 checkpoint must not exceed initialization held-out mean loss."
+      },
+      {
+        "id": "profile-provenance-and-restart",
+        "label": "Profile-bound provenance and restart",
+        "description": "Assignments, v2 weight/resume identities, evaluations, releases, and campaign restart must bind int8; a restart requested as exact FP32 must fail."
+      },
+      {
+        "id": "exact-fp32-separation",
+        "label": "Exact FP32 remains separate",
+        "description": "Exact CPU FP32 accepts only bit-exact gradients and the measured int8 trajectory must not be admitted as exact FP32."
+      },
+      {
+        "id": "placement-reuse",
+        "label": "Both int8 placements reuse authenticated state",
+        "description": "Resident and direct-bundle workers must each build once and transfer zero model bytes on the warm post-restart assignment."
+      }
+    ]
+  },
+  "independent_variables": [
+    {
+      "id": "base-placement",
+      "label": "Frozen-base placement",
+      "description": "Complete authenticated FP32 resident load followed by quantization versus direct authenticated layer-bundle quantization."
+    },
+    {
+      "id": "numerical-profile",
+      "label": "Numerical profile",
+      "description": "Exact CPU FP32 versus per-output symmetric int8 with FP32 dequantization and FP32 LoRA."
+    }
+  ],
+  "controlled_variables": [
+    {
+      "id": "training-contract",
+      "label": "Adapter training and aggregation",
+      "description": "Rank-4 alpha-8 QKV LoRA, complete summed FP32 adapter gradients, one total-weight normalization, one clip, and canonical coordinator AdamW."
+    },
+    {
+      "id": "dataset",
+      "label": "Frozen TinyStories artifacts",
+      "description": "Training and evaluation use dataset manifest 99e5642b and tokenizer 7cb0fc24."
+    },
+    {
+      "id": "assignment-shape",
+      "label": "Two-way global steps",
+      "description": "Each of two authenticated workers processes one context-256 sequence per optimizer step."
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "connected-int8-mixed-placement",
+      "role": "candidate",
+      "manifest": "experiments/connected-int8-mixed-placement.json"
+    }
+  ]
+}

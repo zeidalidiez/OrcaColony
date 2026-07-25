@@ -1,0 +1,139 @@
+{
+  "format": "orcacolony_experiment_v1",
+  "study_id": "p4-numerical-profile-qualification-v1",
+  "experiment_id": "connected-int8-mixed-placement",
+  "title": "Connected homogeneous int8 with resident and direct-bundle workers",
+  "status": "validated",
+  "subject": {
+    "kind": "numerical-and-placement-profile-qualification",
+    "id": "connected-int8-resident-and-layer-bundle",
+    "revision": "8af895ce8a0ac5925d4a612afb94f5dc0a42ecad"
+  },
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "8af895ce8a0ac5925d4a612afb94f5dc0a42ecad",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/8af895ce8a0ac5925d4a612afb94f5dc0a42ecad"
+    },
+    {
+      "id": "t1-campaign",
+      "kind": "campaign-json-sha256",
+      "revision": "c434fe12675af70d9960bb5a15d06a08d5e1dc4190b4ccb591eb10939119d53b",
+      "uri": "repo:campaign/t1-tinystories-smoke.json"
+    },
+    {
+      "id": "t1-lora-profile",
+      "kind": "lora-manifest-sha256",
+      "revision": "9b3ce7270a797cd5a2591270f5cc2b20bfadca0dbbcb4a63fad0a6a52338daa0",
+      "uri": "repo:campaign/t1-tinystories-lora-smoke.json"
+    },
+    {
+      "id": "connected-proof",
+      "kind": "repo-json-sha256",
+      "revision": "8fa67a94af121c48e61ef21b596fd71d180aba42201cde2db69829ba1c4b4ffa",
+      "uri": "repo:spikes/int8-frozen-linear/results/connected-t1.json"
+    },
+    {
+      "id": "twenty-step-trajectory",
+      "kind": "repo-json-sha256",
+      "revision": "8761cf7c4658cfdefbaedc272d330718f011063913b9f99e1e8d998e8c8812c0",
+      "uri": "repo:spikes/int8-frozen-linear/results/t1-trajectory.json"
+    },
+    {
+      "id": "t2-direct-startup",
+      "kind": "repo-json-sha256",
+      "revision": "8e24e1e13e3319c7393265f26928597d0b9666e73f66e1e75aa649024924db08",
+      "uri": "repo:spikes/int8-frozen-linear/results/startup-bundle-t2.json"
+    },
+    {
+      "id": "t2-converted-startup",
+      "kind": "repo-json-sha256",
+      "revision": "7cce3b61b31494c2526ed3f2b446dcf519db87639be19f548ff91806ce06d2c8",
+      "uri": "repo:spikes/int8-frozen-linear/results/startup-converted-t2.json"
+    }
+  ],
+  "method": {
+    "training_method": {
+      "id": "frozen-base-qkv-lora",
+      "label": "Frozen-base QKV LoRA",
+      "description": "Rank-4 QKV adapters return complete summed FP32 gradients to canonical coordinator AdamW."
+    },
+    "execution_topology": {
+      "id": "authenticated-two-worker-two-step-restart",
+      "label": "Authenticated mixed-placement campaign",
+      "description": "One resident-converted and one direct-bundle worker contribute disjoint shards for two steps, with coordinator restart between steps."
+    },
+    "memory_profiles": [
+      {
+        "id": "resident-converted-int8",
+        "label": "Authenticated resident conversion",
+        "description": "Fetch and authenticate the complete FP32 base, load it, then replace every frozen linear with owned int8 buffers."
+      },
+      {
+        "id": "direct-layer-bundle-int8",
+        "label": "Authenticated direct bundle int8",
+        "description": "Authenticate and quantize one frozen-linear shard at a time without complete FP32 linear residency."
+      }
+    ],
+    "numerical_profiles": [
+      {
+        "id": "int8-per-output-symmetric-f32-dequant-v1",
+        "label": "Per-output symmetric int8 with FP32 dequantization",
+        "description": "Frozen linears retain int8 weights plus FP32 scales/biases; forward/backward reconstruct FP32 while LoRA and submitted gradients remain FP32."
+      },
+      {
+        "id": "exact-cpu-fp32-v1",
+        "label": "Exact CPU FP32 reference",
+        "description": "Separate bit-exact worker-acceptance profile used only to measure trajectory separation."
+      }
+    ]
+  },
+  "worker_profiles": [
+    {
+      "id": "python-native-cpu-int8-f32-dequant",
+      "label": "Resident-converted native int8",
+      "description": "Persistent Python/PyTorch CPU worker with complete authenticated-base conversion."
+    },
+    {
+      "id": "python-native-cpu-layer-bundle-int8-f32-dequant",
+      "label": "Direct-bundle native int8",
+      "description": "Persistent Python/PyTorch CPU worker constructing from individually authenticated bundle shards."
+    }
+  ],
+  "resource_budget": {
+    "limits": [
+      {
+        "id": "global-steps",
+        "label": "Connected optimizer steps",
+        "value": 2,
+        "unit": "steps"
+      },
+      {
+        "id": "accepted-assignments",
+        "label": "Connected accepted assignments",
+        "value": 4,
+        "unit": "assignments"
+      },
+      {
+        "id": "model-parameters",
+        "label": "T1 frozen model parameters",
+        "value": 6901760,
+        "unit": "parameters"
+      },
+      {
+        "id": "wall-time",
+        "label": "Maximum reproduction wall time",
+        "value": 600,
+        "unit": "seconds"
+      }
+    ]
+  },
+  "reproduction": {
+    "command": [
+      "uv run python -m orcacolony.artifacts --output .artifacts/p4-numerical-profile-dataset",
+      "uv run python research/studies/p4-numerical-profile-qualification-v1/scripts/run-proof.py --dataset-artifacts .artifacts/p4-numerical-profile-dataset --output .artifacts/p4-numerical-profile-proof"
+    ],
+    "notes": "The proof uses two local authenticated native sessions over loopback, restarts the coordinator after step 1, writes no credential to the committed result, and compares the final int8 adapter with a separately trained exact-FP32 reference."
+  }
+}

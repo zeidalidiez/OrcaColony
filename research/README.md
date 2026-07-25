@@ -49,6 +49,7 @@ The output path must not already exist. Remove or choose another ignored `.artif
 - `p2-persistent-lora-release-v1` validates two persistent adapter steps, coordinator reload after step 1, per-step held-out evaluation, a positive fixed-use-case gate, lowest-loss checkpoint selection, and a deterministic release with separate base, adapter, worker-weight, and complete resume-state identities. Its evaluated workers are local Python oracles; the connected browser study remains the real Burn worker evidence.
 - `p3-native-resource-profile-v1` validates privacy-filtered runtime/payload/memory/storage observations with real connected Burn CPU/WASM workers, then qualifies digest-validated cached-base native CPU workers on frozen TinyStories at 6.9M and 91.5M parameters. Warm assignments avoid all base and adapter fetch payloads while retaining numerical and held-out-loss guardrails. It records one-shot cache validation/runtime initialization as the dominant warm T2 cost and does not claim packet-level network measurement, quantized placement, mapped/NVMe offload, or useful model quality.
 - `p3-persistent-native-session-v1` validates bounded in-process model/adapter reuse at T2. One authenticated process completes both shards with one model build and one adapter load, removes 99.9986% of one-shot warm setup time, and retains identical checkpoint and held-out behavior. It also records failure-atomic adapter refresh and the lack of participant-diversity and memory-placement gains.
+- `p4-numerical-profile-qualification-v1` closes the local P3 placement matrix and P4 admission contract by validating connected homogeneous int8 across resident conversion and direct authenticated layer bundles. Four real T1 assignments cross a coordinator restart with exact profile-oracle gradients, profile-bound v2 checkpoints, positive frozen holdout movement, zero warm model payload, and fail-closed separation from bit-exact CPU FP32 and separately named Burn profiles.
 
 Reproduce the persistent release study's source evidence with:
 
@@ -86,6 +87,16 @@ uv run python -m orcacolony.artifacts \
 uv run python research/studies/p3-persistent-native-session-v1/scripts/run-proof.py \
   --dataset-artifacts .artifacts/p3-persistent-native-dataset \
   --output .artifacts/p3-persistent-native-session-proof
+```
+
+Reproduce the connected homogeneous-int8 qualification with:
+
+```bash
+uv run python -m orcacolony.artifacts \
+  --output .artifacts/p4-numerical-profile-dataset
+uv run python research/studies/p4-numerical-profile-qualification-v1/scripts/run-proof.py \
+  --dataset-artifacts .artifacts/p4-numerical-profile-dataset \
+  --output .artifacts/p4-numerical-profile-proof
 ```
 
 Every committed study, linked experiment, and conventionally named evidence file is rebuilt by the repository test suite. To render any result directly, substitute that study's three manifest paths in the command above and choose a fresh ignored output directory.

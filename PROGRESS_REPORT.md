@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-07-25
 
-**Current phase:** P3 — measuring and qualifying native local-memory profiles while preserving the P2 adapter and dense baselines
+**Current phase:** P3 and P4 complete — paused before P5 for roadmap reconvening
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -140,7 +140,7 @@ Completed within the first P2 numerical slice:
 
 ### P3 — Qualify local memory tiers
 
-**Status:** In progress
+**Status:** Complete
 
 Test increasingly flexible placement while retaining one-worker assignment independence:
 
@@ -185,10 +185,11 @@ Completed within the first P3 measurement and native-baseline slice:
 - Evaluated the fixed use case at initialization and after the accepted connected checkpoint. Held-out mean loss over 16 declared TinyStories validation sequences improved from `9.041835904121399` to `9.041222333908081`.
 - Qualified mixed exact placement at T2 with one resident worker and one layer-bundle worker across a coordinator restart. Both gradients were bit-exact, aggregate checkpoint relative L2 was `2.1866353039878446e-7`, and held-out mean loss improved from `9.171425819396973` to `9.168077945709229`.
 - The connected T2 bundle worker reduced process peak RSS from `1,746,604,032` to `556,244,992` bytes (68.15%) versus resident execution. The tradeoff was a 2.238x gradient runtime and 1.116x cold fetch-plus-initialization time with essentially unchanged model payload size. Resident and bundle are therefore qualified as placements within one exact FP32 profile; approximate profiles remain separate.
+- Closed P3 with measured resident FP32, persistent resident reuse, exact local-storage layer bundles, and quantized frozen-linear placement. Direct authenticated T2 bundle-int8 construction reduced build peak RSS by 66.75% versus resident conversion; native GPU-plus-RAM and remote streaming remain explicitly unclaimed because the CPU-only host could not qualify them and transfer economics did not justify inventing support.
 
 ### P4 — Qualify numerical and mixed execution profiles
 
-**Status:** In progress
+**Status:** Complete
 
 - Certify each precision, quantization, runtime, and offload profile against a canonical fixture.
 - Separate numerical semantics from placement-only differences.
@@ -199,6 +200,11 @@ Completed within the first P3 measurement and native-baseline slice:
 - Preserved the numerical boundary: int8 reached 5.12% maximum per-step gradient drift and 2.64% final-adapter drift versus FP32. It is a homogeneous-profile candidate with a distinct profile-bound identity, not an exact-profile worker or mixed-aggregation participant.
 - Added direct authenticated int8 construction from layer bundles. Each FP32 shard is validated, quantized, and discarded before the next opens; the resulting buffers/loss/gradients match convert-after-resident int8 exactly without complete FP32 startup residency.
 - At T2 the direct builder retained the same `113,080,320` tensor bytes while reducing peak RSS through build from `1,380,302,848` to `458,956,800` bytes (66.75%) and final process peak to `845,414,400` bytes (38.75% lower). T1 final peak was 2.71% higher, so promotion remains scale/workload qualified rather than universal.
+- Added explicit `exact-cpu-fp32-v1`, `burn-ndarray-f32-v1`, `burn-webgpu-f32-v1`, and `int8-per-output-symmetric-f32-dequant-v1` identities. Assignment backends are filtered by profile; cross-profile submissions fail before telemetry or gradient acceptance, and exact CPU FP32 rejects even a one-ULP gradient change.
+- Added profile-authenticated LoRA checkpoint v2 while retaining legacy v1 as implicit exact FP32. Numerical identity now binds worker-facing weight and complete resume-state digests, campaign state/locks/history, assignments, accepted ledgers, evaluations, dashboards, CLI restart, and release provenance; wrong-profile restart and metadata tampering fail closed.
+- Completed a real two-step connected T1 int8 campaign with one resident-converted and one direct-layer-bundle worker per step. All four gradients were bit-exact against the int8 oracle; maximum aggregate checkpoint relative L2 was `6.12852298785371e-8`; both persistent workers built once and transferred zero warm model bytes across a coordinator restart; held-out mean loss improved by `0.001623988151550293`.
+- Preserved the arithmetic boundary: the connected final int8 adapter differed from exact FP32 by `0.011018934557552882` relative L2, so only placement profiles sharing the same numerical identity may mix. Cross-numerical-profile aggregation is prohibited rather than tolerance-widened.
+- Published validated study `p4-numerical-profile-qualification-v1`, pinned to implementation commit `8af895ce8a0ac5925d4a612afb94f5dc0a42ecad`, with connected proof, 20-step trajectory, T2 direct-startup evidence, fixed TinyStories evaluation, negative findings, and CPU-only/local-host limitations.
 
 ### P5 — Explore rolling partial-model training
 
@@ -231,12 +237,10 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Bind int8 numerical-profile identity into assignment/checkpoint provenance and run a connected homogeneous int8 campaign against the fixed profile-specific oracle using direct bundle construction. Keep exact-FP32 acceptance and mixed aggregation unchanged.
+Pause and reconvene before starting P5. The next decision is whether to prioritize rolling partial-model training, exact asynchronous tiled computation, or an operator-owned remote trusted campaign; no post-P4 architecture has been selected or started.
 
 ## Remaining major work
 
-- Connected homogeneous int8 assignment/oracle/checkpoint campaign proof.
-- Profile certification and mixed-profile proof.
 - Rolling-submodel feasibility study.
 - Exact tiled-computation feasibility study.
 - Later sparse-expert investigation.
@@ -246,6 +250,7 @@ Bind int8 numerical-profile identity into assignment/checkpoint provenance and r
 
 - No blocker prevents the specification and research-framework work.
 - Remote trusted deployment still requires operator-owned HTTPS hosting choices and approved participants, but that does not block local research milestones.
+- Native GPU and GPU-plus-system-RAM placement were not qualified on the CPU-only PyTorch host; browser WebGPU remains a separate measured numerical/runtime profile rather than evidence for a native offload path.
 - Larger-model execution methods are hypotheses until measured; none should be described as supported merely because a paper or prototype demonstrates the general idea.
 
 ## Change record
@@ -263,6 +268,10 @@ Bind int8 numerical-profile identity into assignment/checkpoint provenance and r
 - Added direct authenticated int8 bundle construction with exact converted-int8 parity and a 66.75% T2 build-peak reduction, while preserving the T1 final-peak counterexample and connected-profile provenance gap.
 - Closed a delayed layer-bundle review finding: LoRA manifests now construct `CampaignConfig` from the same in-memory campaign payload whose digest was authenticated, eliminating a second-read semantic mutation race in both resident-verification and deferred-base paths.
 - Closed the connected-layer-bundle restart/correctness review findings: partial cache repairs now report exact ordered downloaded-artifact membership and byte totals, pre-existing next rounds must match the campaign's bundle-publication mode before state advancement, adapter copies roll back on mid-install faults, and persistent native sessions quarantine any model whose refresh raises.
+- Completed P3 by qualifying persistent resident, exact authenticated layer-bundle, and quantized frozen-linear placements while preserving measured negative or unsupported GPU-plus-RAM and remote-streaming boundaries.
+- Completed P4 with explicit runtime/numerical identities, bit-exact exact-CPU admission, profile-specific int8 oracles, profile-bound v2 checkpoint/restart/evaluation/release provenance, v1 FP32 compatibility, and fail-closed cross-profile admission.
+- Ran the connected T1 mixed-placement int8 proof across a coordinator restart: four exact profile gradients, `6.12852298785371e-8` maximum checkpoint relative L2, zero warm model payload, positive held-out movement, and deliberate 1.1019% separation from exact FP32.
+- Published the validated `p4-numerical-profile-qualification-v1` research record and paused before P5 for roadmap discussion.
 
 ### 2026-07-24
 

@@ -1,0 +1,169 @@
+{
+  "format": "orcacolony_experiment_evidence_v1",
+  "study_id": "p4-numerical-profile-qualification-v1",
+  "experiment_id": "connected-int8-mixed-placement",
+  "outcome": "validated",
+  "completed_at": "2026-07-25T19:34:19Z",
+  "summary": "Two authenticated T1 native workers completed four assignments across two int8 optimizer steps and a coordinator restart. Resident conversion and direct layer-bundle construction both matched the int8 oracle exactly, the maximum canonical-checkpoint relative L2 was 6.12852298785371e-8, both workers reused one model with zero warm model payload, held-out mean loss improved by 0.001623988151550293, every checkpoint bound the int8 profile in v2 weight/resume identities, and exact-FP32 restart was rejected. The final int8 adapter remained 0.011018934557552882 relative L2 from exact FP32.",
+  "measurements": [
+    {
+      "id": "connected-worker-gradient-relative-l2-max",
+      "label": "Maximum connected worker gradient relative L2",
+      "value": 0.0,
+      "unit": "ratio"
+    },
+    {
+      "id": "checkpoint-relative-l2-max",
+      "label": "Maximum profile-specific checkpoint relative L2",
+      "value": 0.0000000612852298785371,
+      "unit": "ratio"
+    },
+    {
+      "id": "held-out-loss-improvement",
+      "label": "Two-step held-out mean-loss improvement",
+      "value": 0.001623988151550293,
+      "unit": "loss"
+    },
+    {
+      "id": "resident-cold-model-payload",
+      "label": "Resident-converted cold model payload",
+      "value": 27614136,
+      "unit": "bytes"
+    },
+    {
+      "id": "bundle-cold-model-payload",
+      "label": "Direct-bundle cold model payload",
+      "value": 27621509,
+      "unit": "bytes"
+    },
+    {
+      "id": "resident-warm-model-payload",
+      "label": "Resident-converted warm model payload",
+      "value": 0,
+      "unit": "bytes"
+    },
+    {
+      "id": "bundle-warm-model-payload",
+      "label": "Direct-bundle warm model payload",
+      "value": 0,
+      "unit": "bytes"
+    },
+    {
+      "id": "connected-final-int8-to-fp32-adapter-relative-l2",
+      "label": "Connected final int8-to-exact-FP32 adapter relative L2",
+      "value": 0.011018934557552882,
+      "unit": "ratio"
+    },
+    {
+      "id": "twenty-step-final-int8-to-fp32-adapter-relative-l2",
+      "label": "Twenty-step int8-to-exact-FP32 adapter relative L2",
+      "value": 0.02636555504582058,
+      "unit": "ratio"
+    },
+    {
+      "id": "t1-resident-tensor-reduction",
+      "label": "T1 int8 retained-tensor reduction",
+      "value": 0.5018221574344024,
+      "unit": "ratio"
+    },
+    {
+      "id": "t2-direct-build-peak-rss-reduction",
+      "label": "T2 direct-bundle build peak RSS reduction",
+      "value": 0.6674955784775719,
+      "unit": "ratio"
+    }
+  ],
+  "evaluation": {
+    "primary_metric": {
+      "id": "connected-worker-gradient-relative-l2-max",
+      "value": 0.0
+    },
+    "guardrails": [
+      {
+        "id": "profile-checkpoint-parity",
+        "passed": true,
+        "detail": "Both canonical int8 checkpoints remained within 6.12852298785371e-8 relative L2 of their centralized profile oracle, below 1e-6."
+      },
+      {
+        "id": "held-out-loss-non-regression",
+        "passed": true,
+        "detail": "Frozen held-out mean loss improved from 9.042177319526672 to 9.040553331375122."
+      },
+      {
+        "id": "profile-provenance-and-restart",
+        "passed": true,
+        "detail": "Assignments, accepted ledgers, evaluations, and both orcacolony_lora_checkpoint_v2 records carried int8 identity; coordinator restart after step 1 preserved it and exact-FP32 reload failed closed."
+      },
+      {
+        "id": "exact-fp32-separation",
+        "passed": true,
+        "detail": "Exact CPU FP32 rejects one-ULP worker-gradient changes, int8 uses separate runtime/oracle identities, and the connected final adapters differed by 0.011018934557552882 relative L2."
+      },
+      {
+        "id": "placement-reuse",
+        "passed": true,
+        "detail": "Resident-converted and direct-bundle workers each built once, reused the model after coordinator restart, refreshed only the adapter, and reported zero warm model payload."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "homogeneous-int8-connects",
+      "label": "Homogeneous int8 is connected-campaign viable",
+      "description": "Two independent placements returned bit-exact profile gradients and aggregated through ordinary authenticated leases, canonical AdamW, evaluation, and restart.",
+      "kind": "positive"
+    },
+    {
+      "id": "placement-and-numerics-separate",
+      "label": "Placement can vary without mixing numerical profiles",
+      "description": "Resident conversion and direct bundle construction shared one int8 identity; exact CPU FP32 and Burn backends remained separately named and could not submit to the int8 campaign.",
+      "kind": "positive"
+    },
+    {
+      "id": "direct-int8-reduces-startup-peak",
+      "label": "Direct bundle construction materially reduces T2 startup peak",
+      "description": "The preserved T2 build proof reduced peak RSS through build by 66.75% versus complete resident FP32 construction followed by conversion while retaining identical int8 tensors, loss, and gradient digest.",
+      "kind": "positive"
+    },
+    {
+      "id": "int8-is-not-fp32",
+      "label": "Small loss drift does not imply trajectory identity",
+      "description": "Connected and twenty-step final adapters differed from exact FP32 by 1.10% and 2.64% relative L2, respectively; cross-profile aggregation remains prohibited.",
+      "kind": "negative"
+    }
+  ],
+  "limitations": [
+    "The connected qualification ran for two T1 steps on one Windows CPU host over loopback; it does not establish heterogeneous WAN throughput, remote participant reliability, or long-horizon convergence.",
+    "The T2 direct-construction result is an isolated startup/gradient measurement, not a connected T2 campaign.",
+    "Native GPU and GPU-plus-system-RAM placement were unavailable on the CPU-only PyTorch host and are not claimed; browser WebGPU remains a separately named measured profile.",
+    "Direct layer-bundle execution reduces retained/startup memory but this campaign does not prove a model larger than available system RAM.",
+    "The base model is deterministic and randomly initialized; positive TinyStories held-out movement is a use-case guardrail, not useful language-model quality.",
+    "Peak RSS is process-wide and includes Python/PyTorch allocator and runtime overhead."
+  ],
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "8af895ce8a0ac5925d4a612afb94f5dc0a42ecad",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/8af895ce8a0ac5925d4a612afb94f5dc0a42ecad"
+    },
+    {
+      "id": "connected-proof",
+      "kind": "repo-json-sha256",
+      "revision": "8fa67a94af121c48e61ef21b596fd71d180aba42201cde2db69829ba1c4b4ffa",
+      "uri": "repo:spikes/int8-frozen-linear/results/connected-t1.json"
+    },
+    {
+      "id": "twenty-step-trajectory",
+      "kind": "repo-json-sha256",
+      "revision": "8761cf7c4658cfdefbaedc272d330718f011063913b9f99e1e8d998e8c8812c0",
+      "uri": "repo:spikes/int8-frozen-linear/results/t1-trajectory.json"
+    },
+    {
+      "id": "t2-direct-startup",
+      "kind": "repo-json-sha256",
+      "revision": "8e24e1e13e3319c7393265f26928597d0b9666e73f66e1e75aa649024924db08",
+      "uri": "repo:spikes/int8-frozen-linear/results/startup-bundle-t2.json"
+    }
+  ]
+}
