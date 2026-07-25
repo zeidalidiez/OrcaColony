@@ -1562,10 +1562,9 @@ class GlobalStepCoordinator:
             if strict_profile:
                 if submission.loss_sum != expected_loss:
                     raise ValueError("loss sum is not bit-exact for numerical profile")
-                if set(gradients) != set(expected_gradients) or any(
-                    not torch.equal(gradients[name], expected_gradients[name])
-                    for name in expected_gradients
-                ):
+                if set(gradients) != set(expected_gradients) or tensor_sha256(
+                    gradients
+                ) != tensor_sha256(expected_gradients):
                     raise ValueError("gradient is not bit-exact for numerical profile")
             else:
                 if abs(submission.loss_sum - expected_loss) / abs(expected_loss) > 0.002:

@@ -219,7 +219,11 @@ def test_burn_worker_telemetry_is_required_and_bound_to_assignment_bytes(
         )
 
 
-def test_exact_fp32_profile_rejects_a_one_ulp_gradient_change(tmp_path: Path) -> None:
+@pytest.mark.parametrize("mutation", ("one-ulp", "signed-zero"))
+def test_exact_fp32_profile_rejects_bit_level_gradient_changes(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
     loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
     participants = participants_for(loaded.campaign.campaign["id"])
     coordinator = GlobalStepCoordinator.create(
@@ -236,11 +240,25 @@ def test_exact_fp32_profile_rejects_a_one_ulp_gradient_change(tmp_path: Path) ->
     ]
     submission = submission_for(coordinator, assignment)
     gradients = load_safetensors(submission.safetensors)
-    name = sorted(gradients)[0]
-    changed = gradients[name].clone()
-    flat = changed.reshape(-1)
-    flat[0] = torch.nextafter(flat[0], torch.tensor(float("inf")))
-    gradients[name] = changed
+    if mutation == "one-ulp":
+        name = sorted(gradients)[0]
+        changed = gradients[name].clone()
+        flat = changed.reshape(-1)
+        flat[0] = torch.nextafter(flat[0], torch.tensor(float("inf")))
+        gradients[name] = changed
+    else:
+        for name in sorted(gradients):
+            changed = gradients[name].clone()
+            flat = changed.reshape(-1)
+            zero_indices = (flat == 0).nonzero(as_tuple=False)
+            if zero_indices.numel() == 0:
+                continue
+            flat[int(zero_indices[0])] = torch.tensor(-0.0, dtype=flat.dtype)
+            assert torch.equal(changed, gradients[name])
+            gradients[name] = changed
+            break
+        else:
+            raise AssertionError("oracle gradient did not contain a signed-zero probe site")
 
     with pytest.raises(ValueError, match="not bit-exact"):
         coordinator.accept(
