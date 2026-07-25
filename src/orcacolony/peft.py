@@ -713,6 +713,9 @@ def build_direct_streamed_lora_model(
 
 
 LAYER_BUNDLE_STREAMED_FP32_PROFILE = "layer-bundle-streamed-fp32-v1"
+LAYER_BUNDLE_INT8_PROFILE = (
+    "layer-bundle-int8-per-output-symmetric-f32-dequant-v1"
+)
 _LAYER_BUNDLE_ARTIFACT_PATTERN = re.compile(
     r"(?:resident|linear-[0-9]{5})\.safetensors\Z"
 )
@@ -1201,6 +1204,7 @@ class LayerBundleStreamedFrozenLinear(nn.Module):
 
     def __init__(self, descriptor: _LayerBundleLinearDescriptor) -> None:
         super().__init__()
+        self.descriptor = descriptor
         self.artifact_path = descriptor.artifact_path
         self.expected_artifact_sha256 = descriptor.artifact_sha256
         self.expected_tensor_sha256 = descriptor.tensor_sha256
@@ -1248,6 +1252,51 @@ class LayerBundleStreamedFrozenLinear(nn.Module):
         if inputs.device.type != "cpu" or inputs.dtype != torch.float32:
             raise ValueError("layer-bundle streamed profile requires CPU FP32 activations")
         return _LayerBundleStreamedFrozenLinearFunction.apply(inputs, self)
+
+
+class LayerBundleInt8FrozenLinear(Int8FrozenLinear):
+    """Resident int8 linear quantized from one authenticated bundle shard."""
+
+    def __init__(self, source: LayerBundleStreamedFrozenLinear) -> None:
+        nn.Module.__init__(self)
+        weight, bias = source.load_tensors()
+        scales = (
+            weight.abs().amax(dim=1).clamp_min(torch.finfo(torch.float32).tiny)
+            / 127.0
+        )
+        self.in_features = source.in_features
+        self.out_features = source.out_features
+        self.artifact_path = source.artifact_path
+        self.expected_artifact_sha256 = source.expected_artifact_sha256
+        self.expected_tensor_sha256 = source.expected_tensor_sha256
+        self.artifact_bytes = source.artifact_bytes
+        self.artifact_open_count = source.read_count
+        self.artifact_read_bytes = source.read_bytes
+        self.register_buffer(
+            "qweight",
+            torch.round(weight / scales[:, None]).clamp(-127, 127).to(torch.int8),
+        )
+        self.register_buffer("scales", scales)
+        self.register_buffer(
+            "bias",
+            None if bias is None else bias.detach().to(dtype=torch.float32).clone(),
+        )
+
+
+def _quantize_layer_bundle_streamed_linears(module: nn.Module) -> int:
+    count = 0
+    for child_name, child in list(module.named_children()):
+        if isinstance(child, LoRALinear):
+            if not isinstance(child.base, LayerBundleStreamedFrozenLinear):
+                raise ValueError("layer-bundle int8 LoRA base is not streamed")
+            child.base = LayerBundleInt8FrozenLinear(child.base)
+            count += 1
+        elif isinstance(child, LayerBundleStreamedFrozenLinear):
+            setattr(module, child_name, LayerBundleInt8FrozenLinear(child))
+            count += 1
+        else:
+            count += _quantize_layer_bundle_streamed_linears(child)
+    return count
 
 
 def _replace_with_layer_bundle_linears(
@@ -1380,6 +1429,38 @@ def build_layer_bundle_streamed_lora_model(
         if isinstance(module, CausalSelfAttention):
             module.causal_mask = causal_mask.clone()
     load_adapter_state(model, adapter_state)
+    adapter_named_parameters(model)
+    return model
+
+
+def build_layer_bundle_int8_lora_model(
+    campaign: CampaignConfig,
+    config: LoRAConfig,
+    bundle_dir: str | Path,
+    bundle_manifest_sha256: str,
+    adapter_state: Mapping[str, Tensor],
+) -> VolunteerDecoder:
+    """Construct resident int8 linears one authenticated bundle shard at a time."""
+
+    model = build_layer_bundle_streamed_lora_model(
+        campaign,
+        config,
+        bundle_dir,
+        bundle_manifest_sha256,
+        adapter_state,
+    )
+    expected_count = sum(
+        isinstance(module, LayerBundleStreamedFrozenLinear)
+        for module in model.modules()
+    )
+    quantized_count = _quantize_layer_bundle_streamed_linears(model)
+    if expected_count <= 0 or quantized_count != expected_count:
+        raise ValueError("layer-bundle int8 linear partition differs")
+    if any(
+        isinstance(module, (nn.Linear, LayerBundleStreamedFrozenLinear))
+        for module in model.modules()
+    ):
+        raise ValueError("layer-bundle int8 model retained an FP32 linear")
     adapter_named_parameters(model)
     return model
 

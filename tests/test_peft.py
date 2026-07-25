@@ -540,6 +540,131 @@ def test_layer_bundle_builds_exact_model_without_linear_startup_reads(
     )
 
 
+def test_layer_bundle_builds_int8_directly_without_resident_fp32_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded = peft.load_lora_manifest(CONFIG, LORA_CONFIG)
+    base_model = build_model(loaded.campaign)
+    base_path = tmp_path / "base-model.safetensors"
+    save_file(
+        {
+            name: tensor.detach().cpu().contiguous()
+            for name, tensor in base_model.state_dict().items()
+        },
+        base_path,
+    )
+    bundle = peft.export_base_layer_bundle(
+        loaded.campaign,
+        loaded.config,
+        base_path,
+        hashlib.sha256(base_path.read_bytes()).hexdigest(),
+        tmp_path / "base-layer-bundle",
+    )
+    converted = peft.build_int8_lora_model(loaded.campaign, loaded.config)
+    adapter_state = {
+        name: tensor.detach().clone()
+        for name, tensor in peft.adapter_named_parameters(converted).items()
+    }
+
+    def forbidden_full_builder(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("direct int8 construction materialized the FP32 builder")
+
+    monkeypatch.setattr(peft, "build_lora_model", forbidden_full_builder)
+    direct = peft.build_layer_bundle_int8_lora_model(
+        loaded.campaign,
+        loaded.config,
+        bundle.output_dir,
+        bundle.manifest_sha256,
+        adapter_state,
+    )
+    converted_linears = {
+        name: module
+        for name, module in converted.named_modules()
+        if isinstance(module, peft.Int8FrozenLinear)
+    }
+    direct_linears = {
+        name: module
+        for name, module in direct.named_modules()
+        if isinstance(module, peft.LayerBundleInt8FrozenLinear)
+    }
+    assert peft.LAYER_BUNDLE_INT8_PROFILE == (
+        "layer-bundle-int8-per-output-symmetric-f32-dequant-v1"
+    )
+    assert len(direct_linears) == 16
+    assert set(direct_linears) == set(converted_linears)
+    assert not any(isinstance(module, torch.nn.Linear) for module in direct.modules())
+    assert all(module.artifact_open_count == 1 for module in direct_linears.values())
+    for name, module in direct_linears.items():
+        reference = converted_linears[name]
+        assert torch.equal(module.qweight, reference.qweight)
+        assert torch.equal(module.scales, reference.scales)
+        if reference.bias is None:
+            assert module.bias is None
+        else:
+            assert torch.equal(module.bias, reference.bias)
+
+    def resident_tensor_bytes(model: torch.nn.Module) -> int:
+        seen: set[int] = set()
+        total = 0
+        for tensor in [*model.parameters(), *model.buffers()]:
+            storage = tensor.untyped_storage()
+            if storage.data_ptr() not in seen:
+                seen.add(storage.data_ptr())
+                total += storage.nbytes()
+        return total
+
+    assert resident_tensor_bytes(direct) == resident_tensor_bytes(converted)
+    inputs, targets = fixture_batch(loaded.campaign)
+    for sequence_length in (1, 8, loaded.campaign.model.context_length):
+        expected = peft.compute_adapter_gradients(
+            converted,
+            inputs[:, :sequence_length],
+            targets[:, :sequence_length],
+        )
+        actual = peft.compute_adapter_gradients(
+            direct,
+            inputs[:, :sequence_length],
+            targets[:, :sequence_length],
+        )
+        assert actual.loss_sum == expected.loss_sum
+        assert actual.gradient_sha256 == expected.gradient_sha256
+        assert all(
+            torch.equal(actual.gradients[name], tensor)
+            for name, tensor in expected.gradients.items()
+        )
+
+    restarted = peft.build_layer_bundle_int8_lora_model(
+        loaded.campaign,
+        loaded.config,
+        bundle.output_dir,
+        bundle.manifest_sha256,
+        adapter_state,
+    )
+    expected_restart = peft.compute_adapter_gradients(converted, inputs, targets)
+    actual_restart = peft.compute_adapter_gradients(restarted, inputs, targets)
+    assert actual_restart.loss_sum == expected_restart.loss_sum
+    assert actual_restart.gradient_sha256 == expected_restart.gradient_sha256
+
+    first_direct = next(iter(direct_linears.values()))
+    qweight_snapshot = first_direct.qweight.clone()
+    mutated = {
+        name: tensor.clone()
+        for name, tensor in load_file(first_direct.artifact_path).items()
+    }
+    mutated["weight"].add_(1.0)
+    save_file(mutated, first_direct.artifact_path)
+    assert torch.equal(first_direct.qweight, qweight_snapshot)
+    with pytest.raises(ValueError, match="layer-bundle linear tensor digest mismatch"):
+        peft.build_layer_bundle_int8_lora_model(
+            loaded.campaign,
+            loaded.config,
+            bundle.output_dir,
+            bundle.manifest_sha256,
+            adapter_state,
+        )
+
+
 def test_layer_bundle_can_parse_lora_contract_without_resident_base_build(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -782,6 +907,34 @@ def test_int8_t1_homogeneous_trajectory_is_reproducible_and_profile_separate() -
     ]["fp32"]
     assert result["final_adapter_metrics"]["relative_l2_error"] > 1e-2
     assert len(set(result["profiled_final_checkpoint_sha256"].values())) == 3
+
+
+def test_direct_int8_bundle_startup_evidence_is_exact_and_reduces_t2_peak() -> None:
+    results = CONFIG.parents[1] / "spikes" / "int8-frozen-linear" / "results"
+    for scale, expected_linears in (("t1", 24), ("t2", 48)):
+        converted = json.loads(
+            (results / f"startup-converted-{scale}.json").read_text(encoding="utf-8")
+        )
+        bundle = json.loads(
+            (results / f"startup-bundle-{scale}.json").read_text(encoding="utf-8")
+        )
+        assert converted["format"] == "orcacolony_direct_int8_startup_proof_v1"
+        assert bundle["format"] == converted["format"]
+        assert bundle["base_model_sha256"] == converted["base_model_sha256"]
+        assert bundle["loss_sum"] == converted["loss_sum"]
+        assert bundle["gradient_sha256"] == converted["gradient_sha256"]
+        assert bundle["retained_tensor_bytes"] == converted["retained_tensor_bytes"]
+        assert bundle["bundle_artifact_open_count"] == expected_linears
+    converted_t2 = json.loads(
+        (results / "startup-converted-t2.json").read_text(encoding="utf-8")
+    )
+    bundle_t2 = json.loads(
+        (results / "startup-bundle-t2.json").read_text(encoding="utf-8")
+    )
+    assert bundle_t2["peak_after_build_bytes"] < converted_t2[
+        "peak_after_build_bytes"
+    ]
+    assert bundle_t2["peak_rss_bytes"] < converted_t2["peak_rss_bytes"]
 
 
 def test_adapter_gradient_application_matches_an_independent_mean_loss_step() -> None:

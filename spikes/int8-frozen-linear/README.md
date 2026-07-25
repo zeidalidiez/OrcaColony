@@ -80,6 +80,23 @@ Int8 retained `13,998,080` tensor bytes versus `28,098,560` FP32 bytes (50.18% l
 
 The evidence therefore promotes int8 to a **homogeneous-profile candidate** with its own oracle and profile-bound checkpoint identity. It does not admit int8 gradients into exact-FP32 aggregation.
 
+## Direct authenticated int8 construction
+
+`build_layer_bundle_int8_lora_model(...)` now creates the meta/empty exact-FP32 bundle structure, loads and authenticates one frozen-linear shard at a time, quantizes that owned FP32 snapshot immediately, and discards it before opening the next shard. The final model retains the same int8 buffers as `build_int8_lora_model(...)` without ever constructing all resident FP32 linears.
+
+Reproduce the isolated converted/direct comparison with [`startup-proof.py`](startup-proof.py). The preserved T1/T2 result files use the same base, adapter, and deterministic full-context batch in separate Windows processes.
+
+| Measurement | T1 converted | T1 direct bundle | T2 converted | T2 direct bundle |
+|---|---:|---:|---:|---:|
+| Retained tensor bytes | 13,998,080 | 13,998,080 | 113,080,320 | 113,080,320 |
+| Peak RSS through build | 362,385,408 | 316,235,776 | 1,380,302,848 | 458,956,800 |
+| Final process peak RSS | 442,548,224 | 454,524,928 | 1,380,302,848 | 845,414,400 |
+| Build seconds | 1.350311 | 1.575045 | 3.289739 | 3.117886 |
+| Gradient seconds | 0.265296 | 0.086320 | 2.675096 | 0.737205 |
+| Authenticated linear opens | 0 | 24 | 0 | 48 |
+
+Converted and direct modes returned identical loss and gradient SHA-256 at both scales. At T2, direct construction reduced peak RSS through build by **66.75%**, current post-build RSS by **30.82%**, and final process peak by **38.75%**. It read each linear shard once (`340,070,400` logical tensor bytes) and retained no FP32 linear weight. T1's final peak was 2.71% higher despite a lower build peak, so the result is scale/workload dependent. Timings are raw one-run observations with warm local storage and should not be treated as a stable speed ranking.
+
 ## Verdict: PARTIAL
 
 ### What worked
@@ -93,8 +110,8 @@ The evidence therefore promotes int8 to a **homogeneous-profile candidate** with
 
 - Adapter gradients did not preserve the current FP32 numerical contract: relative L2 reached 3.038% at T2.
 - The original one-gradient storage comparison did not prove connected acceptance, trajectory behavior, held-out quality, process RSS, or throughput.
-- The trajectory now proves deterministic restart, homogeneous two-shard aggregation, and positive held-out movement at T1, but not connected execution, longer convergence, T2 trajectory quality, or a direct low-peak int8 loader.
-- The spike constructs an FP32 model before conversion, so it does not solve peak startup residency or larger-than-RAM loading.
+- The trajectory proves deterministic restart, homogeneous two-shard aggregation, and positive held-out movement at T1, but not connected execution, longer convergence, or T2 trajectory quality.
+- Direct bundle construction now removes complete FP32 startup residency, but connected numerical-profile assignment/oracle/checkpoint provenance is not implemented.
 
 ### Surprises
 
@@ -106,4 +123,4 @@ The evidence therefore promotes int8 to a **homogeneous-profile candidate** with
 1. Reuse the custom int8 frozen-linear/autograd design as an explicit **offline numerical profile**, not as `python-native-cpu-f32` and not under the current FP32 tolerance.
 2. Use the fixed quantized trajectory as the profile-specific oracle; add profile identity to assignments/checkpoints before any connected homogeneous campaign.
 3. Keep the connected exact-FP32 layer-bundle worker as the baseline and keep int8 out of mixed exact aggregation; placement and numerical-profile decisions remain separate.
-4. A production int8 loader must construct quantized modules directly from the frozen artifact rather than building the complete FP32 model first. The next vertical slice should load int8 weights from authenticated layer-bundle shards and keep exact-FP32 acceptance unchanged.
+4. Promote the direct bundle loader only through a connected homogeneous int8 campaign with explicit profile identity and a profile-specific oracle. Keep exact-FP32 acceptance unchanged.

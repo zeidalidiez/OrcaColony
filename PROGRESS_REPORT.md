@@ -197,6 +197,8 @@ Completed within the first P3 measurement and native-baseline slice:
 - Fixed a 20-step T1 TinyStories FP32/int8 trajectory with evaluations at steps `0, 1, 2, 5, 10, 20`. Two-shard homogeneous int8 stayed within `3.1241858279774175e-7` gradient relative L2 and `1.5512369314698598e-7` final-adapter relative L2 of centralized int8.
 - Proved exact int8 checkpoint restart for ten subsequent gradients, adapters, and AdamW states. Int8 held-out mean loss improved by `0.10614669322967529`, versus `0.10496234893798828` FP32, while retaining 50.18% fewer model-tensor bytes at T1.
 - Preserved the numerical boundary: int8 reached 5.12% maximum per-step gradient drift and 2.64% final-adapter drift versus FP32. It is a homogeneous-profile candidate with a distinct profile-bound identity, not an exact-profile worker or mixed-aggregation participant.
+- Added direct authenticated int8 construction from layer bundles. Each FP32 shard is validated, quantized, and discarded before the next opens; the resulting buffers/loss/gradients match convert-after-resident int8 exactly without complete FP32 startup residency.
+- At T2 the direct builder retained the same `113,080,320` tensor bytes while reducing peak RSS through build from `1,380,302,848` to `458,956,800` bytes (66.75%) and final process peak to `845,414,400` bytes (38.75% lower). T1 final peak was 2.71% higher, so promotion remains scale/workload qualified rather than universal.
 
 ### P5 — Explore rolling partial-model training
 
@@ -229,11 +231,11 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Build a direct authenticated int8 layer-bundle loader that never constructs the complete FP32 model, bind numerical-profile identity into assignment/checkpoint provenance, and run a connected homogeneous int8 campaign against the fixed profile-specific oracle. Keep exact-FP32 acceptance and mixed aggregation unchanged.
+Bind int8 numerical-profile identity into assignment/checkpoint provenance and run a connected homogeneous int8 campaign against the fixed profile-specific oracle using direct bundle construction. Keep exact-FP32 acceptance and mixed aggregation unchanged.
 
 ## Remaining major work
 
-- Direct int8 artifact construction and connected homogeneous-profile campaign proof.
+- Connected homogeneous int8 assignment/oracle/checkpoint campaign proof.
 - Profile certification and mixed-profile proof.
 - Rolling-submodel feasibility study.
 - Exact tiled-computation feasibility study.
@@ -258,6 +260,7 @@ Build a direct authenticated int8 layer-bundle loader that never constructs the 
 - Completed a real T1 TinyStories campaign across a coordinator restart with exact gradients, zero warm model/adapter payload bytes, no monolithic worker cache, sub-`1.24e-7` checkpoint parity, and positive held-out loss movement.
 - Qualified resident and layer-bundle workers together at T2: exact per-worker gradients, sub-`2.19e-7` aggregate checkpoint parity, positive held-out movement, and 68.15% lower bundle-worker process peak RSS with the measured runtime/payload tradeoff preserved.
 - Started P4 with a fixed 20-step T1 int8 trajectory: positive held-out movement, exact restart, sub-`3.13e-7` homogeneous aggregation drift, and explicit separation from the 2.64%-diverged FP32 adapter trajectory.
+- Added direct authenticated int8 bundle construction with exact converted-int8 parity and a 66.75% T2 build-peak reduction, while preserving the T1 final-peak counterexample and connected-profile provenance gap.
 
 ### 2026-07-24
 
