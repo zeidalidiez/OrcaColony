@@ -1,0 +1,73 @@
+{
+  "format": "orcacolony_study_v1",
+  "study_id": "p2-persistent-lora-release-v1",
+  "title": "P2 persistent evaluated LoRA campaign and release proof",
+  "hypothesis": "A frozen-base LoRA campaign can accumulate two multi-worker global steps across coordinator restart, improve a fixed held-out use case, and export a deterministic release that preserves separate base, adapter, worker-weight, and complete resume-state identities.",
+  "status": "validated",
+  "use_case": {
+    "claim": "Qualify persistent evaluated adapter progress and deterministic identity-separated releases before P3 native/offload work.",
+    "baseline": {
+      "id": "zero-step-lora-initialization",
+      "label": "Zero-step rank-4 LoRA initialization",
+      "description": "Evaluate the initial zero-B adapter on the same eight frozen validation sequences before any distributed global step."
+    },
+    "primary_metric": {
+      "id": "held-out-mean-loss-improvement",
+      "label": "Held-out mean-loss improvement",
+      "description": "Initialization mean loss minus selected-checkpoint mean loss on eight frozen validation sequences.",
+      "direction": "maximize",
+      "success_threshold": 0.0001,
+      "unit": "cross-entropy"
+    },
+    "repeated_validation_suite": {
+      "id": "per-step-held-out-cross-entropy",
+      "label": "Per-step held-out cross-entropy",
+      "description": "Evaluate initialization and every completed global-step checkpoint on the same eight frozen validation sequences.",
+      "revision": "git:b571d692152a0fe51892cdb4da1c91f4dc66d1e0:persistent-lora-validation"
+    },
+    "final_holdout_suite": {
+      "id": "unassigned-p2-proof-only",
+      "label": "No final holdout consumed",
+      "description": "This bounded P2 integration proof does not make a general model-quality claim and leaves final holdout assignment to a later campaign.",
+      "revision": "unassigned"
+    },
+    "guardrails": [
+      {
+        "id": "restart-complete",
+        "label": "Complete restart after step 1",
+        "description": "Reload after step 1 must preserve adapter, optimizer trajectory, cursor, history, and distinct weight/resume identities."
+      },
+      {
+        "id": "adapter-parity",
+        "label": "Adapter trajectory parity",
+        "description": "The accepted step-2 adapter must remain within 1e-5 relative L2 of the centralized trajectory."
+      },
+      {
+        "id": "release-checksums-valid",
+        "label": "Complete release checksum validation",
+        "description": "Every base, adapter, optimizer, state, dataset, dashboard, static worker, and manifest entry must pass SHA256SUMS verification."
+      }
+    ]
+  },
+  "independent_variables": [
+    {
+      "id": "persistent-adapter-campaign",
+      "label": "Persistent evaluated adapter campaign",
+      "description": "Advance from a connected one-step synthetic fixture to two versioned global steps, coordinator restart, fixed held-out evaluation, checkpoint selection, and deterministic release."
+    }
+  ],
+  "controlled_variables": [
+    {
+      "id": "base-adapter-data-optimizer-evaluation",
+      "label": "Frozen base, adapter manifest, data, optimizer, and evaluation",
+      "description": "Hold the T0 base, rank-4 alpha-8 QKV adapter manifest, packed corpus, FP32 aggregation, coordinator AdamW, validation sequences, and checkpoint-selection rule fixed."
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "python-oracle-persistent-lora-release",
+      "role": "candidate",
+      "manifest": "experiments/python-oracle-persistent-lora-release.json"
+    }
+  ]
+}

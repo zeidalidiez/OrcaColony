@@ -108,7 +108,7 @@ uv run python -m orcacolony.multiworker \
 
 The coordinator serves the immutable dense base and current adapter separately, binds every assignment to both weight identities, the full optimizer-backed resume-state identity, and the exact eight-tensor trainable manifest, accepts no base gradients, and publishes only the next canonical adapter plus its optimizer state. Use the same `?cpu=browser-a#token=local-browser-a` and `?cpu=browser-b#token=local-browser-b` URLs for the CPU/WASM path. In the connected proof, both browser assignments were accepted, the adapter checkpoint survived coordinator restart, and its 8,192 values matched an independent centralized Python step with cosine `0.9999999999985897`, relative L2 `1.6795715402185043e-6`, and maximum absolute error `7.257913239300251e-7`.
 
-This establishes connected adapter-only coordination, not useful model adaptation or reduced frozen-base execution memory. Persistent LoRA campaign evaluation and release remain the next integration layer; the dense campaign path below is unchanged.
+This establishes connected adapter-only coordination, not reduced frozen-base execution memory. Persistent LoRA evaluation and release now use the same campaign path below; dense mode remains unchanged.
 
 ## Persistent multi-step campaign
 
@@ -117,12 +117,15 @@ The campaign runner automatically promotes each completed global step, versions 
 ```bash
 uv run python -m orcacolony.campaign_run \
   --config campaign/t0-smoke.json \
+  --lora-config campaign/t0-lora-smoke.json \
   --participants campaign/t0-local-participants.json \
   --state .artifacts/campaign \
   --browser-root spikes/burn-browser-gradient/www \
   --workers 2 \
   --target-steps 2
 ```
+
+Omit `--lora-config` for dense training. In LoRA mode the runner evaluates versioned adapters, resumes the exact coordinator AdamW trajectory, and exposes distinct base, adapter, worker-weight, and complete resume-state identities. The deterministic release CLI accepts the same `--lora-config` and publishes `base-model.safetensors`, `adapter.safetensors`, optimizer moments, and resume metadata separately; see `p2-persistent-lora-release-v1` in [`research/README.md`](research/README.md) for the complete reproducible command.
 
 Open `http://localhost:8000/?cpu-loop=browser-a#token=local-browser-a` to keep one CPU/WASM worker requesting assignments until the target is complete; use `?loop=<worker-id>` for the automatic WebGPU path. The verified continuous browser processed both shards across two rounds without reloads, produced `checkpoints/step-00000001` and `checkpoints/step-00000002`, retained four attribution-ledger entries, survived a coordinator restart, and finished step 2 with cosine similarity `0.9999999999999722` and relative L2 error `2.3485458071128626e-7` against the resumed Python reference.
 

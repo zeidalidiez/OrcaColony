@@ -1,0 +1,145 @@
+{
+  "format": "orcacolony_experiment_evidence_v1",
+  "study_id": "p2-persistent-lora-release-v1",
+  "experiment_id": "python-oracle-persistent-lora-release",
+  "outcome": "validated",
+  "completed_at": "2026-07-25T04:21:00Z",
+  "summary": "The two-step LoRA campaign survived restart, accepted four assignments and 1,024 tokens, improved held-out mean loss by 0.023848533630371094, retained 1.1036311940991158e-6 adapter relative-L2 parity, selected step 2, and produced an identity-separated release whose complete checksum inventory verified.",
+  "measurements": [
+    {
+      "id": "initial-held-out-mean-loss",
+      "label": "Initialization held-out mean loss",
+      "value": 8.373976469039917,
+      "unit": "cross-entropy"
+    },
+    {
+      "id": "selected-held-out-mean-loss",
+      "label": "Selected step-2 held-out mean loss",
+      "value": 8.350127935409546,
+      "unit": "cross-entropy"
+    },
+    {
+      "id": "held-out-mean-loss-improvement",
+      "label": "Held-out mean-loss improvement",
+      "value": 0.023848533630371094,
+      "unit": "cross-entropy"
+    },
+    {
+      "id": "adapter-relative-l2",
+      "label": "Accepted adapter relative L2",
+      "value": 1.1036311940991158e-6,
+      "unit": "ratio"
+    },
+    {
+      "id": "accepted-assignments",
+      "label": "Accepted assignments",
+      "value": 4,
+      "unit": "assignments"
+    },
+    {
+      "id": "accepted-tokens",
+      "label": "Accepted training tokens",
+      "value": 1024,
+      "unit": "tokens"
+    }
+  ],
+  "evaluation": {
+    "primary_metric": {
+      "id": "held-out-mean-loss-improvement",
+      "value": 0.023848533630371094
+    },
+    "guardrails": [
+      {
+        "id": "restart-complete",
+        "passed": true,
+        "detail": "The coordinator was reconstructed from disk after step 1 and completed step 2 with persisted adapter, AdamW moments, cursor, history, and identities."
+      },
+      {
+        "id": "adapter-parity",
+        "passed": true,
+        "detail": "The final adapter relative L2 versus the centralized trajectory was 1.1036311940991158e-6, below the declared 1e-5 ceiling."
+      },
+      {
+        "id": "release-checksums-valid",
+        "passed": true,
+        "detail": "sha256sum -c verified the base, adapter, optimizer, state, data, dashboard, static worker, manifest, and every other release payload."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "persistent-adapter-progress",
+      "label": "Persistent adapter progress established",
+      "description": "Two bounded global steps accumulated into one restartable canonical adapter and improved the fixed validation use case.",
+      "kind": "positive"
+    },
+    {
+      "id": "identity-preserving-release",
+      "label": "Identity-preserving adapter release established",
+      "description": "The release publishes the immutable base, selected adapter, optimizer moments, and full resume metadata separately while retaining explicit worker-weight and resume identities.",
+      "kind": "positive"
+    },
+    {
+      "id": "bounded-local-evidence-only",
+      "label": "Bounded local evidence only",
+      "description": "The corpus is a deterministic local proof fixture and workers are logical Python-oracle workers on one host, so this result does not establish remote reliability or broad model usefulness.",
+      "kind": "neutral"
+    }
+  ],
+  "limitations": [
+    "No final holdout was consumed.",
+    "The positive loss change is a bounded integration signal on a small repeated local corpus, not evidence of a generally useful public model.",
+    "The evaluated release proof uses Python-oracle workers; the separate persistent browser proof covers real Burn CPU/WASM execution on the synthetic fixture.",
+    "No native-worker offload, quantization, NVMe streaming, mixed profile, or remote participant is evaluated."
+  ],
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "b571d692152a0fe51892cdb4da1c91f4dc66d1e0",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/b571d692152a0fe51892cdb4da1c91f4dc66d1e0"
+    },
+    {
+      "id": "proof-summary",
+      "kind": "generated-json-sha256",
+      "revision": "38ed3c37488cb93103c8d6903189c969460540b9b7aa4451b20e3a7913698489",
+      "uri": "generated:.artifacts/p2-lora-evaluated-release-proof/proof-summary.json"
+    },
+    {
+      "id": "campaign-evaluations",
+      "kind": "generated-json-sha256",
+      "revision": "7a37cdd8557cbbf442d1d56214b64e803b8d025b353eeb3963af37a6d80acefd",
+      "uri": "generated:.artifacts/p2-lora-evaluated-release-proof/campaign-state/evaluations.json"
+    },
+    {
+      "id": "release-manifest",
+      "kind": "generated-json-sha256",
+      "revision": "225efb9b6f64ac910cbed3d61551b354a5f2a99d498a50284ecfb1a379b3f09e",
+      "uri": "generated:.artifacts/p2-lora-evaluated-release-proof/release/release-manifest.json"
+    },
+    {
+      "id": "release-checksums",
+      "kind": "sha256sums-sha256",
+      "revision": "162be8c51a3fdd1b229d45d6ee9c6f7059d60d7db3ed5c5e58b7f0de2e36e7cc",
+      "uri": "generated:.artifacts/p2-lora-evaluated-release-proof/release/SHA256SUMS"
+    },
+    {
+      "id": "selected-adapter",
+      "kind": "safetensors-sha256",
+      "revision": "7c982d0799cbe690d40f93aae34011f6bb60f02d23ab00aeeb2f0715ba0a7920",
+      "uri": "generated:.artifacts/p2-lora-evaluated-release-proof/release/checkpoint/adapter.safetensors"
+    },
+    {
+      "id": "selected-weight-checkpoint",
+      "kind": "worker-weight-checkpoint-sha256",
+      "revision": "a06b89b5f7213fb082c3f62d6ffe2d85ae7501c1bedef13f19fe59b57128ddf2",
+      "uri": "generated:.artifacts/p2-lora-evaluated-release-proof/release/checkpoint/state.json"
+    },
+    {
+      "id": "selected-resume-state",
+      "kind": "resume-state-sha256",
+      "revision": "7460b4f8e13aca673861703403eaa21bab20d67138ffcadef5fada3e0173ed15",
+      "uri": "generated:.artifacts/p2-lora-evaluated-release-proof/release/checkpoint/state.json"
+    }
+  ]
+}

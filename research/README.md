@@ -13,6 +13,8 @@ research/studies/<study-id>/
     <experiment-id>.json
   evidence/
     <experiment-id>.json
+  scripts/
+    <reproduction-script>.py
 ```
 
 The schema deliberately keeps training methods, execution topologies, memory profiles, numerical profiles, worker profiles, variables, and experiment roles as open identified descriptors with human-readable labels and descriptions. Workflow states and result dispositions remain constrained so tools can distinguish proposed, active, validated, rejected, inconclusive, and promoted work.
@@ -44,6 +46,25 @@ The output path must not already exist. Remove or choose another ignored `.artif
 - `p2-lora-numerical-v1` validates the first frozen-base LoRA numerical slice against an independent one-step reference. Its evidence explicitly does not claim browser/native parity, campaign recovery, offload performance, or useful model adaptation.
 - `p2-browser-lora-parity-v1` compares CPU/WASM and WebGPU against the same Python adapter-gradient oracle. It records the WebGPU cold-run cost as a negative finding and does not claim coordinator integration or offload.
 - `p2-connected-browser-lora-v1` validates two authenticated CPU/WASM adapter assignments, coordinator-owned aggregation and AdamW, separate worker-weight and full resume-state identities, restart recovery, and accepted-checkpoint parity against the independent Python step. It does not claim heterogeneous-network performance, frozen-base offload, public untrusted participation, or useful adaptation quality.
+- `p2-persistent-lora-release-v1` validates two persistent adapter steps, coordinator reload after step 1, per-step held-out evaluation, a positive fixed-use-case gate, lowest-loss checkpoint selection, and a deterministic release with separate base, adapter, worker-weight, and complete resume-state identities. Its evaluated workers are local Python oracles; the connected browser study remains the real Burn worker evidence.
+
+Reproduce the persistent release study's source evidence with:
+
+```bash
+uv run python research/studies/p2-persistent-lora-release-v1/scripts/run-proof.py
+uv run python -m orcacolony.release \
+  --config .artifacts/p2-lora-evaluated-release-proof/campaign.json \
+  --lora-config .artifacts/p2-lora-evaluated-release-proof/lora.json \
+  --participants .artifacts/p2-lora-evaluated-release-proof/participants.json \
+  --dataset-artifacts .artifacts/p2-lora-evaluated-release-proof/dataset \
+  --campaign-state .artifacts/p2-lora-evaluated-release-proof/campaign-state \
+  --browser-root spikes/burn-browser-gradient/www \
+  --project-license LICENSE \
+  --third-party-notice THIRD_PARTY_DATA.md \
+  --public-coordinator-url https://coordinator.example \
+  --output .artifacts/p2-lora-evaluated-release-proof/release
+(cd .artifacts/p2-lora-evaluated-release-proof/release && sha256sum -c SHA256SUMS)
+```
 
 Every committed study, linked experiment, and conventionally named evidence file is rebuilt by the repository test suite. To render any P2 result directly, substitute that study's three manifest paths in the command above and choose a fresh ignored output directory.
 

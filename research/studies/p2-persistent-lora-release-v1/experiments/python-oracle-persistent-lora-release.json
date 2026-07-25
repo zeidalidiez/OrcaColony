@@ -1,0 +1,96 @@
+{
+  "format": "orcacolony_experiment_v1",
+  "study_id": "p2-persistent-lora-release-v1",
+  "experiment_id": "python-oracle-persistent-lora-release",
+  "title": "Two-step persistent LoRA campaign, evaluation, restart, and release",
+  "status": "validated",
+  "subject": {
+    "kind": "coordinator-worker-release-profile",
+    "id": "python-oracle-persistent-lora-release-fp32",
+    "revision": "git:b571d692152a0fe51892cdb4da1c91f4dc66d1e0"
+  },
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "b571d692152a0fe51892cdb4da1c91f4dc66d1e0",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/b571d692152a0fe51892cdb4da1c91f4dc66d1e0"
+    },
+    {
+      "id": "proof-summary",
+      "kind": "generated-json-sha256",
+      "revision": "38ed3c37488cb93103c8d6903189c969460540b9b7aa4451b20e3a7913698489",
+      "uri": "generated:.artifacts/p2-lora-evaluated-release-proof/proof-summary.json"
+    },
+    {
+      "id": "release-manifest",
+      "kind": "generated-json-sha256",
+      "revision": "225efb9b6f64ac910cbed3d61551b354a5f2a99d498a50284ecfb1a379b3f09e",
+      "uri": "generated:.artifacts/p2-lora-evaluated-release-proof/release/release-manifest.json"
+    }
+  ],
+  "method": {
+    "training_method": {
+      "id": "frozen-base-lora",
+      "label": "Frozen-base LoRA persistent campaign",
+      "description": "Train only eight rank-4 fused-QKV adapter tensors while the complete immutable T0 base participates in every forward/backward pass."
+    },
+    "execution_topology": {
+      "id": "two-worker-two-step-restart-release",
+      "label": "Two logical workers across two persistent global steps",
+      "description": "Two authenticated logical workers contribute disjoint assignments; the coordinator aggregates and applies AdamW once per step, reloads after step 1, evaluates each checkpoint, and exports the selected release."
+    },
+    "memory_profiles": [
+      {
+        "id": "host-cpu-resident",
+        "label": "Host CPU-resident reference profile",
+        "description": "Base, adapters, optimizer state, and activations reside in host memory; canonical artifacts use local safetensors."
+      }
+    ],
+    "numerical_profiles": [
+      {
+        "id": "python-torch-f32-lora",
+        "label": "PyTorch FP32 LoRA",
+        "description": "Deterministic PyTorch FP32 oracle gradients, coordinator FP32 aggregation, clipping, and canonical AdamW."
+      }
+    ]
+  },
+  "worker_profiles": [
+    {
+      "id": "python-oracle-f32-two-workers",
+      "label": "Two logical Python FP32 oracle workers",
+      "description": "Two owner-approved logical worker identities execute disjoint assignments on one Windows CPU host."
+    }
+  ],
+  "resource_budget": {
+    "limits": [
+      {
+        "id": "global-steps",
+        "label": "Global optimizer steps",
+        "value": 2,
+        "unit": "steps"
+      },
+      {
+        "id": "accepted-tokens",
+        "label": "Maximum accepted tokens",
+        "value": 1024,
+        "unit": "tokens"
+      },
+      {
+        "id": "wall-time",
+        "label": "Maximum proof and release wall time",
+        "value": 600,
+        "unit": "seconds"
+      }
+    ]
+  },
+  "reproduction": {
+    "command": [
+      "uv",
+      "run",
+      "python",
+      "research/studies/p2-persistent-lora-release-v1/scripts/run-proof.py"
+    ],
+    "notes": "At b571d692152a0fe51892cdb4da1c91f4dc66d1e0, run the proof command, then execute the orcacolony.release command documented in research/README.md and verify the generated SHA256SUMS."
+  }
+}
