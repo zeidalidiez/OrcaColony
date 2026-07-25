@@ -97,13 +97,23 @@ Completed within P1:
 
 ### P2 — Prove PEFT with complete adapter-gradient semantics
 
-**Status:** Next bounded implementation target
+**Status:** In progress
 
 - Freeze an exact base checkpoint.
 - Define one LoRA configuration and exact trainable-tensor manifest.
-- Prove adapter-only Python reference updates.
-- Prove browser or native adapter-gradient export against the reference.
-- Preserve coordinator-owned normalization, clipping, optimizer state, restart, provenance, and release behavior.
+- Preserve summed masked loss and complete unnormalized gradients for adapter tensors.
+- Keep the canonical adapter optimizer at the coordinator.
+- Prove restart, retry, evaluation, and release for an adapter campaign.
+
+Completed within the first P2 numerical slice:
+
+- Added an isolated Python LoRA runtime without changing the stable dense model path.
+- Pinned the deterministic T0 base identity to SHA-256 `d31269889b0154bb962bf976361ddc81d47498f1d3af9244eaf24d4ad9e1d060`.
+- Targeted the combined attention QKV projection in all four layers with rank 4, alpha 8, zero dropout, and a dedicated adapter seed.
+- Froze every base parameter and exposed exactly 8 named trainable adapter tensors containing 8,192 values.
+- Preserved byte-for-byte equal initial logits because the LoRA B matrices initialize to zero.
+- Exported deterministic complete FP32 adapter gradients for summed loss; the fixture gradient SHA-256 is `7ce16dfd740fd5a249257de6ab442943577b86917f9ae77604c5097ce1a5b8e2`.
+- Proved that assigning the submitted unnormalized gradients, dividing by total loss weight, clipping once, and applying coordinator-owned AdamW produces the same adapter tensors as an independent mean-loss reference step while every base tensor remains unchanged.
 
 ### P3 — Qualify local memory tiers
 
@@ -159,7 +169,7 @@ The native worker is the first target for explicit offload. Browser support rema
 
 ## Immediate next bounded target
 
-Start P2 with the smallest numerical vertical slice: add an exact LoRA configuration to the deterministic Python fixture, freeze every base tensor, export the complete named adapter-gradient set for summed masked loss, and prove one coordinator-compatible adapter update against an independent reference. Native/browser offload and a useful public base remain later P2/P3 work.
+Complete the next P2 vertical slice: commit the exact LoRA manifest, export base/adapter/batch/gradient artifacts through a real command, prove their hashes and one-step update artifact, and record the bounded experiment through the P1 research contract. Browser/native parity, campaign restart, and a useful public base remain later work.
 
 ## Remaining major work
 
@@ -192,3 +202,4 @@ Start P2 with the smallest numerical vertical slice: add an exact LoRA configura
 - Added linked experiment and evidence validation plus deterministic JSON/Markdown result bundles that retain negative findings and limitations.
 - Added a tested command-line path that loads exact linked manifests and writes the complete research result bundle.
 - Completed P1 with a committed study fixture, two byte-identical real CLI bundles, successful checksum verification, and explicit proof limitations.
+- Added the first P2 numerical vertical: deterministic frozen-base LoRA gradients and an exact coordinator-compatible adapter update matching an independent reference.
