@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from orcacolony import research
 from orcacolony.research import (
     build_result_bundle,
     validate_experiment_manifest,
@@ -322,4 +323,64 @@ def test_result_bundle_requires_complete_guardrail_evidence(tmp_path: Path) -> N
             _experiment_payload(),
             evidence,
             tmp_path / "result",
+        )
+
+
+def test_record_cli_builds_the_linked_result_bundle(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    study_root = tmp_path / "study"
+    experiment_root = study_root / "experiments"
+    evidence_root = study_root / "evidence"
+    experiment_root.mkdir(parents=True)
+    evidence_root.mkdir()
+    study_path = study_root / "study.json"
+    experiment_path = experiment_root / "storage-offload-candidate.json"
+    evidence_path = evidence_root / "storage-offload-candidate.json"
+    study_path.write_text(json.dumps(_study_payload()), encoding="utf-8")
+    experiment_path.write_text(json.dumps(_experiment_payload()), encoding="utf-8")
+    evidence_path.write_text(json.dumps(_evidence_payload()), encoding="utf-8")
+    output = tmp_path / "result"
+
+    research.main(
+        [
+            "record",
+            "--study",
+            str(study_path),
+            "--experiment",
+            str(experiment_path),
+            "--evidence",
+            str(evidence_path),
+            "--output",
+            str(output),
+        ]
+    )
+
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["format"] == "orcacolony_experiment_result_v1"
+    assert printed["outcome"] == "rejected"
+    assert (output / "RESULT.md").is_file()
+
+
+def test_record_cli_rejects_duplicate_json_fields(tmp_path: Path) -> None:
+    study_path = tmp_path / "study.json"
+    study_path.write_text(
+        '{"format":"orcacolony_study_v1","format":"shadowed"}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate JSON object key: format"):
+        research.main(
+            [
+                "record",
+                "--study",
+                str(study_path),
+                "--experiment",
+                str(tmp_path / "unused-experiment.json"),
+                "--evidence",
+                str(tmp_path / "unused-evidence.json"),
+                "--output",
+                str(tmp_path / "unused-result"),
+            ]
         )

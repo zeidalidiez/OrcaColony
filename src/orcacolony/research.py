@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import math
@@ -697,3 +698,71 @@ def build_result_bundle(
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
         raise
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise ValueError(f"duplicate JSON object key: {key}")
+        payload[key] = value
+    return payload
+
+
+def _load_json_mapping(path: Path, label: str) -> Mapping[str, object]:
+    payload = json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_keys,
+    )
+    return _require_mapping(payload, label)
+
+
+def _validate_experiment_location(
+    study_path: Path,
+    study: Mapping[str, object],
+    experiment_path: Path,
+    experiment: Mapping[str, object],
+) -> None:
+    experiment_id = experiment["experiment_id"]
+    reference = next(
+        entry
+        for entry in study["experiments"]  # type: ignore[union-attr]
+        if entry["experiment_id"] == experiment_id
+    )
+    expected = (study_path.parent / str(reference["manifest"])).resolve()
+    if expected != experiment_path.resolve():
+        raise ValueError("experiment path does not match the study reference")
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Validate and record reproducible OrcaColony research results"
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    record = subparsers.add_parser(
+        "record",
+        help="build a deterministic result bundle from linked research manifests",
+    )
+    record.add_argument("--study", type=Path, required=True)
+    record.add_argument("--experiment", type=Path, required=True)
+    record.add_argument("--evidence", type=Path, required=True)
+    record.add_argument("--output", type=Path, required=True)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = _build_parser().parse_args(argv)
+    if args.command != "record":
+        raise ValueError(f"unsupported research command: {args.command}")
+    study = _load_json_mapping(args.study, "study")
+    experiment = _load_json_mapping(args.experiment, "experiment")
+    evidence = _load_json_mapping(args.evidence, "evidence")
+    validate_study_manifest(study)
+    validate_experiment_manifest(study, experiment)
+    _validate_experiment_location(args.study, study, args.experiment, experiment)
+    result = build_result_bundle(study, experiment, evidence, args.output)
+    print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

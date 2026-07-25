@@ -92,6 +92,7 @@ Completed within P1:
 - Added linked `orcacolony_experiment_v1` and `orcacolony_experiment_evidence_v1` contracts for exact subjects, artifact revisions, method/topology/placement descriptions, worker profiles, budgets, reproduction commands, measurements, evaluation, findings, and limitations.
 - Added deterministic, atomic experiment-result bundles containing canonical source manifests, source hashes, a machine-readable decision, a human-readable `RESULT.md`, and `SHA256SUMS`.
 - Enforced that validated or promoted evidence passes the declared primary metric and every guardrail while preserving rejected and inconclusive findings as publishable outcomes.
+- Added the real `python -m orcacolony.research record` command with duplicate-key rejection and exact study-to-experiment path binding.
 
 ### P2 — Prove PEFT with complete adapter-gradient semantics
 
@@ -157,7 +158,7 @@ The native worker is the first target for explicit offload. Browser support rema
 
 ## Immediate next bounded target
 
-Complete P1 through the real command path: add the `orcacolony.research record` CLI, commit a self-contained study/experiment/evidence fixture pinned to an exact implementation revision, generate and verify its result bundle, and document reproduction. Broader research UI and plugin abstractions remain out of scope.
+Complete P1 with a self-contained study/experiment/evidence fixture pinned to the exact CLI implementation revision, run the real `orcacolony.research record` command, verify the generated bundle, and document reproduction. Broader research UI and plugin abstractions remain out of scope.
 
 ## Remaining major work
 
@@ -189,3 +190,4 @@ Complete P1 through the real command path: add the `orcacolony.research record` 
 - Added the fixed use-case evaluation contract, native hierarchical-memory direction, partial-model research semantics, profile qualification sequence, and experimental graduation rules.
 - Added the first runnable P1 code: a fail-closed study-manifest validator with open, display-ready research descriptors and safe experiment references.
 - Added linked experiment and evidence validation plus deterministic JSON/Markdown result bundles that retain negative findings and limitations.
+- Added a tested command-line path that loads exact linked manifests and writes the complete research result bundle.
