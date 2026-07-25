@@ -898,6 +898,7 @@ def test_dense_restart_migrates_the_pre_lora_state_and_campaign_lock(
         "adapter_sha256",
         "result_weight_checkpoint_sha256",
         "result_checkpoint_sha256",
+        "numerical_profile",
     ):
         state.pop(field)
     for assignment in state["assignments"]:
@@ -907,6 +908,7 @@ def test_dense_restart_migrates_the_pre_lora_state_and_campaign_lock(
             "base_model_sha256",
             "adapter_sha256",
             "adapter",
+            "numerical_profile",
         ):
             assignment.pop(field, None)
     state_path.write_text(json.dumps(state), encoding="utf-8")
@@ -919,6 +921,7 @@ def test_dense_restart_migrates_the_pre_lora_state_and_campaign_lock(
         "base_model_sha256",
         "adapter_sha256",
         "resume_state_sha256",
+        "numerical_profile",
     ):
         lock.pop(field)
     lock_path.write_text(json.dumps(lock), encoding="utf-8")
@@ -932,6 +935,12 @@ def test_dense_restart_migrates_the_pre_lora_state_and_campaign_lock(
     migrated_state = json.loads(state_path.read_text(encoding="utf-8"))
     assert migrated_state["base_model_sha256"] == migrated_state["checkpoint_sha256"]
     assert migrated_state["result_checkpoint_sha256"] is None
+    assert migrated_state["numerical_profile"] == peft.EXACT_CPU_FP32_PROFILE
+    assert all(
+        assignment["numerical_profile"] == peft.EXACT_CPU_FP32_PROFILE
+        for assignment in migrated_state["assignments"]
+    )
     migrated_lock = json.loads(lock_path.read_text(encoding="utf-8"))
     assert migrated_lock["training_method"] == "dense"
     assert migrated_lock["adapter_sha256"] is None
+    assert migrated_lock["numerical_profile"] == peft.EXACT_CPU_FP32_PROFILE

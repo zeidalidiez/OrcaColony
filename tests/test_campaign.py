@@ -82,6 +82,47 @@ def submission_for(
     )
 
 
+def test_campaign_persists_legacy_exact_profile_migration(tmp_path: Path) -> None:
+    campaign = load_campaign(CONFIG)
+    participants = participants_for(campaign.campaign["id"])
+    state_dir = tmp_path / "campaign"
+    CampaignCoordinator.create(
+        campaign,
+        state_dir,
+        participants=participants,
+        worker_count=2,
+        target_steps=1,
+    )
+    state_path = state_dir / "campaign-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("numerical_profile")
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    lock_path = state_dir / "campaign-lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock.pop("numerical_profile")
+    lock_path.write_text(json.dumps(lock), encoding="utf-8")
+
+    recovered = CampaignCoordinator.load(
+        campaign,
+        state_dir,
+        participants=participants,
+    )
+    assert recovered.status()["numerical_profile"] == peft.EXACT_CPU_FP32_PROFILE
+    migrated_state = state_path.read_bytes()
+    assert json.loads(migrated_state)["numerical_profile"] == (
+        peft.EXACT_CPU_FP32_PROFILE
+    )
+    assert json.loads(lock_path.read_text(encoding="utf-8"))["numerical_profile"] == (
+        peft.EXACT_CPU_FP32_PROFILE
+    )
+    CampaignCoordinator.load(
+        campaign,
+        state_dir,
+        participants=participants,
+    )
+    assert state_path.read_bytes() == migrated_state
+
+
 def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
     tmp_path: Path,
 ) -> None:

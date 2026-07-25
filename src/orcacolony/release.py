@@ -526,6 +526,9 @@ def build_release_bundle(
         campaign_payload = _campaign_payload(campaign)
         _write_json(temporary / "campaign.json", campaign_payload)
         lock = coordinator._lock_payload()
+        numerical_profile = str(dashboard["campaign"]["numerical_profile"])
+        if lock.get("numerical_profile") != numerical_profile:
+            raise ValueError("release numerical profile differs from campaign lock")
         _write_json(temporary / "campaign-lock.json", lock)
         release_dashboard = copy.deepcopy(dashboard)
         completed_step = int(dashboard["progress"]["completed_steps"])
@@ -538,6 +541,7 @@ def build_release_bundle(
             "parity": (
                 dashboard["checkpoint"]["parity"] if step == completed_step else None
             ),
+            "numerical_profile": numerical_profile,
             "sha256": checkpoint_sha256,
             **(lora_identities or {}),
         }
@@ -547,6 +551,7 @@ def build_release_bundle(
             {
                 "format": "orcacolony_public_ledger_v1",
                 "campaign_id": dashboard["campaign"]["id"],
+                "numerical_profile": numerical_profile,
                 "entries": dashboard["public_ledger"],
             },
         )
@@ -556,6 +561,7 @@ def build_release_bundle(
                 "format": "orcacolony_campaign_evaluations_v1",
                 "campaign_id": dashboard["campaign"]["id"],
                 "dataset_revision": dataset.revision,
+                "numerical_profile": numerical_profile,
                 "profile": (
                     dict(campaign.evaluation)
                     if campaign.evaluation is not None
@@ -664,6 +670,7 @@ def build_release_bundle(
         }
         checkpoint_manifest: dict[str, object] = {
             "step": step,
+            "numerical_profile": numerical_profile,
             "selection": (
                 "lowest_mean_loss" if selected_evaluation is not None else "final"
             ),
@@ -677,6 +684,7 @@ def build_release_bundle(
             "format": "orcacolony_release_bundle_v1",
             "campaign_id": dashboard["campaign"]["id"],
             "campaign_revision": _revision(campaign_payload),
+            "numerical_profile": numerical_profile,
             "public_coordinator_url": public_coordinator_url,
             "participants_revision": lock["participants_revision"],
             "dataset_revision": dataset.revision,

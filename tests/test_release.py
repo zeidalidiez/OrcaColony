@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from orcacolony import peft
 from orcacolony.artifacts import PackedDataset, build_dataset_artifacts
 from orcacolony.campaign_run import CampaignCoordinator
 from orcacolony.multiworker import LeasedGradient
@@ -43,6 +44,8 @@ def _participants(campaign_id: object) -> ParticipantRegistry:
 def _submission(
     coordinator: CampaignCoordinator,
     assignment: dict[str, object],
+    *,
+    runtime_backend: str = "python-oracle-f32",
 ) -> LeasedGradient:
     assignment_id = str(assignment["assignment_id"])
     return LeasedGradient(
@@ -52,7 +55,7 @@ def _submission(
         loss_sum=float(assignment["expected_loss_sum"]),
         loss_weight_sum=int(assignment["loss_weight_sum"]),
         safetensors=coordinator.oracle_gradient_path(assignment_id).read_bytes(),
-        runtime_backend="python-oracle-f32",
+        runtime_backend=runtime_backend,
     )
 
 
@@ -179,6 +182,10 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
     assert "release-a" not in public_text
     assert "release-b" not in public_text
     assert first_manifest["checkpoint"]["step"] == 1
+    assert first_manifest["numerical_profile"] == peft.EXACT_CPU_FP32_PROFILE
+    assert first_manifest["checkpoint"]["numerical_profile"] == (
+        peft.EXACT_CPU_FP32_PROFILE
+    )
     assert first_manifest["dataset_revision"] == dataset.revision
     assert first_manifest["files"]
     public_dashboard = json.loads(
@@ -284,6 +291,7 @@ def test_release_bundle_publishes_separate_lora_base_adapter_and_resume_state(
         target_steps=1,
         dataset=dataset,
         lora=lora,
+        numerical_profile=peft.INT8_FROZEN_LINEAR_PROFILE,
     )
     for worker_id in ("release-a", "release-b"):
         assignment = coordinator.lease(
@@ -291,7 +299,14 @@ def test_release_bundle_publishes_separate_lora_base_adapter_and_resume_state(
             worker_token="release-test-token",
             now=100,
         )
-        coordinator.accept(_submission(coordinator, assignment), now=101)
+        coordinator.accept(
+            _submission(
+                coordinator,
+                assignment,
+                runtime_backend="python-oracle-int8-f32-dequant",
+            ),
+            now=101,
+        )
 
     browser_root = tmp_path / "browser"
     (browser_root / "pkg").mkdir(parents=True)
@@ -332,7 +347,8 @@ def test_release_bundle_publishes_separate_lora_base_adapter_and_resume_state(
     assert first_manifest == second_manifest
     checkpoint = first_manifest["checkpoint"]
     assert checkpoint["training_method"] == "frozen-base-lora"
-    assert checkpoint["numerical_profile"] == "exact-cpu-fp32-v1"
+    assert first_manifest["numerical_profile"] == peft.INT8_FROZEN_LINEAR_PROFILE
+    assert checkpoint["numerical_profile"] == peft.INT8_FROZEN_LINEAR_PROFILE
     assert checkpoint["base_model_sha256"] == lora.config.base_model_sha256
     assert checkpoint["adapter_sha256"]
     assert checkpoint["weight_checkpoint_sha256"]
@@ -345,6 +361,15 @@ def test_release_bundle_publishes_separate_lora_base_adapter_and_resume_state(
     dashboard = json.loads(
         (first / "public-dashboard.json").read_text(encoding="utf-8")
     )
+    assert dashboard["checkpoint"]["numerical_profile"] == (
+        peft.INT8_FROZEN_LINEAR_PROFILE
+    )
+    assert json.loads((first / "public-ledger.json").read_text(encoding="utf-8"))[
+        "numerical_profile"
+    ] == peft.INT8_FROZEN_LINEAR_PROFILE
+    assert json.loads((first / "evaluations.json").read_text(encoding="utf-8"))[
+        "numerical_profile"
+    ] == peft.INT8_FROZEN_LINEAR_PROFILE
     assert dashboard["checkpoint"]["download_url"] == (
         "checkpoint/adapter.safetensors"
     )

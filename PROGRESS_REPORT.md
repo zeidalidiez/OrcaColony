@@ -272,6 +272,7 @@ Pause and reconvene before starting P5. The next decision is whether to prioriti
 - Completed P4 with explicit runtime/numerical identities, bit-exact exact-CPU admission, profile-specific int8 oracles, profile-bound v2 checkpoint/restart/evaluation/release provenance, v1 FP32 compatibility, and fail-closed cross-profile admission.
 - Ran the connected T1 mixed-placement int8 proof across a coordinator restart: four exact profile gradients, `6.12852298785371e-8` maximum checkpoint relative L2, zero warm model payload, positive held-out movement, and deliberate 1.1019% separation from exact FP32.
 - Published the validated `p4-numerical-profile-qualification-v1` research record and paused before P5 for roadmap discussion.
+- Extended deterministic release envelopes so dense and LoRA bundles, public dashboards, ledgers, evaluations, and top-level manifests all publish the campaign-locked numerical profile; the release test now exercises a real int8-profile checkpoint.
 
 ### 2026-07-24
 
