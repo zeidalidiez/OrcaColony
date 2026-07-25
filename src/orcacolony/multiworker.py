@@ -66,11 +66,205 @@ class LeasedGradient:
     loss_weight_sum: int
     safetensors: bytes
     runtime_backend: str
+    worker_telemetry: Mapping[str, object] | None = None
+    coordinator_receive_seconds: float | None = None
 
 
 RUNTIME_BACKENDS = frozenset(
-    {"burn-ndarray-f32", "burn-webgpu-f32", "python-oracle-f32"}
+    {
+        "burn-ndarray-f32",
+        "burn-webgpu-f32",
+        "python-native-cpu-f32",
+        "python-oracle-f32",
+    }
 )
+
+_RUNTIME_TELEMETRY_FIELDS = (
+    "assignment_fetch",
+    "runtime_init",
+    "artifact_fetch",
+    "gradient_compute",
+)
+_TRANSFER_TELEMETRY_FIELDS = (
+    "assignment",
+    "model",
+    "adapter",
+    "oracle_gradient",
+    "result",
+)
+_MEMORY_TELEMETRY_FIELDS = (
+    "wasm_linear",
+    "process_peak_rss",
+    "js_heap_used",
+    "js_heap_limit",
+    "device_capacity",
+)
+_MAX_SAFE_TELEMETRY_INTEGER = 2**53 - 1
+
+
+def _exact_mapping(
+    value: object,
+    fields: tuple[str, ...],
+    label: str,
+) -> Mapping[str, object]:
+    if not isinstance(value, Mapping) or set(value) != set(fields):
+        raise ValueError(f"{label} fields are invalid")
+    return value
+
+
+def _validate_worker_telemetry(
+    payload: Mapping[str, object] | None,
+    resource_profile: Mapping[str, object],
+    runtime_backend: str,
+) -> dict[str, object] | None:
+    if payload is None:
+        if runtime_backend != "python-oracle-f32":
+            raise ValueError("worker telemetry is required")
+        return None
+    if set(payload) != {
+        "format",
+        "runtime_seconds",
+        "transfer_bytes",
+        "memory_bytes",
+    } or payload.get("format") != "orcacolony_worker_telemetry_v1":
+        raise ValueError("worker telemetry envelope is invalid")
+    runtime = _exact_mapping(
+        payload.get("runtime_seconds"),
+        _RUNTIME_TELEMETRY_FIELDS,
+        "worker runtime telemetry",
+    )
+    canonical_runtime: dict[str, float] = {}
+    for field in _RUNTIME_TELEMETRY_FIELDS:
+        value = runtime[field]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) < 0
+            or float(value) > 86_400
+        ):
+            raise ValueError(f"worker runtime telemetry {field} is invalid")
+        canonical_runtime[field] = float(value)
+    transfer = _exact_mapping(
+        payload.get("transfer_bytes"),
+        _TRANSFER_TELEMETRY_FIELDS,
+        "worker transfer telemetry",
+    )
+    canonical_transfer: dict[str, int] = {}
+    for field in _TRANSFER_TELEMETRY_FIELDS:
+        value = transfer[field]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 0
+            or value > _MAX_SAFE_TELEMETRY_INTEGER
+        ):
+            raise ValueError(f"worker transfer telemetry {field} is invalid")
+        canonical_transfer[field] = value
+    expected_transfer = {
+        "model": int(resource_profile["model_download_bytes"]),
+        "adapter": int(resource_profile["adapter_download_bytes"]),
+        "oracle_gradient": int(resource_profile["oracle_gradient_download_bytes"]),
+        "result": int(resource_profile["expected_result_upload_bytes"]),
+    }
+    for field, expected in expected_transfer.items():
+        allowed = {expected} if field == "result" else {0, expected}
+        if canonical_transfer[field] not in allowed:
+            raise ValueError(f"worker transfer telemetry {field} does not match assignment")
+    memory = _exact_mapping(
+        payload.get("memory_bytes"),
+        _MEMORY_TELEMETRY_FIELDS,
+        "worker memory telemetry",
+    )
+    canonical_memory: dict[str, int | None] = {}
+    for field in _MEMORY_TELEMETRY_FIELDS:
+        value = memory[field]
+        if value is not None and (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 0
+            or value > _MAX_SAFE_TELEMETRY_INTEGER
+        ):
+            raise ValueError(f"worker memory telemetry {field} is invalid")
+        canonical_memory[field] = value  # type: ignore[assignment]
+    return {
+        "format": "orcacolony_worker_telemetry_v1",
+        "runtime_seconds": canonical_runtime,
+        "transfer_bytes": canonical_transfer,
+        "memory_bytes": canonical_memory,
+    }
+
+
+def _directory_size(path: Path) -> int:
+    total = 0
+    for entry in path.rglob("*"):
+        try:
+            if entry.is_file():
+                total += entry.stat().st_size
+        except FileNotFoundError:
+            # Atomic state publication can replace a temporary file while a
+            # concurrent dashboard snapshot is walking the managed directory.
+            continue
+    return total
+
+
+def _aggregate_resource_observations(
+    entries: list[Mapping[str, object]],
+    state_dir: Path,
+) -> dict[str, object]:
+    runtime = {field: 0.0 for field in _RUNTIME_TELEMETRY_FIELDS}
+    transfer = {
+        "assignment": 0,
+        "model_download": 0,
+        "adapter_download": 0,
+        "oracle_gradient_download": 0,
+        "result_upload": 0,
+    }
+    memory: dict[str, int | None] = {
+        "peak_wasm_linear": None,
+        "peak_process_rss": None,
+        "peak_js_heap_used": None,
+    }
+    worker_reports = 0
+    for entry in entries:
+        instrumentation = entry.get("instrumentation")
+        if not isinstance(instrumentation, Mapping):
+            continue
+        worker = instrumentation.get("worker_reported")
+        measured = instrumentation.get("coordinator_measured")
+        if isinstance(measured, Mapping):
+            transfer["result_upload"] += int(measured["result_upload_bytes"])
+        if not isinstance(worker, Mapping):
+            continue
+        worker_reports += 1
+        worker_runtime = worker["runtime_seconds"]
+        worker_transfer = worker["transfer_bytes"]
+        worker_memory = worker["memory_bytes"]
+        for field in _RUNTIME_TELEMETRY_FIELDS:
+            runtime[field] += float(worker_runtime[field])
+        transfer["assignment"] += int(worker_transfer["assignment"])
+        transfer["model_download"] += int(worker_transfer["model"])
+        transfer["adapter_download"] += int(worker_transfer["adapter"])
+        transfer["oracle_gradient_download"] += int(
+            worker_transfer["oracle_gradient"]
+        )
+        for source, target in (
+            ("wasm_linear", "peak_wasm_linear"),
+            ("process_peak_rss", "peak_process_rss"),
+            ("js_heap_used", "peak_js_heap_used"),
+        ):
+            value = worker_memory[source]
+            if value is not None:
+                memory[target] = max(memory[target] or 0, int(value))
+    return {
+        "format": "orcacolony_resource_observations_v1",
+        "accepted_assignments": len(entries),
+        "worker_reports": worker_reports,
+        "runtime_seconds": runtime,
+        "transfer_bytes": transfer,
+        "memory_bytes": memory,
+        "coordinator_storage_bytes": _directory_size(state_dir),
+    }
 
 
 @dataclass(frozen=True)
@@ -85,6 +279,7 @@ class WorkReceipt:
     checkpoint_sha256: str | None
     gradient_metrics: Mapping[str, float | int | str]
     checkpoint_metrics: Mapping[str, float | int | str]
+    instrumentation: Mapping[str, object]
 
 
 def _atomic_json(path: Path, payload: Mapping[str, object]) -> None:
@@ -636,6 +831,62 @@ class GlobalStepCoordinator:
                     "legacy-unknown" if assignment["state"] == "accepted" else None
                 )
                 state_changed = True
+            instrumentation = assignment.get("instrumentation")
+            if instrumentation is not None:
+                if not isinstance(instrumentation, Mapping) or set(instrumentation) != {
+                    "format",
+                    "worker_reported",
+                    "coordinator_measured",
+                } or instrumentation.get("format") != (
+                    "orcacolony_assignment_instrumentation_v1"
+                ):
+                    raise ValueError("persisted assignment instrumentation is invalid")
+                resource_profile = coordinator._public_assignment(assignment)[
+                    "resource_profile"
+                ]
+                canonical_worker = _validate_worker_telemetry(
+                    instrumentation.get("worker_reported"),  # type: ignore[arg-type]
+                    resource_profile,  # type: ignore[arg-type]
+                    str(assignment["runtime_backend"]),
+                )
+                if canonical_worker != instrumentation.get("worker_reported"):
+                    raise ValueError("persisted worker telemetry is not canonical")
+                measured = instrumentation.get("coordinator_measured")
+                measured_fields = {
+                    "model_artifact_bytes",
+                    "adapter_artifact_bytes",
+                    "oracle_gradient_artifact_bytes",
+                    "result_upload_bytes",
+                    "result_receive_seconds",
+                    "result_storage_bytes",
+                }
+                if not isinstance(measured, Mapping) or set(measured) != measured_fields:
+                    raise ValueError("persisted coordinator measurements are invalid")
+                result_path = coordinator.results_dir / (
+                    f"{assignment['assignment_id']}.safetensors"
+                )
+                expected_bytes = {
+                    "model_artifact_bytes": resource_profile["model_download_bytes"],
+                    "adapter_artifact_bytes": resource_profile[
+                        "adapter_download_bytes"
+                    ],
+                    "oracle_gradient_artifact_bytes": resource_profile[
+                        "oracle_gradient_download_bytes"
+                    ],
+                    "result_upload_bytes": result_path.stat().st_size,
+                    "result_storage_bytes": result_path.stat().st_size,
+                }
+                if any(measured[field] != value for field, value in expected_bytes.items()):
+                    raise ValueError("persisted coordinator byte measurements changed")
+                receive_seconds = measured["result_receive_seconds"]
+                if receive_seconds is not None and (
+                    isinstance(receive_seconds, bool)
+                    or not isinstance(receive_seconds, (int, float))
+                    or not math.isfinite(float(receive_seconds))
+                    or float(receive_seconds) < 0
+                    or float(receive_seconds) > 86_400
+                ):
+                    raise ValueError("persisted coordinator receive duration is invalid")
         if state_changed:
             coordinator._write_state()
         lock_path = state_dir / "campaign-lock.json"
@@ -754,6 +1005,7 @@ class GlobalStepCoordinator:
                     "loss_sum": assignment["accepted_loss_sum"],
                     "loss_weight_sum": assignment["loss_weight_sum"],
                     "runtime_backend": assignment["runtime_backend"],
+                    "instrumentation": assignment.get("instrumentation"),
                     "dataset_revision": assignment["dataset_revision"],
                     "training_method": assignment.get("training_method", "dense"),
                 }
@@ -814,6 +1066,28 @@ class GlobalStepCoordinator:
                 "result_protocol_revision", 1
             ),
             "runtime_backends": sorted(RUNTIME_BACKENDS),
+            "telemetry_protocol_revision": 1,
+            "resource_profile": {
+                "format": "orcacolony_assignment_resources_v1",
+                "model_download_bytes": self.initial_model_path.stat().st_size,
+                "adapter_download_bytes": (
+                    self.initial_adapter_path.stat().st_size if is_lora else 0
+                ),
+                "oracle_gradient_download_bytes": self.oracle_gradient_path(
+                    assignment_id
+                ).stat().st_size,
+                "expected_result_upload_bytes": self.oracle_gradient_path(
+                    assignment_id
+                ).stat().st_size,
+                "base_parameter_bytes_fp32": int(assignment["parameter_count"])
+                * 4,
+                "trainable_parameter_bytes_fp32": int(
+                    assignment.get(
+                        "trainable_parameter_count", assignment["parameter_count"]
+                    )
+                )
+                * 4,
+            },
         }
         if is_lora:
             payload.update(
@@ -914,6 +1188,18 @@ class GlobalStepCoordinator:
                 raise ValueError("loss sum must be finite")
             if submission.runtime_backend not in RUNTIME_BACKENDS:
                 raise ValueError("runtime backend is not supported")
+            if submission.coordinator_receive_seconds is not None and (
+                not math.isfinite(submission.coordinator_receive_seconds)
+                or submission.coordinator_receive_seconds < 0
+                or submission.coordinator_receive_seconds > 86_400
+            ):
+                raise ValueError("coordinator receive duration is invalid")
+            resource_profile = self._public_assignment(assignment)["resource_profile"]
+            worker_telemetry = _validate_worker_telemetry(
+                submission.worker_telemetry,
+                resource_profile,  # type: ignore[arg-type]
+                submission.runtime_backend,
+            )
             expected_loss = float(assignment["expected_loss_sum"])
             if abs(submission.loss_sum - expected_loss) / abs(expected_loss) > 0.002:
                 raise ValueError("loss sum is outside the M2 tolerance")
@@ -930,6 +1216,26 @@ class GlobalStepCoordinator:
 
             result_file = f"{submission.assignment_id}.safetensors"
             _atomic_bytes(self.results_dir / result_file, submission.safetensors)
+            instrumentation = {
+                "format": "orcacolony_assignment_instrumentation_v1",
+                "worker_reported": worker_telemetry,
+                "coordinator_measured": {
+                    "model_artifact_bytes": resource_profile[
+                        "model_download_bytes"
+                    ],
+                    "adapter_artifact_bytes": resource_profile[
+                        "adapter_download_bytes"
+                    ],
+                    "oracle_gradient_artifact_bytes": resource_profile[
+                        "oracle_gradient_download_bytes"
+                    ],
+                    "result_upload_bytes": len(submission.safetensors),
+                    "result_receive_seconds": submission.coordinator_receive_seconds,
+                    "result_storage_bytes": (
+                        self.results_dir / result_file
+                    ).stat().st_size,
+                },
+            }
             assignment.update(
                 {
                     "state": "accepted",
@@ -937,6 +1243,7 @@ class GlobalStepCoordinator:
                     "accepted_loss_sum": submission.loss_sum,
                     "runtime_backend": submission.runtime_backend,
                     "gradient_metrics": gradient_metrics,
+                    "instrumentation": instrumentation,
                     "lease_token": None,
                     "lease_expires_at": None,
                 }
@@ -1039,6 +1346,7 @@ class GlobalStepCoordinator:
                         "data_range": assignment["data_range"],
                         "gradient_metrics": assignment["gradient_metrics"],
                         "runtime_backend": assignment["runtime_backend"],
+                        "instrumentation": assignment.get("instrumentation"),
                     }
                     for assignment in self.assignments
                 ],
@@ -1146,6 +1454,7 @@ class GlobalStepCoordinator:
                         "data_range": assignment["data_range"],
                         "gradient_metrics": assignment["gradient_metrics"],
                         "runtime_backend": assignment["runtime_backend"],
+                        "instrumentation": assignment.get("instrumentation"),
                     }
                     for assignment in self.assignments
                 ],
@@ -1188,6 +1497,7 @@ class GlobalStepCoordinator:
             checkpoint_metrics=(
                 self._state["checkpoint_metrics"] if step_complete else {}
             ),  # type: ignore[arg-type]
+            instrumentation=assignment.get("instrumentation", {}),  # type: ignore[arg-type]
         )
 
     def status(self) -> dict[str, object]:
@@ -1211,6 +1521,14 @@ class GlobalStepCoordinator:
             "checkpoint_metrics": self._state["checkpoint_metrics"],
             "loss_sum": self._state.get("loss_sum"),
             "loss_weight_sum": self._state.get("loss_weight_sum"),
+            "resource_observations": _aggregate_resource_observations(
+                [
+                    assignment
+                    for assignment in self.assignments
+                    if assignment["state"] == "accepted"
+                ],
+                self.state_dir,
+            ),
             "assignments": [
                 {
                     "assignment_id": assignment["assignment_id"],
@@ -1279,6 +1597,7 @@ class _GlobalStepHandler(SimpleHTTPRequestHandler):
                     "X-Orca-Loss-Sum",
                     "X-Orca-Loss-Weight-Sum",
                     "X-Orca-Runtime-Backend",
+                    "X-Orca-Worker-Telemetry",
                 )
             ),
         )
@@ -1381,14 +1700,29 @@ class _GlobalStepHandler(SimpleHTTPRequestHandler):
             content_length = int(self.headers.get("Content-Length", "0"))
             if content_length <= 0 or content_length > maximum_length:
                 raise ValueError("gradient payload length is invalid")
+            receive_started = time.perf_counter()
+            result_body = self.rfile.read(content_length)
+            receive_seconds = time.perf_counter() - receive_started
+            if len(result_body) != content_length:
+                raise ValueError("gradient payload was truncated")
+            telemetry_header = self.headers.get("X-Orca-Worker-Telemetry")
+            worker_telemetry = (
+                json.loads(telemetry_header) if telemetry_header is not None else None
+            )
+            if worker_telemetry is not None and not isinstance(
+                worker_telemetry, Mapping
+            ):
+                raise ValueError("worker telemetry must be a JSON object")
             submission = LeasedGradient(
                 assignment_id=assignment_id,
                 lease_token=self.headers["X-Orca-Lease-Token"],
                 checkpoint_sha256=self.headers["X-Orca-Checkpoint-Sha256"],
                 loss_sum=float(self.headers["X-Orca-Loss-Sum"]),
                 loss_weight_sum=int(self.headers["X-Orca-Loss-Weight-Sum"]),
-                safetensors=self.rfile.read(content_length),
+                safetensors=result_body,
                 runtime_backend=self.headers["X-Orca-Runtime-Backend"],
+                worker_telemetry=worker_telemetry,
+                coordinator_receive_seconds=receive_seconds,
             )
             receipt = self.coordinator.accept(submission)
         except (KeyError, TypeError, ValueError, SafetensorError) as error:
@@ -1406,6 +1740,7 @@ class _GlobalStepHandler(SimpleHTTPRequestHandler):
                 "checkpoint_sha256": receipt.checkpoint_sha256,
                 "gradient_metrics": receipt.gradient_metrics,
                 "checkpoint_metrics": receipt.checkpoint_metrics,
+                "instrumentation": receipt.instrumentation,
                 "checkpoint_url": (
                     (
                         "/api/v1/checkpoint/adapter.safetensors"

@@ -15,6 +15,7 @@ from .multiworker import (
     LeasedGradient,
     WorkReceipt,
     _atomic_json,
+    _aggregate_resource_observations,
     _campaign_payload,
     _revision,
     create_http_server,
@@ -200,6 +201,29 @@ class CampaignCoordinator:
             dataset=dataset,
             lora=lora,
         )
+        checkpoints = state.get("checkpoints")
+        if not isinstance(checkpoints, list):
+            raise ValueError("campaign checkpoint history must be a JSON array")
+        current_resolved = current_path.resolve()
+        for checkpoint in checkpoints:
+            if not isinstance(checkpoint, Mapping):
+                raise ValueError("campaign checkpoint history entry must be a JSON object")
+            step = checkpoint.get("step")
+            if isinstance(step, bool) or not isinstance(step, int) or step <= 0:
+                raise ValueError("campaign checkpoint history step is invalid")
+            expected_round = Path("rounds") / f"round-{step - 1:08d}"
+            if checkpoint.get("round") != expected_round.as_posix():
+                raise ValueError("campaign checkpoint round path is invalid")
+            prior_round = (state_dir / expected_round).resolve()
+            if prior_round == current_resolved:
+                continue
+            GlobalStepCoordinator.load(
+                campaign,
+                prior_round,
+                participants=participants,
+                dataset=dataset,
+                lora=lora,
+            )
         coordinator = cls(campaign, state_dir, participants, state, current, dataset, lora)
         lock_path = state_dir / "campaign-lock.json"
         if (
@@ -659,6 +683,10 @@ class CampaignCoordinator:
                     "anonymous_count": anonymous_count,
                     "acknowledgements": acknowledgements,
                 },
+                "resource_observations": _aggregate_resource_observations(
+                    entries,
+                    self.state_dir,
+                ),
                 "public_ledger": public_ledger,
             }
 

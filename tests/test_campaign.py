@@ -3,6 +3,8 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from orcacolony.artifacts import PackedDataset, build_dataset_artifacts
 from orcacolony.campaign_run import CampaignCoordinator
 from orcacolony.multiworker import LeasedGradient
@@ -42,6 +44,7 @@ def submission_for(
     assignment: dict[str, object],
 ) -> LeasedGradient:
     assignment_id = str(assignment["assignment_id"])
+    resources = assignment["resource_profile"]
     return LeasedGradient(
         assignment_id=assignment_id,
         lease_token=str(assignment["lease_token"]),
@@ -50,6 +53,29 @@ def submission_for(
         loss_weight_sum=int(assignment["loss_weight_sum"]),
         safetensors=coordinator.oracle_gradient_path(assignment_id).read_bytes(),
         runtime_backend="python-oracle-f32",
+        worker_telemetry={
+            "format": "orcacolony_worker_telemetry_v1",
+            "runtime_seconds": {
+                "assignment_fetch": 0.01,
+                "runtime_init": 0.02,
+                "artifact_fetch": 0.03,
+                "gradient_compute": 0.5,
+            },
+            "transfer_bytes": {
+                "assignment": 2048,
+                "model": resources["model_download_bytes"],
+                "adapter": resources["adapter_download_bytes"],
+                "oracle_gradient": resources["oracle_gradient_download_bytes"],
+                "result": resources["expected_result_upload_bytes"],
+            },
+            "memory_bytes": {
+                "wasm_linear": 64 * 1024 * 1024,
+                "process_peak_rss": None,
+                "js_heap_used": 32 * 1024 * 1024,
+                "js_heap_limit": 2 * 1024 * 1024 * 1024,
+                "device_capacity": 8 * 1024 * 1024 * 1024,
+            },
+        },
     )
 
 
@@ -153,6 +179,11 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
     assert dashboard["progress"]["accepted_tokens"] == sum(
         entry["loss_weight_sum"] for entry in ledger["entries"]
     )
+    assert dashboard["resource_observations"]["worker_reports"] == 4
+    assert dashboard["resource_observations"]["runtime_seconds"][
+        "gradient_compute"
+    ] == 2.0
+    assert dashboard["resource_observations"]["coordinator_storage_bytes"] > 0
     assert dashboard["contributors"] == {
         "active_count": 1,
         "anonymous_count": 1,
@@ -166,6 +197,17 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
     assert dashboard["dataset"]["source"]["dataset"] == "test/campaign-stories"
     assert "internal_note" not in dashboard["dataset"]["source"]
 
+    first_round = state_dir / "rounds" / "round-00000000"
+    first_round_ledger_path = first_round / "accepted-work.json"
+    first_round_ledger = json.loads(first_round_ledger_path.read_text(encoding="utf-8"))
+    first_round_ledger["entries"][0]["instrumentation"]["worker_reported"][
+        "runtime_seconds"
+    ]["gradient_compute"] = -121.5
+    first_round_ledger_path.write_text(
+        json.dumps(first_round_ledger),
+        encoding="utf-8",
+    )
+
     recovered = CampaignCoordinator.load(
         campaign,
         state_dir,
@@ -174,6 +216,27 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
     )
     assert recovered.status()["state"] == "campaign_complete"
     assert recovered.status()["completed_steps"] == 2
+    assert recovered.dashboard()["resource_observations"]["runtime_seconds"][
+        "gradient_compute"
+    ] == 2.0
+    repaired_ledger = json.loads(first_round_ledger_path.read_text(encoding="utf-8"))
+    assert repaired_ledger["entries"][0]["instrumentation"]["worker_reported"][
+        "runtime_seconds"
+    ]["gradient_compute"] == 0.5
+
+    first_round_state_path = first_round / "global-state.json"
+    first_round_state = json.loads(first_round_state_path.read_text(encoding="utf-8"))
+    first_round_state["assignments"][0]["instrumentation"]["worker_reported"][
+        "runtime_seconds"
+    ]["gradient_compute"] = -121.5
+    first_round_state_path.write_text(json.dumps(first_round_state), encoding="utf-8")
+    with pytest.raises(ValueError, match="worker runtime telemetry"):
+        CampaignCoordinator.load(
+            campaign,
+            state_dir,
+            participants=participants,
+            dataset=dataset,
+        )
 
 
 def test_lora_campaign_advances_evaluates_and_survives_between_step_restart(

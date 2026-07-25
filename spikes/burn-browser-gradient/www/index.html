@@ -61,6 +61,7 @@
     .campaign-line code { color: var(--secondary); }
     .grid { display: grid; gap: 14px; }
     .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .resource-metrics { margin-top: 14px; }
     .two-column { grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr); margin-top: 14px; }
     .card { min-width: 0; padding: 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
     .metric-label, .section-label { color: var(--muted); font-size: 12px; font-weight: 510; letter-spacing: .03em; text-transform: uppercase; }
@@ -127,6 +128,13 @@
       <article class="card"><div class="metric-label">Accepted tokens</div><div id="tokens-value" class="metric-value">—</div><div id="assignments-detail" class="metric-detail">Waiting for campaign data</div></article>
       <article class="card"><div class="metric-label">Contributors</div><div id="contributors-value" class="metric-value">—</div><div id="contributors-detail" class="metric-detail">Owner-approved participants</div></article>
       <article class="card"><div class="metric-label">Validation loss</div><div id="loss-value" class="metric-value">—</div><div id="loss-detail" class="metric-detail">Frozen held-out profile</div></article>
+    </section>
+
+    <section class="grid metrics resource-metrics" aria-label="Measured resource use">
+      <article class="card"><div class="metric-label">Gradient compute</div><div id="compute-value" class="metric-value">—</div><div id="compute-detail" class="metric-detail">No measured assignments</div></article>
+      <article class="card"><div class="metric-label">Payload transfer</div><div id="transfer-value" class="metric-value">—</div><div id="transfer-detail" class="metric-detail">Worker-observed downloads + result uploads</div></article>
+      <article class="card"><div class="metric-label">Worker memory</div><div id="memory-value" class="metric-value">—</div><div id="memory-detail" class="metric-detail">Awaiting worker observation</div></article>
+      <article class="card"><div class="metric-label">Coordinator storage</div><div id="storage-value" class="metric-value">—</div><div class="metric-detail">Current persistent campaign state</div></article>
     </section>
 
     <section class="grid two-column">

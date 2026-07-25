@@ -45,7 +45,7 @@ cd .artifacts/t0-lora-fixture-v1
 sha256sum -c SHA256SUMS
 ```
 
-The manifest pins the base campaign and model hashes, exact adapter targets and initialization, named trainable tensor order, summed-loss gradient contract, coordinator normalization and clipping rules, and updated-adapter hash. This is a Python numerical proof, not yet a browser/native PEFT campaign or evidence that T0 itself is a useful adaptation target.
+The manifest pins the base campaign and model hashes, exact adapter targets and initialization, named trainable tensor order, summed-loss gradient contract, coordinator normalization and clipping rules, and updated-adapter hash. This command is the isolated Python numerical proof; the connected browser and native profiles below extend that contract without implying that T0 itself is a useful adaptation target.
 
 ## Browser feasibility proof
 
@@ -132,6 +132,24 @@ Open `http://localhost:8000/?cpu-loop=browser-a#token=local-browser-a` to keep o
 The worker page also shows live optimizer-step and accepted-token progress, frozen model and dataset provenance, checkpoint evaluation history, opt-in contributor acknowledgements, and a privacy-filtered public work ledger. It polls `/api/v1/dashboard` without a worker credential. For a frontend hosted on a separate static origin, build the release site with an operator-pinned coordinator URL and pass that static site's exact origin as `--public-origin` to the coordinator. Remote worker execution refuses a coordinator supplied only through a mutable query parameter. Keep participant manifests and credentials off the static host; credentials remain in URL fragments and are sent only in worker API headers.
 
 `campaign/t0-local-participants.json` contains development-only worker identities. Replace it with an owner-approved manifest before exposing a coordinator to another participant; unknown workers remain denied by default.
+
+## Measured browser and native resource profiles
+
+P3 assignments and accepted receipts carry a strict resource-observation contract. Workers report assignment/runtime/artifact/gradient durations, worker-observed response payload bytes, and runtime-specific memory observations; the coordinator independently records declared artifact sizes, exact result-upload and persisted-result bytes, receive duration, and current campaign storage. Reports are validated on acceptance and restart, aggregated without worker identity or hardware-capacity fields, and rendered on the public dashboard. Payload bytes measure what crossed the worker API boundary; they do not claim packet-level wire size or distinguish a browser HTTP-cache hit.
+
+The first measured two-worker CPU/WASM LoRA proof downloaded the immutable 5,340,824-byte base once per assignment. That repeated transfer selected a content-addressed cached-base native CPU worker as the first native baseline. Run one authenticated native assignment with a token stored outside the command line:
+
+```bash
+uv run python -m orcacolony.native_worker \
+  --coordinator http://127.0.0.1:8000 \
+  --worker-id native-a \
+  --worker-token-file .artifacts/native-a.token \
+  --config campaign/t0-smoke.json \
+  --lora-config campaign/t0-lora-smoke.json \
+  --cache .artifacts/native-worker-cache
+```
+
+The worker pins the coordinator origin, rejects cross-origin redirects, streams the frozen base and adapter into digest-named safetensors cache entries, validates tensor identities before reuse, computes only the declared adapter gradients, and submits through the same lease and telemetry contract. In the two-assignment proof, the warm second worker fetched zero base and adapter bytes; aggregate native gradient compute was `0.055746099998941645 s`, peak process RSS was `316,760,064` bytes, and checkpoint relative L2 remained `3.038902086339097e-7`. This is a CPU-resident baseline with persistent artifact caching, not yet quantized placement or mapped/NVMe tensor offload.
 
 ## T1 scale proof
 

@@ -46,6 +46,18 @@ function formatInteger(value) {
   return new Intl.NumberFormat().format(Number(value));
 }
 
+function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  const index = Math.min(
+    units.length - 1,
+    Math.floor(Math.log(Math.max(bytes, 1)) / Math.log(1024)),
+  );
+  const scaled = bytes / 1024 ** index;
+  return `${scaled.toFixed(index === 0 || scaled >= 100 ? 0 : 1)} ${units[index]}`;
+}
+
 function shortHash(value) {
   return value ? `${String(value).slice(0, 10)}…${String(value).slice(-6)}` : "—";
 }
@@ -107,6 +119,7 @@ function renderDashboard(dashboard) {
     model,
     progress,
     public_ledger: ledger,
+    resource_observations: resourceObservations,
   } = dashboard;
   setText("#campaign-id", campaign.id);
   setText("#campaign-state", campaign.state.replaceAll("_", " "));
@@ -116,6 +129,33 @@ function renderDashboard(dashboard) {
   setText("#assignments-detail", `${formatInteger(progress.accepted_assignments)} of ${formatInteger(progress.target_assignments)} assignments accepted`);
   setText("#contributors-value", formatInteger(contributors.active_count));
   setText("#contributors-detail", `${contributors.anonymous_count} contributing privately`);
+  const runtimeSeconds = resourceObservations?.runtime_seconds?.gradient_compute ?? 0;
+  const transfer = resourceObservations?.transfer_bytes ?? {};
+  const totalTransferBytes = Object.values(transfer).reduce(
+    (total, value) => total + Number(value ?? 0),
+    0,
+  );
+  const memory = resourceObservations?.memory_bytes ?? {};
+  const peakMemoryBytes = Math.max(
+    Number(memory.peak_wasm_linear ?? 0),
+    Number(memory.peak_process_rss ?? 0),
+    Number(memory.peak_js_heap_used ?? 0),
+  );
+  setText("#compute-value", `${Number(runtimeSeconds).toFixed(2)} s`);
+  setText(
+    "#compute-detail",
+    `${formatInteger(resourceObservations?.worker_reports ?? 0)} measured assignments`,
+  );
+  setText("#transfer-value", formatBytes(totalTransferBytes));
+  setText("#memory-value", formatBytes(peakMemoryBytes));
+  setText(
+    "#memory-detail",
+    peakMemoryBytes ? "Peak observed worker allocation" : "Worker API unavailable",
+  );
+  setText(
+    "#storage-value",
+    formatBytes(resourceObservations?.coordinator_storage_bytes ?? 0),
+  );
 
   const lastEvaluation = evaluations.at(-1);
   setText("#loss-value", lastEvaluation ? Number(lastEvaluation.mean_loss).toFixed(4) : "—");
@@ -227,6 +267,11 @@ function show(message) {
 }
 
 async function fetchOk(url, kind = "arrayBuffer", options) {
+  return (await fetchMeasured(url, kind, options)).value;
+}
+
+async function fetchMeasured(url, kind = "arrayBuffer", options) {
+  const started = performance.now();
   const response = await fetch(url, options);
   if (!response.ok) {
     const body = await response.text();
@@ -235,7 +280,20 @@ async function fetchOk(url, kind = "arrayBuffer", options) {
     error.responseBody = body;
     throw error;
   }
-  return response[kind]();
+  const body = await response.arrayBuffer();
+  const value =
+    kind === "json"
+      ? JSON.parse(new TextDecoder().decode(body))
+      : body;
+  return {
+    value,
+    bytes: body.byteLength,
+    seconds: (performance.now() - started) / 1000,
+  };
+}
+
+function optionalByteCount(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 function parseSafetensors(buffer) {
@@ -345,13 +403,14 @@ async function run() {
     const assignmentUrl = workerId
       ? coordinatorUrl(`/api/v1/assignment?worker_id=${encodeURIComponent(workerId)}`)
       : coordinatorUrl("/api/v1/assignment");
-    const manifest = await fetchOk(
+    const assignmentMeasurement = await fetchMeasured(
       connected ? assignmentUrl : "./fixture/fixture.json",
       "json",
       connected && workerToken
         ? { headers: { "X-Orca-Worker-Token": workerToken } }
         : undefined,
     );
+    const manifest = assignmentMeasurement.value;
     if (connected && pinnedCampaign && manifest.campaign_id !== pinnedCampaign) {
       throw new Error("assignment campaign does not match this static worker release");
     }
@@ -366,19 +425,36 @@ async function run() {
     const gradientUrl = connected
       ? coordinatorUrl(manifest.oracle_gradient_url)
       : "./fixture/gradients.safetensors";
+    const wasmInitStarted = performance.now();
+    const wasmRuntime = await init();
+    const wasmInitSeconds = (performance.now() - wasmInitStarted) / 1000;
+    const artifactFetchStarted = performance.now();
     const adapterPromise = peftMode
-      ? fetchOk(
+      ? fetchMeasured(
           connected
             ? coordinatorUrl(manifest.adapter_url)
             : "./fixture/adapter.safetensors",
         )
-      : Promise.resolve(null);
-    const [model, expectedGradients, , adapter] = await Promise.all([
-      fetchOk(modelUrl),
-      fetchOk(gradientUrl),
-      init(),
+      : Promise.resolve({ value: null, bytes: 0, seconds: 0 });
+    const [modelMeasurement, gradientMeasurement, adapterMeasurement] = await Promise.all([
+      fetchMeasured(modelUrl),
+      fetchMeasured(gradientUrl),
       adapterPromise,
     ]);
+    const artifactFetchSeconds = (performance.now() - artifactFetchStarted) / 1000;
+    const model = modelMeasurement.value;
+    const expectedGradients = gradientMeasurement.value;
+    const adapter = adapterMeasurement.value;
+    if (connected) {
+      const resources = manifest.resource_profile;
+      if (
+        modelMeasurement.bytes !== resources.model_download_bytes ||
+        adapterMeasurement.bytes !== resources.adapter_download_bytes ||
+        gradientMeasurement.bytes !== resources.oracle_gradient_download_bytes
+      ) {
+        throw new Error("downloaded artifact sizes do not match the assignment resource profile");
+      }
+    }
     const [batchSize, sequenceLength] = manifest.input_shape;
     const modelSpec =
       manifest.model ??
@@ -394,6 +470,7 @@ async function run() {
       `Running Burn ${peftMode ? "LoRA " : ""}forward/backward and reading ` +
         `${peftMode ? "adapter" : "all"} gradients from ${requestedBackend}…`,
     );
+    const gradientComputeStarted = performance.now();
     let result;
     if (peftMode) {
       const runLoraGradient =
@@ -430,11 +507,40 @@ async function run() {
         modelSpec.d_ff,
       );
     }
+    const gradientComputeSeconds = (performance.now() - gradientComputeStarted) / 1000;
     const actualGradientBytes = result.gradients();
     const gradientMetrics = compareGradients(expectedGradients, actualGradientBytes.buffer);
     const expectedLossSum = connected ? manifest.expected_loss_sum : manifest.loss_sum;
     const lossAbsoluteError = Math.abs(result.loss_sum - expectedLossSum);
     const lossRelativeError = lossAbsoluteError / Math.abs(expectedLossSum);
+    const memory = performance.memory;
+    const workerTelemetry = {
+      format: "orcacolony_worker_telemetry_v1",
+      runtime_seconds: {
+        assignment_fetch: assignmentMeasurement.seconds,
+        runtime_init: wasmInitSeconds,
+        artifact_fetch: artifactFetchSeconds,
+        gradient_compute: gradientComputeSeconds,
+      },
+      transfer_bytes: {
+        assignment: assignmentMeasurement.bytes,
+        model: modelMeasurement.bytes,
+        adapter: adapterMeasurement.bytes,
+        oracle_gradient: gradientMeasurement.bytes,
+        result: actualGradientBytes.byteLength,
+      },
+      memory_bytes: {
+        wasm_linear: optionalByteCount(wasmRuntime?.memory?.buffer?.byteLength),
+        process_peak_rss: null,
+        js_heap_used: optionalByteCount(memory?.usedJSHeapSize),
+        js_heap_limit: optionalByteCount(memory?.jsHeapSizeLimit),
+        device_capacity: optionalByteCount(
+          navigator.deviceMemory === undefined
+            ? null
+            : navigator.deviceMemory * 1024 * 1024 * 1024,
+        ),
+      },
+    };
     const summary = {
       backend:
         requestedBackend === "cpu"
@@ -457,6 +563,7 @@ async function run() {
       loss_absolute_error: lossAbsoluteError,
       loss_relative_error: lossRelativeError,
       gradients: gradientMetrics,
+      resource_observation: workerTelemetry,
       elapsed_ms: Math.round(performance.now() - started),
     };
     summary.provisional_parity =
@@ -472,6 +579,7 @@ async function run() {
         "X-Orca-Loss-Weight-Sum": String(result.loss_weight_sum),
         "X-Orca-Runtime-Backend":
           requestedBackend === "cpu" ? "burn-ndarray-f32" : "burn-webgpu-f32",
+        "X-Orca-Worker-Telemetry": JSON.stringify(workerTelemetry),
       };
       if (manifest.lease_token) headers["X-Orca-Lease-Token"] = manifest.lease_token;
       const response = await fetch(coordinatorUrl(manifest.result_url), {

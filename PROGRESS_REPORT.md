@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-07-24
 
-**Current phase:** P2 — proving PEFT adapter-gradient semantics on top of the completed research-record contract and v0.1 baseline
+**Current phase:** P3 — measuring and qualifying native local-memory profiles while preserving the P2 adapter and dense baselines
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -97,7 +97,7 @@ Completed within P1:
 
 ### P2 — Prove PEFT with complete adapter-gradient semantics
 
-**Status:** In progress
+**Status:** Complete
 
 - Freeze an exact base checkpoint.
 - Define one LoRA configuration and exact trainable-tensor manifest.
@@ -140,7 +140,7 @@ Completed within the first P2 numerical slice:
 
 ### P3 — Qualify local memory tiers
 
-**Status:** Planned
+**Status:** In progress
 
 Test increasingly flexible placement while retaining one-worker assignment independence:
 
@@ -151,6 +151,16 @@ Test increasingly flexible placement while retaining one-worker assignment indep
 5. Remote shard streaming only if computation per transferred byte can justify it.
 
 The native worker is the first target for explicit offload. Browser support remains measurement-driven.
+
+Completed within the first P3 measurement and native-baseline slice:
+
+- Added a strict `orcacolony_worker_telemetry_v1` contract for assignment fetch, runtime initialization, artifact fetch, gradient compute, actual transfer bytes, optional runtime-specific memory observations, and device capacity. Non-oracle runtime profiles must report it; malformed, non-finite, out-of-range, or assignment-inconsistent reports fail closed.
+- Added coordinator-owned artifact sizes, result-upload bytes, receive duration, persisted-result bytes, and current state-directory storage measurements to accepted receipts. Instrumentation survives restart validation and is aggregated without exposing worker identity in public campaign dashboards.
+- Added visible dashboard cards for aggregate gradient compute, network transfer, peak observed worker memory, and coordinator storage.
+- Proved the exact staged protocol with two real authenticated Burn CPU/WASM assignments. They reported `0.682199999988079` seconds of aggregate gradient compute, `10,681,648` frozen-base download bytes, `46,661,632` bytes of peak WASM linear memory, and retained `1.6795715402185043e-6` checkpoint relative-L2 parity.
+- Selected a content-addressed cached-base native CPU profile as the first native baseline because the browser proof transferred the immutable 5,340,824-byte base once per assignment while computing each bounded gradient in well under one second. This is a measured baseline decision, not arbitrary commitment to CPU residency as the final placement architecture.
+- Added an authenticated same-origin native worker that streams base and adapter artifacts to digest-named safetensors cache entries, revalidates tensor identities, loads only declared LoRA state, computes complete adapter gradients, reports process peak RSS, and submits through the existing coordinator contract.
+- Proved two native assignments with one shared cache: the first fetched the 5,340,824-byte base and 33,520-byte adapter; the second fetched zero model and adapter bytes. Aggregate native gradient compute was `0.055746099998941645` seconds, process peak RSS was `316,760,064` bytes, and checkpoint relative L2 was `3.038902086339097e-7`.
 
 ### P4 — Qualify numerical and mixed execution profiles
 
@@ -192,11 +202,12 @@ The native worker is the first target for explicit offload. Browser support rema
 
 ## Immediate next bounded target
 
-Begin P3 by adding measured worker/runtime/transfer/storage instrumentation to assignments and receipts, then use those observations to select the first native memory/offload profile rather than locking in an arbitrary architecture.
+Qualify the cached-base native CPU profile on the real-data T1 campaign, including cold-cache and warm-cache runtime, transfer, process-RSS, and storage observations. Use that larger measured baseline to decide whether the next profile should add quantized frozen-base RAM placement or explicit mapped/NVMe offload.
 
 ## Remaining major work
 
-- Native worker with explicit RAM and storage offload.
+- Real-data T1 qualification for the native cached-base CPU profile.
+- Native worker with quantized RAM placement and explicit mapped/NVMe offload.
 - Profile certification and mixed-profile proof.
 - Rolling-submodel feasibility study.
 - Exact tiled-computation feasibility study.
@@ -231,3 +242,6 @@ Begin P3 by adding measured worker/runtime/transfer/storage instrumentation to a
 - Published and checksum-verified the CPU/WASM and WebGPU browser parity experiments, including the slower WebGPU cold-run finding and explicit coordinator/offload limitations.
 - Added the explicit adapter-only global-step coordinator contract, coordinator-owned adapter checkpoint and optimizer persistence, strict reload identities, and a two-step resume proof against independent centralized LoRA updates.
 - Remediated checkpoint traversal and optimizer-corruption findings from an independent exact-tree review, preserved dense-state migration, and completed the LoRA HTTP/browser artifact and receipt contract.
+- Added validated runtime, transfer, memory, and storage observations to worker assignments, accepted receipts, restart state, campaign aggregation, and the public dashboard.
+- Proved the measurement protocol with two real authenticated Burn CPU/WASM assignments and used the repeated immutable-base transfer finding to select the first native baseline.
+- Added and exercised a streaming, content-addressed cached-base native CPU LoRA worker; a warm second assignment eliminated base and adapter network transfer while retaining tighter-than-required adapter parity.

@@ -71,6 +71,142 @@ def submission_for(
     )
 
 
+def worker_telemetry(
+    coordinator: GlobalStepCoordinator,
+    assignment: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "format": "orcacolony_worker_telemetry_v1",
+        "runtime_seconds": {
+            "assignment_fetch": 0.01,
+            "runtime_init": 0.02,
+            "artifact_fetch": 0.03,
+            "gradient_compute": 0.5,
+        },
+        "transfer_bytes": {
+            "assignment": 2048,
+            "model": coordinator.initial_model_path.stat().st_size,
+            "adapter": (
+                coordinator.initial_adapter_path.stat().st_size
+                if coordinator.lora is not None
+                else 0
+            ),
+            "oracle_gradient": coordinator.oracle_gradient_path(
+                str(assignment["assignment_id"])
+            ).stat().st_size,
+            "result": coordinator.oracle_gradient_path(
+                str(assignment["assignment_id"])
+            ).stat().st_size,
+        },
+        "memory_bytes": {
+            "wasm_linear": 64 * 1024 * 1024,
+            "process_peak_rss": None,
+            "js_heap_used": 32 * 1024 * 1024,
+            "js_heap_limit": 2 * 1024 * 1024 * 1024,
+            "device_capacity": 8 * 1024 * 1024 * 1024,
+        },
+    }
+
+
+def test_worker_resource_observations_are_validated_persisted_and_recovered(
+    tmp_path: Path,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    participants = participants_for(campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    coordinator = GlobalStepCoordinator.create(
+        campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+    )
+    assignment = coordinator.lease(
+        "worker-a",
+        worker_token="test-token",
+        now=100,
+    )
+    resources = assignment["resource_profile"]
+    assert resources["model_download_bytes"] == coordinator.initial_model_path.stat().st_size
+    assert resources["adapter_download_bytes"] == 0
+    assert resources["expected_result_upload_bytes"] == coordinator.oracle_gradient_path(
+        str(assignment["assignment_id"])
+    ).stat().st_size
+    telemetry = worker_telemetry(coordinator, assignment)
+    receipt = coordinator.accept(
+        replace(submission_for(coordinator, assignment), worker_telemetry=telemetry),
+        now=101,
+        finalize=False,
+    )
+
+    assert receipt.instrumentation["worker_reported"] == telemetry
+    measured = receipt.instrumentation["coordinator_measured"]
+    assert measured["result_upload_bytes"] == len(
+        submission_for(coordinator, assignment).safetensors
+    )
+    assert measured["result_storage_bytes"] == measured["result_upload_bytes"]
+    ledger = json.loads(
+        (state_dir / "accepted-work.json").read_text(encoding="utf-8")
+    )
+    assert ledger["entries"][0]["instrumentation"] == receipt.instrumentation
+
+    recovered = GlobalStepCoordinator.load(
+        campaign,
+        state_dir,
+        participants=participants,
+    )
+    observations = recovered.status()["resource_observations"]
+    assert observations["worker_reports"] == 1
+    assert observations["runtime_seconds"]["gradient_compute"] == 0.5
+    assert observations["transfer_bytes"]["result_upload"] == measured[
+        "result_upload_bytes"
+    ]
+    assert observations["memory_bytes"]["peak_wasm_linear"] == 64 * 1024 * 1024
+    assert "largest_device_capacity" not in observations["memory_bytes"]
+    assert "largest_js_heap_limit" not in observations["memory_bytes"]
+    assert observations["coordinator_storage_bytes"] > measured["result_storage_bytes"]
+
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["assignments"][0]["instrumentation"]["worker_reported"][
+        "runtime_seconds"
+    ]["gradient_compute"] = -1
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    with pytest.raises(ValueError, match="worker runtime telemetry"):
+        GlobalStepCoordinator.load(
+            campaign,
+            state_dir,
+            participants=participants,
+        )
+
+
+def test_burn_worker_telemetry_is_required_and_bound_to_assignment_bytes(
+    tmp_path: Path,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    participants = participants_for(campaign.campaign["id"])
+    coordinator = GlobalStepCoordinator.create(
+        campaign,
+        tmp_path / "coordinator",
+        worker_count=2,
+        participants=participants,
+    )
+    assignment = coordinator.lease("worker-a", worker_token="test-token", now=100)
+    burn_submission = replace(
+        submission_for(coordinator, assignment),
+        runtime_backend="burn-ndarray-f32",
+    )
+    with pytest.raises(ValueError, match="telemetry is required"):
+        coordinator.accept(burn_submission, now=101)
+
+    telemetry = worker_telemetry(coordinator, assignment)
+    telemetry["transfer_bytes"]["result"] += 1
+    with pytest.raises(ValueError, match="result does not match assignment"):
+        coordinator.accept(
+            replace(burn_submission, worker_telemetry=telemetry),
+            now=101,
+        )
+
+
 def test_two_non_overlapping_workers_match_one_reference_global_step(
     tmp_path: Path,
 ) -> None:
@@ -200,6 +336,9 @@ def test_http_leases_two_workers_and_closes_the_global_step(tmp_path: Path) -> N
             assert "X-Orca-Worker-Token" in response.headers[
                 "Access-Control-Allow-Headers"
             ]
+            assert "X-Orca-Worker-Telemetry" in response.headers[
+                "Access-Control-Allow-Headers"
+            ]
         for worker_id in ("browser-a", "browser-b"):
             query = urlencode({"worker_id": worker_id})
             assignment_request = Request(
@@ -221,6 +360,10 @@ def test_http_leases_two_workers_and_closes_the_global_step(tmp_path: Path) -> N
                     "X-Orca-Loss-Sum": str(assignment["expected_loss_sum"]),
                     "X-Orca-Loss-Weight-Sum": str(assignment["loss_weight_sum"]),
                     "X-Orca-Runtime-Backend": "python-oracle-f32",
+                    "X-Orca-Worker-Telemetry": json.dumps(
+                        worker_telemetry(coordinator, assignment),
+                        separators=(",", ":"),
+                    ),
                 },
             )
             with urlopen(request) as response:
@@ -234,6 +377,12 @@ def test_http_leases_two_workers_and_closes_the_global_step(tmp_path: Path) -> N
 
     assert receipts[0]["step_complete"] is False
     assert receipts[1]["step_complete"] is True
+    assert receipts[0]["instrumentation"]["worker_reported"]["format"] == (
+        "orcacolony_worker_telemetry_v1"
+    )
+    assert receipts[0]["instrumentation"]["coordinator_measured"][
+        "result_receive_seconds"
+    ] >= 0
     assert status["state"] == "step_complete"
     assert "browser-a" not in json.dumps(status, sort_keys=True)
     assert "browser-b" not in json.dumps(status, sort_keys=True)
@@ -508,6 +657,10 @@ def test_lora_http_contract_serves_assignments_artifacts_and_result_checkpoint(
                     "X-Orca-Loss-Sum": str(assignment["expected_loss_sum"]),
                     "X-Orca-Loss-Weight-Sum": str(assignment["loss_weight_sum"]),
                     "X-Orca-Runtime-Backend": "python-oracle-f32",
+                    "X-Orca-Worker-Telemetry": json.dumps(
+                        worker_telemetry(coordinator, assignment),
+                        separators=(",", ":"),
+                    ),
                 },
             )
             with urlopen(result_request) as response:
