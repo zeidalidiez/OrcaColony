@@ -41,6 +41,44 @@ struct SelfAttention<B: BackendTrait> {
     output: Linear<B>,
 }
 
+#[derive(Module, Debug)]
+struct QkvLoRA<B: BackendTrait> {
+    a: Linear<B>,
+    b: Linear<B>,
+}
+
+impl<B: BackendTrait> QkvLoRA<B> {
+    fn new(spec: ModelSpec, rank: usize, device: &B::Device) -> Self {
+        Self {
+            a: LinearConfig::new(spec.d_model, rank)
+                .with_bias(false)
+                .init(device),
+            b: LinearConfig::new(rank, 3 * spec.d_model)
+                .with_bias(false)
+                .init(device),
+        }
+    }
+
+    fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
+        self.b.forward(self.a.forward(input))
+    }
+}
+
+#[derive(Module, Debug)]
+struct LoRAAdapterSet<B: BackendTrait> {
+    layers: Vec<QkvLoRA<B>>,
+}
+
+impl<B: BackendTrait> LoRAAdapterSet<B> {
+    fn new(spec: ModelSpec, rank: usize, device: &B::Device) -> Self {
+        Self {
+            layers: (0..spec.num_layers)
+                .map(|_| QkvLoRA::new(spec, rank, device))
+                .collect(),
+        }
+    }
+}
+
 impl<B: BackendTrait> SelfAttention<B> {
     fn new(spec: ModelSpec, device: &B::Device) -> Self {
         Self {
@@ -50,8 +88,21 @@ impl<B: BackendTrait> SelfAttention<B> {
     }
 
     fn forward(&self, input: Tensor<B, 3>, spec: ModelSpec) -> Tensor<B, 3> {
+        self.forward_with_lora(input, spec, None, 0.0)
+    }
+
+    fn forward_with_lora(
+        &self,
+        input: Tensor<B, 3>,
+        spec: ModelSpec,
+        adapter: Option<&QkvLoRA<B>>,
+        scaling: f64,
+    ) -> Tensor<B, 3> {
         let [batch_size, sequence_length, _] = input.dims();
-        let qkv = self.qkv.forward(input);
+        let qkv = match adapter {
+            Some(adapter) => self.qkv.forward(input.clone()) + adapter.forward(input) * scaling,
+            None => self.qkv.forward(input),
+        };
         let chunks = qkv.chunk(3, 2);
         let head_dim = spec.d_model / spec.num_heads;
 
@@ -135,6 +186,23 @@ impl<B: BackendTrait> DecoderBlock<B> {
                 .forward(self.attention_norm.forward(input), spec);
         hidden.clone() + self.mlp.forward(self.mlp_norm.forward(hidden))
     }
+
+    fn forward_with_lora(
+        &self,
+        input: Tensor<B, 3>,
+        spec: ModelSpec,
+        adapter: Option<&QkvLoRA<B>>,
+        scaling: f64,
+    ) -> Tensor<B, 3> {
+        let hidden = input.clone()
+            + self.attention.forward_with_lora(
+                self.attention_norm.forward(input),
+                spec,
+                adapter,
+                scaling,
+            );
+        hidden.clone() + self.mlp.forward(self.mlp_norm.forward(hidden))
+    }
 }
 
 #[derive(Module, Debug)]
@@ -161,16 +229,43 @@ impl<B: BackendTrait> VolunteerDecoder<B> {
     }
 
     fn forward(&self, input_ids: Tensor<B, 2, Int>, spec: ModelSpec) -> Tensor<B, 3> {
+        self.forward_with_lora(input_ids, spec, None, 0.0)
+    }
+
+    fn forward_with_lora(
+        &self,
+        input_ids: Tensor<B, 2, Int>,
+        spec: ModelSpec,
+        adapters: Option<&LoRAAdapterSet<B>>,
+        scaling: f64,
+    ) -> Tensor<B, 3> {
         let [batch_size, sequence_length] = input_ids.dims();
         assert!(sequence_length <= spec.context_length);
+        if let Some(adapters) = adapters {
+            assert_eq!(adapters.layers.len(), self.blocks.len());
+        }
 
         let positions = Tensor::<B, 1, Int>::arange(0..sequence_length as i64, &input_ids.device())
             .reshape([1, sequence_length])
             .repeat_dim(0, batch_size);
         let mut hidden =
             self.token_embedding.forward(input_ids) + self.position_embedding.forward(positions);
-        for block in &self.blocks {
-            hidden = block.forward(hidden, spec);
+        match adapters {
+            Some(adapters) => {
+                for (index, block) in self.blocks.iter().enumerate() {
+                    hidden = block.forward_with_lora(
+                        hidden,
+                        spec,
+                        Some(&adapters.layers[index]),
+                        scaling,
+                    );
+                }
+            }
+            None => {
+                for block in &self.blocks {
+                    hidden = block.forward(hidden, spec);
+                }
+            }
         }
         let hidden = self.final_norm.forward(hidden);
         let hidden = hidden.reshape([batch_size * sequence_length, spec.d_model]);
@@ -389,6 +484,35 @@ where
     Ok(tensors)
 }
 
+async fn collect_lora_gradients<B>(
+    adapters: &LoRAAdapterSet<B>,
+    grads: &mut B::Gradients,
+) -> Result<Vec<OwnedTensor>, JsValue>
+where
+    B: AutodiffBackend<FloatElem = f32, IntElem = i32>,
+{
+    let mut tensors = Vec::new();
+    for (index, adapter) in adapters.layers.iter().enumerate() {
+        push_2d(
+            &mut tensors,
+            format!("blocks.{index}.attention.qkv.lora_a"),
+            &adapter.a.weight,
+            grads,
+            true,
+        )
+        .await?;
+        push_2d(
+            &mut tensors,
+            format!("blocks.{index}.attention.qkv.lora_b"),
+            &adapter.b.weight,
+            grads,
+            true,
+        )
+        .await?;
+    }
+    Ok(tensors)
+}
+
 fn serialize_gradients(tensors: &[OwnedTensor]) -> Result<Vec<u8>, JsValue> {
     let views = tensors
         .iter()
@@ -508,6 +632,98 @@ where
     })
 }
 
+async fn run_lora_gradient_with_backend<B>(
+    model_bytes: Vec<u8>,
+    adapter_bytes: Vec<u8>,
+    input_ids: Vec<i32>,
+    target_ids: Vec<i32>,
+    batch_size: usize,
+    sequence_length: usize,
+    spec: ModelSpec,
+    rank: usize,
+    alpha: f64,
+    device: &B::Device,
+) -> Result<GradientRun, JsValue>
+where
+    B: AutodiffBackend<FloatElem = f32, IntElem = i32>,
+{
+    if spec.vocab_size == 0
+        || spec.context_length == 0
+        || spec.d_model == 0
+        || spec.num_heads == 0
+        || spec.num_layers == 0
+        || spec.d_ff == 0
+        || spec.d_model % spec.num_heads != 0
+        || rank == 0
+        || !alpha.is_finite()
+        || alpha <= 0.0
+    {
+        return Err(js_error("model or LoRA dimensions are invalid"));
+    }
+    if sequence_length > spec.context_length {
+        return Err(js_error("sequence length exceeds model context length"));
+    }
+    let loss_weight_sum = batch_size
+        .checked_mul(sequence_length)
+        .ok_or_else(|| js_error("batch dimensions overflow"))?;
+    if input_ids.len() != loss_weight_sum || target_ids.len() != loss_weight_sum {
+        return Err(js_error(
+            "fixture tensor lengths do not match batch dimensions",
+        ));
+    }
+
+    let mut model = VolunteerDecoder::<B>::new(spec, device).no_grad();
+    let mut model_store = SafetensorsStore::from_bytes(Some(model_bytes))
+        .with_from_adapter(PyTorchToBurnAdapter)
+        .with_key_remapping(r"^blocks\.(\d+)\.mlp\.0\.", "blocks.$1.mlp.input.")
+        .with_key_remapping(r"^blocks\.(\d+)\.mlp\.2\.", "blocks.$1.mlp.output.");
+    model
+        .load_from(&mut model_store)
+        .map_err(|error| js_error(format!("checkpoint load failed: {error}")))?;
+
+    let mut adapters = LoRAAdapterSet::<B>::new(spec, rank, device);
+    let mut adapter_store = SafetensorsStore::from_bytes(Some(adapter_bytes))
+        .with_from_adapter(PyTorchToBurnAdapter)
+        .with_key_remapping(
+            r"^blocks\.(\d+)\.attention\.qkv\.lora_a$",
+            "layers.$1.a.weight",
+        )
+        .with_key_remapping(
+            r"^blocks\.(\d+)\.attention\.qkv\.lora_b$",
+            "layers.$1.b.weight",
+        );
+    adapters
+        .load_from(&mut adapter_store)
+        .map_err(|error| js_error(format!("adapter load failed: {error}")))?;
+
+    let inputs = Tensor::<B, 2, Int>::from_data(
+        TensorData::new(input_ids, [batch_size, sequence_length]),
+        device,
+    );
+    let targets =
+        Tensor::<B, 1, Int>::from_data(TensorData::new(target_ids, [loss_weight_sum]), device);
+    let logits = model
+        .forward_with_lora(inputs, spec, Some(&adapters), alpha / rank as f64)
+        .reshape([loss_weight_sum, spec.vocab_size]);
+    let log_probabilities = burn::tensor::activation::log_softmax(logits, 1);
+    let selected = log_probabilities.gather(1, targets.reshape([loss_weight_sum, 1]));
+    let loss = selected.sum().neg();
+    let loss_sum = loss
+        .clone()
+        .into_scalar_async()
+        .await
+        .map_err(|error| js_error(format!("loss readback failed: {error}")))?;
+    let mut grads = loss.backward();
+    let tensors = collect_lora_gradients(&adapters, &mut grads).await?;
+    let gradient_bytes = serialize_gradients(&tensors)?;
+
+    Ok(GradientRun {
+        loss_sum,
+        loss_weight_sum: loss_weight_sum as u32,
+        gradient_bytes,
+    })
+}
+
 #[wasm_bindgen]
 pub async fn run_gradient(
     model_bytes: Vec<u8>,
@@ -574,6 +790,89 @@ pub async fn run_gradient_cpu(
             num_layers,
             d_ff,
         },
+        &device,
+    )
+    .await
+}
+
+#[wasm_bindgen]
+pub async fn run_lora_gradient(
+    model_bytes: Vec<u8>,
+    adapter_bytes: Vec<u8>,
+    input_ids: Vec<i32>,
+    target_ids: Vec<i32>,
+    batch_size: usize,
+    sequence_length: usize,
+    vocab_size: usize,
+    context_length: usize,
+    d_model: usize,
+    num_heads: usize,
+    num_layers: usize,
+    d_ff: usize,
+    rank: usize,
+    alpha: f64,
+) -> Result<GradientRun, JsValue> {
+    console_error_panic_hook::set_once();
+    let device = WgpuDevice::default();
+    init_setup_async::<AutoGraphicsApi>(&device, Default::default()).await;
+    run_lora_gradient_with_backend::<TrainingBackend>(
+        model_bytes,
+        adapter_bytes,
+        input_ids,
+        target_ids,
+        batch_size,
+        sequence_length,
+        ModelSpec {
+            vocab_size,
+            context_length,
+            d_model,
+            num_heads,
+            num_layers,
+            d_ff,
+        },
+        rank,
+        alpha,
+        &device,
+    )
+    .await
+}
+
+#[wasm_bindgen]
+pub async fn run_lora_gradient_cpu(
+    model_bytes: Vec<u8>,
+    adapter_bytes: Vec<u8>,
+    input_ids: Vec<i32>,
+    target_ids: Vec<i32>,
+    batch_size: usize,
+    sequence_length: usize,
+    vocab_size: usize,
+    context_length: usize,
+    d_model: usize,
+    num_heads: usize,
+    num_layers: usize,
+    d_ff: usize,
+    rank: usize,
+    alpha: f64,
+) -> Result<GradientRun, JsValue> {
+    console_error_panic_hook::set_once();
+    let device = NdArrayDevice::Cpu;
+    run_lora_gradient_with_backend::<CpuTrainingBackend>(
+        model_bytes,
+        adapter_bytes,
+        input_ids,
+        target_ids,
+        batch_size,
+        sequence_length,
+        ModelSpec {
+            vocab_size,
+            context_length,
+            d_model,
+            num_heads,
+            num_layers,
+            d_ff,
+        },
+        rank,
+        alpha,
         &device,
     )
     .await

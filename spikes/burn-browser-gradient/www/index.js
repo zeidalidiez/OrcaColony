@@ -1,6 +1,8 @@
 import init, {
   run_gradient,
   run_gradient_cpu,
+  run_lora_gradient,
+  run_lora_gradient_cpu,
 } from "./pkg/orcacolony_burn_browser_gradient.js";
 
 const button = document.querySelector("#run");
@@ -353,16 +355,26 @@ async function run() {
     if (connected && pinnedCampaign && manifest.campaign_id !== pinnedCampaign) {
       throw new Error("assignment campaign does not match this static worker release");
     }
+    const peftMode = manifest.format === "orcacolony_lora_fixture_v1";
+    if (connected && peftMode) {
+      throw new Error("LoRA parity mode is local-only until the coordinator contract is implemented");
+    }
     const modelUrl = connected
       ? coordinatorUrl(manifest.model_url)
-      : "./fixture/model.safetensors";
+      : peftMode
+        ? "./fixture/base.safetensors"
+        : "./fixture/model.safetensors";
     const gradientUrl = connected
       ? coordinatorUrl(manifest.oracle_gradient_url)
       : "./fixture/gradients.safetensors";
-    const [model, expectedGradients] = await Promise.all([
+    const adapterPromise = peftMode
+      ? fetchOk("./fixture/adapter.safetensors")
+      : Promise.resolve(null);
+    const [model, expectedGradients, , adapter] = await Promise.all([
       fetchOk(modelUrl),
       fetchOk(gradientUrl),
       init(),
+      adapterPromise,
     ]);
     const [batchSize, sequenceLength] = manifest.input_shape;
     const modelSpec =
@@ -375,21 +387,46 @@ async function run() {
         num_layers: 4,
         d_ff: 512,
       };
-    show(`Running Burn forward/backward and reading all gradients from ${requestedBackend}…`);
-    const runGradient = requestedBackend === "cpu" ? run_gradient_cpu : run_gradient;
-    const result = await runGradient(
-      new Uint8Array(model),
-      Int32Array.from(manifest.input_ids),
-      Int32Array.from(manifest.target_ids),
-      batchSize,
-      sequenceLength,
-      modelSpec.vocab_size,
-      modelSpec.context_length,
-      modelSpec.d_model,
-      modelSpec.num_heads,
-      modelSpec.num_layers,
-      modelSpec.d_ff,
+    show(
+      `Running Burn ${peftMode ? "LoRA " : ""}forward/backward and reading ` +
+        `${peftMode ? "adapter" : "all"} gradients from ${requestedBackend}…`,
     );
+    let result;
+    if (peftMode) {
+      const runLoraGradient =
+        requestedBackend === "cpu" ? run_lora_gradient_cpu : run_lora_gradient;
+      result = await runLoraGradient(
+        new Uint8Array(model),
+        new Uint8Array(adapter),
+        Int32Array.from(manifest.input_ids),
+        Int32Array.from(manifest.target_ids),
+        batchSize,
+        sequenceLength,
+        modelSpec.vocab_size,
+        modelSpec.context_length,
+        modelSpec.d_model,
+        modelSpec.num_heads,
+        modelSpec.num_layers,
+        modelSpec.d_ff,
+        manifest.adapter.rank,
+        manifest.adapter.alpha,
+      );
+    } else {
+      const runGradient = requestedBackend === "cpu" ? run_gradient_cpu : run_gradient;
+      result = await runGradient(
+        new Uint8Array(model),
+        Int32Array.from(manifest.input_ids),
+        Int32Array.from(manifest.target_ids),
+        batchSize,
+        sequenceLength,
+        modelSpec.vocab_size,
+        modelSpec.context_length,
+        modelSpec.d_model,
+        modelSpec.num_heads,
+        modelSpec.num_layers,
+        modelSpec.d_ff,
+      );
+    }
     const actualGradientBytes = result.gradients();
     const gradientMetrics = compareGradients(expectedGradients, actualGradientBytes.buffer);
     const expectedLossSum = connected ? manifest.expected_loss_sum : manifest.loss_sum;
@@ -401,9 +438,15 @@ async function run() {
           ? "Burn 0.21 Autodiff<NdArray<f32, i32>>"
           : "Burn 0.21 Autodiff<Wgpu<f32, i32>>",
       mode: connected ? "connected-worker" : "local-parity",
+      training_method: peftMode ? "frozen-base-lora" : "dense",
       worker_id: workerId,
       batch_shape: manifest.input_shape,
-      model_parameter_count: manifest.parameter_count,
+      model_parameter_count: peftMode
+        ? manifest.base.parameter_count
+        : manifest.parameter_count,
+      trainable_parameter_count: peftMode
+        ? manifest.adapter.value_count
+        : manifest.parameter_count,
       model: modelSpec,
       expected_loss_sum: expectedLossSum,
       browser_loss_sum: result.loss_sum,

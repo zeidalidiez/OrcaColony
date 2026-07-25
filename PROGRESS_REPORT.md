@@ -122,6 +122,10 @@ Completed within the first P2 numerical slice:
 - Generated and checksum-verified the P2 research result with the exact-match metric and all three guardrails passing. Its limitations explicitly exclude browser/native parity, campaign restart/retry, offload, and useful adaptation quality.
 - Added a regression gate that rebuilds every committed research record, so invalid or unlinked studies fail the normal test suite.
 - Extended subsequent LoRA fixtures with the exact model dimensions, input shape, input IDs, and target IDs required by a standalone browser parity run; the earlier validated P2 study remains pinned to its original exporter commit and hashes.
+- Added separate Burn LoRA entry points that freeze the complete base, load the eight rank-4 QKV adapters, execute the same forward graph, and export only the exact adapter-gradient manifest. The established dense entry points remain intact.
+- Proved real CPU/WASM browser parity over all 8 adapter tensors and 8,192 values: cosine `0.999999999999924`, relative L2 `3.851581853662727e-7`, maximum absolute error `1.3113021850585938e-6`, and `0.978 s` elapsed.
+- Proved real WebGPU browser parity over the same adapter set: exact Python summed loss, cosine `0.9999999999998102`, relative L2 `6.144610293037611e-7`, maximum absolute error `1.1175870895385742e-6`, and `21.650 s` elapsed.
+- Rebuilt and reran the original dense CPU/WASM path after the LoRA change; all 52 gradients retained their prior relative L2 result `2.788216012272494e-7`.
 
 ### P3 — Qualify local memory tiers
 
@@ -177,7 +181,7 @@ The native worker is the first target for explicit offload. Browser support rema
 
 ## Immediate next bounded target
 
-Begin browser adapter-gradient parity against the exact P2 base, adapter, batch, and gradient artifacts. First prove Burn CPU/WASM parity for the eight adapter tensors without changing the dense browser path; qualify WebGPU after the CPU contract is stable. Campaign restart and a useful public base remain later P2 work.
+Pin and publish the browser LoRA parity result through the research-record contract, then extend the coordinator with an explicit adapter campaign mode: exact adapter checkpoint identity, adapter-only result validation and aggregation, coordinator-owned optimizer state, restart/retry, evaluation, and release. A useful public base remains later P2 work.
 
 ## Remaining major work
 
@@ -213,3 +217,4 @@ Begin browser adapter-gradient parity against the exact P2 base, adapter, batch,
 - Added the first P2 numerical vertical: deterministic frozen-base LoRA gradients and an exact coordinator-compatible adapter update matching an independent reference.
 - Added the exact LoRA manifest and deterministic artifact exporter, fixed checksum output to use portable LF records, and proved two real byte-identical exports with all hashes valid.
 - Published and rebuilt the validated `p2-lora-numerical-v1` research record while retaining explicit limits on what the proof establishes.
+- Proved frozen-base LoRA adapter-gradient parity in real CPU/WASM and WebGPU browser runs while retaining the original dense browser result.

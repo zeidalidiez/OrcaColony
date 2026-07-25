@@ -1,6 +1,6 @@
 # Burn browser-gradient worker
 
-This browser worker loads the Python M0 T0 fixture into Burn, runs one summed-loss backward pass on browser WebGPU or CPU/WASM, and returns every FP32 gradient as a safetensors payload.
+This browser worker loads a Python T0 fixture into Burn, runs one summed-loss backward pass on browser WebGPU or CPU/WASM, and returns either every dense FP32 gradient or the complete frozen-base LoRA adapter-gradient set as a safetensors payload.
 
 Build the generated browser bundle from the repository root:
 
@@ -56,3 +56,24 @@ Passing `--resume-from <previous-state>/checkpoint` continues the canonical mode
 ## Dynamic T1 scale proof
 
 The worker model dimensions now come from the exact assignment rather than compile-time T0 constants. With `campaign/t1-smoke.json`, the unchanged WASM module loaded a 6,901,760-parameter, 6-layer, width-256 model and exported all 76 gradient tensors. CPU/WASM reached relative L2 error `6.297321030850067e-7` in `2.285 s`; WebGPU reached `1.4272976248000147e-6` in `9.466 s`. A subsequent two-step connected T1 campaign finished with checkpoint relative L2 error `2.9341757103884218e-8`.
+
+## Frozen-base LoRA parity proof
+
+Build the P2 local parity fixture with:
+
+```bash
+ORCACOLONY_LORA_CONFIG=campaign/t0-lora-smoke.json \
+ORCACOLONY_FIXTURE_DIR=.artifacts/browser-lora-fixture \
+bash spikes/burn-browser-gradient/build-browser.sh
+```
+
+The Burn module loads the exact dense base with gradients disabled, loads the eight adapter tensors separately, applies rank-4 QKV LoRA in all four layers, and exports only the manifest-declared adapter gradients. The existing dense entry points and 52-tensor export remain separate and unchanged.
+
+The real local browser proof produced:
+
+| Backend | Loss | Adapter tensors / values | Cosine | Relative L2 | Maximum absolute error | Elapsed |
+|---|---:|---:|---:|---:|---:|---:|
+| CPU/WASM | `4267.705078125` | 8 / 8,192 | `0.999999999999924` | `3.851581853662727e-7` | `1.3113021850585938e-6` | `0.978 s` |
+| WebGPU | `4267.70556640625` | 8 / 8,192 | `0.9999999999998102` | `6.144610293037611e-7` | `1.1175870895385742e-6` | `21.650 s` |
+
+Both passed the provisional parity gate against Python gradient SHA-256 `7ce16dfd740fd5a249257de6ab442943577b86917f9ae77604c5097ce1a5b8e2`. A fresh dense CPU/WASM regression still exported all 52 tensors and reproduced its prior relative L2 error `2.788216012272494e-7`. LoRA mode is deliberately local-only until adapter checkpoint, lease, aggregation, restart, evaluation, and release semantics are integrated into the coordinator.

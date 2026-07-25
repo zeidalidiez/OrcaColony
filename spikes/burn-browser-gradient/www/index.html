@@ -119,7 +119,7 @@
   <main>
     <p class="eyebrow">Open distributed training</p>
     <h1>One model.<br>Every contribution counts.</h1>
-    <p class="intro">Contribute a complete whole-model gradient from this browser to one owner-frozen campaign. The coordinator aggregates accepted work into a single canonical checkpoint.</p>
+    <p class="intro">Contribute one bounded, campaign-declared gradient assignment from this browser. Supported research profiles state their exact trainable tensor set; the coordinator aggregates accepted work into one canonical checkpoint.</p>
     <div class="campaign-line"><span>Campaign</span><code id="campaign-id">Loading…</code><span id="campaign-state">—</span></div>
 
     <section class="grid metrics" aria-label="Campaign progress">
@@ -133,7 +133,7 @@
       <article class="card">
         <div class="section-label">Live worker</div>
         <h2>Donate this browser’s compute</h2>
-        <p class="note">Your approved worker receives an exact checkpoint and data range, computes summed causal-LM gradients with Burn, and returns every named FP32 tensor. WebGPU is preferred; CPU/WASM is available everywhere else.</p>
+        <p class="note">Your approved worker receives an exact checkpoint, training profile, and data range, computes summed causal-LM gradients with Burn, and returns the complete declared FP32 tensor set. WebGPU is preferred; CPU/WASM is available everywhere else.</p>
         <button id="run">Run browser backward pass</button>
         <p class="note" style="margin-top:12px">Use <code>?backend=cpu</code> for one CPU run or <code>?cpu-loop=&lt;worker-id&gt;</code> for continuous contribution. Worker credentials stay in the URL fragment.</p>
         <details>
