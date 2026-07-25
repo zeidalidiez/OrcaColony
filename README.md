@@ -122,6 +122,7 @@ uv run python -m orcacolony.campaign_run \
   --state .artifacts/campaign \
   --browser-root spikes/burn-browser-gradient/www \
   --workers 2 \
+  --numerical-profile burn-ndarray-f32-v1 \
   --target-steps 2
 ```
 
@@ -154,17 +155,17 @@ The worker pins the coordinator origin, rejects cross-origin redirects, streams 
 
 `--assignments N` is a bounded persistent session: it validates and builds the base/model once, reuses the in-memory adapter while its digest is unchanged, and fetches and loads only a new adapter after the coordinator advances a global step. Adapter refresh validates and converts the complete tensor set before mutating the model, so malformed state cannot leave a mixed adapter behind. The two-step integration test builds one model across four assignments and loads exactly two checkpoint-specific adapters.
 
-The one-shot T2 baseline spent `1.013742800001637 s` revalidating its 366,190,504-byte cached base and `1.9494272000010824 s` rebuilding/loading the runtime before `1.653274500000407 s` of gradient compute. The reproducible [`p3-persistent-native-session-v1`](research/studies/p3-persistent-native-session-v1) proof reduced reused-assignment setup to `0.00004199999966658652 s`—a 99.9986% reduction—while retaining `2.1866353039878446e-7` checkpoint relative L2. The current worker is still complete FP32 CPU residency after load, not quantized placement or mapped/NVMe tensor offload.
+The one-shot T2 baseline spent `1.013742800001637 s` revalidating its 366,190,504-byte cached base and `1.9494272000010824 s` rebuilding/loading the runtime before `1.653274500000407 s` of gradient compute. The reproducible [`p3-persistent-native-session-v1`](research/studies/p3-persistent-native-session-v1) proof reduced reused-assignment setup to `0.00004199999966658652 s`—a 99.9986% reduction—while retaining `2.1866353039878446e-7` checkpoint relative L2. Complete FP32 CPU residency remains the baseline; authenticated layer-bundle storage and int8 frozen-linear residency are separately qualified placements rather than silent substitutions.
 
-### Offline int8 frozen-linear profile
+### Connected homogeneous int8 frozen-linear profile
 
-`build_int8_lora_model(...)` exposes the explicit offline numerical profile `int8-per-output-symmetric-f32-dequant-v1`. It stores frozen linear weights as per-output-channel symmetric int8 buffers, reconstructs FP32 weights inside a custom forward/backward function, and leaves LoRA parameters FP32 and trainable. It is deliberately **not** registered as a connected worker backend and does not inherit the FP32 acceptance tolerance.
+`build_int8_lora_model(...)` exposes the explicit numerical profile `int8-per-output-symmetric-f32-dequant-v1`. It stores frozen linear weights as per-output-channel symmetric int8 buffers, reconstructs FP32 weights inside a custom forward/backward function, and leaves LoRA parameters FP32 and trainable. The coordinator selects an int8 oracle and profile-authenticated v2 checkpoint identity; exact CPU FP32 remains bit-exact, while Burn NdArray and WebGPU use separate named numerical/runtime profiles.
 
 The reproducible [`int8-frozen-linear` spike](spikes/int8-frozen-linear) reduced unique resident model-tensor bytes by 43.08% at T0, 50.18% at T1, and 69.23% at T2. T2 adapter-gradient cosine remained `0.9995400`, but relative L2 reached `0.03038196`—about 3,038 times the connected FP32 bound.
 
-The P4 follow-up fixed a 20-step T1 TinyStories trajectory and a profile-specific int8 control. Two-shard int8 aggregation stayed within `3.1242e-7` gradient relative L2 of centralized int8, final adapters stayed within `1.5513e-7`, and ten post-restart gradients/adapter/optimizer states were exact. Int8 held-out mean loss improved by `0.1061466932` versus `0.1049623489` FP32 while retaining 50.18% fewer model-tensor bytes. The int8 and FP32 adapters still diverged by 2.6366%, so int8 is promoted only to a homogeneous-profile candidate—not mixed exact aggregation.
+The P4 follow-up fixed a 20-step T1 TinyStories trajectory and a profile-specific int8 control. Two-shard int8 aggregation stayed within `3.1242e-7` gradient relative L2 of centralized int8, final adapters stayed within `1.5513e-7`, and ten post-restart gradients/adapter/optimizer states were exact. Int8 held-out mean loss improved by `0.1061466932` versus `0.1049623489` FP32 while retaining 50.18% fewer model-tensor bytes. The int8 and FP32 adapters still diverged by 2.6366%, so they cannot share a campaign.
 
-`build_layer_bundle_int8_lora_model(...)` now authenticates and quantizes one layer-bundle shard at a time without resident FP32 construction. It reproduced converted-int8 loss and gradient SHA-256 exactly at T1/T2. At T2 it retained the same `113,080,320` tensor bytes while reducing build peak RSS from `1,380,302,848` to `458,956,800` bytes and final peak from `1,380,302,848` to `845,414,400`. Connected promotion still requires explicit numerical-profile identity plus a profile-specific coordinator oracle/checkpoint contract.
+`build_layer_bundle_int8_lora_model(...)` authenticates and quantizes one layer-bundle shard at a time without resident FP32 construction. It reproduced converted-int8 loss and gradient SHA-256 exactly at T1/T2. At T2 it retained the same `113,080,320` tensor bytes while reducing build peak RSS from `1,380,302,848` to `458,956,800` bytes and final peak from `1,380,302,848` to `845,414,400`. The connected T1 qualification mixed one resident-converted and one direct-bundle int8 worker across two optimizer steps and a coordinator restart: all four worker gradients were exact against the int8 oracle, maximum checkpoint relative L2 was `6.12852298785371e-8`, warm model transfer was zero, and held-out loss improved by `0.001623988151550293`. The final adapter remained 1.1019% from exact FP32, and cross-profile restart was rejected.
 
 ### Offline exact-FP32 streamed-linear profile
 
@@ -225,6 +226,7 @@ uv run python -m orcacolony.campaign_run \
   --state .artifacts/t1-tinystories-campaign \
   --browser-root spikes/burn-browser-gradient/www \
   --workers 2 \
+  --numerical-profile burn-ndarray-f32-v1 \
   --target-steps 2
 ```
 

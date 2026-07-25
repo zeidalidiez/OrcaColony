@@ -1,0 +1,94 @@
+{
+  "format": "orcacolony_p4_connected_int8_proof_v1",
+  "campaign_id": "orcacolony-t1-tinystories-smoke-v1",
+  "target_steps": 2,
+  "numerical_profile": "int8-per-output-symmetric-f32-dequant-v1",
+  "execution_profiles": [
+    {
+      "runtime_backend": "python-native-cpu-int8-f32-dequant",
+      "placement": "authenticated-resident-base-then-int8",
+      "model_build_count": 1,
+      "adapter_load_count": 2,
+      "reused_model": [
+        false,
+        true
+      ],
+      "reused_adapter": [
+        false,
+        false
+      ],
+      "model_transfer_bytes": [
+        27614136,
+        0
+      ]
+    },
+    {
+      "runtime_backend": "python-native-cpu-layer-bundle-int8-f32-dequant",
+      "placement": "authenticated-layer-bundle-direct-int8",
+      "model_build_count": 1,
+      "adapter_load_count": 2,
+      "reused_model": [
+        false,
+        true
+      ],
+      "reused_adapter": [
+        false,
+        false
+      ],
+      "model_transfer_bytes": [
+        27621509,
+        0
+      ]
+    }
+  ],
+  "connected_campaign": {
+    "accepted_assignments": 4,
+    "runtime_backends": [
+      "python-native-cpu-int8-f32-dequant",
+      "python-native-cpu-layer-bundle-int8-f32-dequant"
+    ],
+    "coordinator_restart_after_step": 1,
+    "worker_gradient_relative_l2_max": 0.0,
+    "checkpoint_relative_l2_max": 6.12852298785371e-08
+  },
+  "checkpoint_provenance": [
+    {
+      "step": 1,
+      "numerical_profile": "int8-per-output-symmetric-f32-dequant-v1",
+      "checkpoint_format": "orcacolony_lora_checkpoint_v2",
+      "weight_checkpoint_sha256": "a5e712b300da3847284de6ef9b6b59dba5b2f7ca754f5370827f5e3d0db9aaf1",
+      "resume_state_sha256": "44652ebe6e63b28b8e4ccd6a250811bef0e9b605a9ae2af3e2b97f218b38f029"
+    },
+    {
+      "step": 2,
+      "numerical_profile": "int8-per-output-symmetric-f32-dequant-v1",
+      "checkpoint_format": "orcacolony_lora_checkpoint_v2",
+      "weight_checkpoint_sha256": "2782bf2dc94c8e423d7f87c11d0c16ac83b7f630320e2fc49416534ad7b2b89b",
+      "resume_state_sha256": "0bb9e4139dd8fb3cc4e07f1b62dbb0c8f7295cdd3c171350759a83e5f2089afe"
+    }
+  ],
+  "held_out_evaluation": {
+    "initialization_mean_loss": 9.042177319526672,
+    "final_mean_loss": 9.040553331375122,
+    "improvement": 0.001623988151550293,
+    "by_phase": {
+      "initialization": 9.042177319526672,
+      "step_1": 9.04155433177948,
+      "step_2": 9.040553331375122
+    }
+  },
+  "fp32_separation": {
+    "exact_profile": "exact-cpu-fp32-v1",
+    "tensor_count": 12,
+    "value_count": 24576,
+    "cosine_similarity": 0.9999392899581167,
+    "relative_l2_error": 0.011018934557552882,
+    "max_absolute_error": 0.0011445728596299887,
+    "worst_tensor": "blocks.1.attention.qkv.lora_b"
+  },
+  "negative_restart_gate": {
+    "wrong_profile_rejected": true,
+    "error": "campaign numerical profile does not match configuration"
+  },
+  "conclusion": "Homogeneous int8 is qualified for connected resident and direct-layer-bundle execution under its own oracle and checkpoint provenance; it is not interchangeable with exact FP32."
+}

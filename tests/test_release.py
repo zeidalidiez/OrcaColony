@@ -332,6 +332,7 @@ def test_release_bundle_publishes_separate_lora_base_adapter_and_resume_state(
     assert first_manifest == second_manifest
     checkpoint = first_manifest["checkpoint"]
     assert checkpoint["training_method"] == "frozen-base-lora"
+    assert checkpoint["numerical_profile"] == "exact-cpu-fp32-v1"
     assert checkpoint["base_model_sha256"] == lora.config.base_model_sha256
     assert checkpoint["adapter_sha256"]
     assert checkpoint["weight_checkpoint_sha256"]

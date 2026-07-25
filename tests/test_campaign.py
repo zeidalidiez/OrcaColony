@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from orcacolony import peft
 from orcacolony.artifacts import PackedDataset, build_dataset_artifacts
 from orcacolony.campaign_run import CampaignCoordinator
 from orcacolony.multiworker import GlobalStepCoordinator, LeasedGradient
@@ -42,6 +43,8 @@ def participants_for(campaign_id: object) -> ParticipantRegistry:
 def submission_for(
     coordinator: CampaignCoordinator,
     assignment: dict[str, object],
+    *,
+    runtime_backend: str = "python-oracle-f32",
 ) -> LeasedGradient:
     assignment_id = str(assignment["assignment_id"])
     resources = assignment["resource_profile"]
@@ -52,7 +55,7 @@ def submission_for(
         loss_sum=float(assignment["expected_loss_sum"]),
         loss_weight_sum=int(assignment["loss_weight_sum"]),
         safetensors=coordinator.oracle_gradient_path(assignment_id).read_bytes(),
-        runtime_backend="python-oracle-f32",
+        runtime_backend=runtime_backend,
         worker_telemetry={
             "format": "orcacolony_worker_telemetry_v1",
             "runtime_seconds": {
@@ -236,6 +239,91 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
             state_dir,
             participants=participants,
             dataset=dataset,
+        )
+
+
+def test_int8_campaign_binds_profile_across_round_restart_and_checkpoints(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / "campaign"
+    coordinator = CampaignCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        participants=participants,
+        worker_count=2,
+        target_steps=2,
+        lora=loaded,
+        numerical_profile=peft.INT8_FROZEN_LINEAR_PROFILE,
+    )
+    for worker_id in ("worker-a", "worker-b"):
+        assignment = coordinator.lease(
+            worker_id,
+            worker_token="test-token",
+            now=100,
+        )
+        coordinator.accept(
+            submission_for(
+                coordinator,
+                assignment,
+                runtime_backend="python-oracle-int8-f32-dequant",
+            ),
+            now=101,
+        )
+
+    recovered = CampaignCoordinator.load(
+        loaded.campaign,
+        state_dir,
+        participants=participants,
+        lora=loaded,
+        numerical_profile=peft.INT8_FROZEN_LINEAR_PROFILE,
+    )
+    assert recovered.status()["completed_steps"] == 1
+    assert recovered.status()["numerical_profile"] == peft.INT8_FROZEN_LINEAR_PROFILE
+    for worker_id in ("worker-a", "worker-b"):
+        assignment = recovered.lease(
+            worker_id,
+            worker_token="test-token",
+            now=200,
+        )
+        receipt = recovered.accept(
+            submission_for(
+                recovered,
+                assignment,
+                runtime_backend="python-oracle-int8-f32-dequant",
+            ),
+            now=201,
+        )
+
+    assert receipt.step == 2
+    assert recovered.status()["state"] == "campaign_complete"
+    state = json.loads(
+        (state_dir / "campaign-state.json").read_text(encoding="utf-8")
+    )
+    assert state["numerical_profile"] == peft.INT8_FROZEN_LINEAR_PROFILE
+    for checkpoint in state["checkpoints"]:
+        checkpoint_state = json.loads(
+            (state_dir / checkpoint["path"] / "state.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert checkpoint_state["numerical_profile"] == (
+            peft.INT8_FROZEN_LINEAR_PROFILE
+        )
+    ledger = json.loads(
+        (state_dir / "accepted-work.json").read_text(encoding="utf-8")
+    )
+    assert {entry["numerical_profile"] for entry in ledger["entries"]} == {
+        peft.INT8_FROZEN_LINEAR_PROFILE
+    }
+    with pytest.raises(ValueError, match="numerical profile"):
+        CampaignCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+            numerical_profile=peft.EXACT_CPU_FP32_PROFILE,
         )
 
 

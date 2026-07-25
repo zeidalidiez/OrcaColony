@@ -17,7 +17,15 @@ from .artifacts import PackedDataset
 from .campaign_run import CampaignCoordinator
 from .multiworker import _campaign_payload, _revision, normalize_http_origin
 from .participants import load_participants
-from .peft import LoadedLoRAManifest, load_lora_checkpoint, load_lora_manifest
+from .peft import (
+    BURN_NDARRAY_F32_PROFILE,
+    BURN_WEBGPU_F32_PROFILE,
+    EXACT_CPU_FP32_PROFILE,
+    INT8_FROZEN_LINEAR_PROFILE,
+    LoadedLoRAManifest,
+    load_lora_checkpoint,
+    load_lora_manifest,
+)
 from .reference import CampaignConfig, load_campaign, tensor_sha256
 
 
@@ -367,6 +375,9 @@ def _validate_lora_checkpoint_for_release(
         raise ValueError("selected LoRA adapter metadata is invalid")
     return {
         "training_method": "frozen-base-lora",
+        "numerical_profile": state.get(
+            "numerical_profile", EXACT_CPU_FP32_PROFILE
+        ),
         "base_model_sha256": lora.config.base_model_sha256,
         "adapter_sha256": adapter["tensor_sha256"],
         "weight_checkpoint_sha256": state["weight_checkpoint_sha256"],
@@ -712,6 +723,16 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path("THIRD_PARTY_DATA.md"),
     )
     parser.add_argument("--public-coordinator-url")
+    parser.add_argument(
+        "--numerical-profile",
+        choices=(
+            EXACT_CPU_FP32_PROFILE,
+            BURN_NDARRAY_F32_PROFILE,
+            BURN_WEBGPU_F32_PROFILE,
+            INT8_FROZEN_LINEAR_PROFILE,
+        ),
+        default=EXACT_CPU_FP32_PROFILE,
+    )
     parser.add_argument("--output", type=Path, required=True)
     return parser
 
@@ -735,6 +756,7 @@ def main() -> None:
         participants=participants,
         dataset=dataset,
         lora=lora,
+        numerical_profile=args.numerical_profile,
     )
     manifest = build_release_bundle(
         campaign,

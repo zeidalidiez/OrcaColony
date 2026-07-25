@@ -22,21 +22,40 @@ from safetensors.torch import save as save_safetensors
 
 from .multiworker import normalize_http_origin
 from .peft import (
+    EXACT_CPU_FP32_PROFILE,
+    INT8_FROZEN_LINEAR_PROFILE,
     LAYER_BUNDLE_STREAMED_FP32_PROFILE,
     LoadedLoRAManifest,
     base_layer_bundle_artifact_contract,
+    build_layer_bundle_int8_lora_model,
     build_layer_bundle_streamed_lora_model,
     build_lora_model,
     compute_adapter_gradients,
     load_adapter_state,
     load_lora_manifest,
     lora_weight_checkpoint_sha256,
+    quantize_lora_frozen_base,
 )
 from .reference import tensor_sha256
 
 
 _MAX_JSON_BYTES = 64 * 1024 * 1024
 _USER_AGENT = "OrcaColony/0.1 native-cpu-worker"
+_NATIVE_RUNTIME_BACKENDS = {
+    (EXACT_CPU_FP32_PROFILE, "resident"): "python-native-cpu-f32",
+    (
+        EXACT_CPU_FP32_PROFILE,
+        "layer-bundle",
+    ): "python-native-cpu-layer-bundle-f32",
+    (
+        INT8_FROZEN_LINEAR_PROFILE,
+        "resident",
+    ): "python-native-cpu-int8-f32-dequant",
+    (
+        INT8_FROZEN_LINEAR_PROFILE,
+        "layer-bundle",
+    ): "python-native-cpu-layer-bundle-int8-f32-dequant",
+}
 
 
 @dataclass(frozen=True)
@@ -539,6 +558,7 @@ def _validate_assignment(
     assignment: Mapping[str, object],
     loaded: LoadedLoRAManifest,
     base_profile: str,
+    numerical_profile: str = EXACT_CPU_FP32_PROFILE,
 ) -> None:
     if assignment.get("campaign_id") != loaded.campaign.campaign["id"]:
         raise ValueError("assignment campaign does not match native worker configuration")
@@ -548,6 +568,13 @@ def _validate_assignment(
         raise ValueError("assignment LoRA manifest digest mismatch")
     if assignment.get("base_model_sha256") != loaded.config.base_model_sha256:
         raise ValueError("assignment frozen-base digest mismatch")
+    runtime_backend = _NATIVE_RUNTIME_BACKENDS.get(
+        (numerical_profile, base_profile)
+    )
+    if runtime_backend is None:
+        raise ValueError("native worker execution profile is unsupported")
+    if assignment.get("numerical_profile") != numerical_profile:
+        raise ValueError("assignment numerical profile does not match native worker")
     adapter = assignment.get("adapter")
     if not isinstance(adapter, Mapping):
         raise ValueError("assignment adapter contract is missing")
@@ -567,12 +594,12 @@ def _validate_assignment(
         if resources.get("layer_bundle_download_bytes") != contract["download_bytes"]:
             raise ValueError("assignment layer bundle resource bytes differ")
         runtime_backends = assignment.get("runtime_backends")
-        if not isinstance(runtime_backends, list) or (
-            "python-native-cpu-layer-bundle-f32" not in runtime_backends
-        ):
-            raise ValueError("coordinator does not accept layer-bundle native results")
     elif base_profile != "resident":
         raise ValueError("native worker base profile is unsupported")
+    else:
+        runtime_backends = assignment.get("runtime_backends")
+    if not isinstance(runtime_backends, list) or runtime_backend not in runtime_backends:
+        raise ValueError("coordinator does not accept native execution profile")
 
 
 @dataclass
@@ -584,6 +611,7 @@ class _NativeSessionState:
     opener: Any
     cache_dir: Path
     base_profile: str
+    numerical_profile: str
     model: torch.nn.Module | None = None
     base_digest: str | None = None
     adapter_digest: str | None = None
@@ -600,12 +628,13 @@ def _create_session_state(
     lora_path: str | Path,
     cache_dir: str | Path,
     base_profile: str,
+    numerical_profile: str,
 ) -> _NativeSessionState:
     origin = normalize_http_origin(coordinator_url)
     if not worker_id or not worker_token:
         raise ValueError("worker ID and token must not be empty")
-    if base_profile not in {"resident", "layer-bundle"}:
-        raise ValueError("native worker base profile is unsupported")
+    if (numerical_profile, base_profile) not in _NATIVE_RUNTIME_BACKENDS:
+        raise ValueError("native worker execution profile is unsupported")
     return _NativeSessionState(
         origin=origin,
         worker_id=worker_id,
@@ -618,6 +647,7 @@ def _create_session_state(
         opener=build_opener(_SameOriginRedirectHandler(origin)),
         cache_dir=Path(cache_dir),
         base_profile=base_profile,
+        numerical_profile=numerical_profile,
     )
 
 
@@ -632,6 +662,7 @@ class NativeWorkerSession:
         lora_path: str | Path,
         cache_dir: str | Path,
         base_profile: str = "resident",
+        numerical_profile: str = EXACT_CPU_FP32_PROFILE,
     ) -> None:
         self._state = _create_session_state(
             coordinator_url=coordinator_url,
@@ -641,6 +672,7 @@ class NativeWorkerSession:
             lora_path=lora_path,
             cache_dir=cache_dir,
             base_profile=base_profile,
+            numerical_profile=numerical_profile,
         )
 
     @property
@@ -677,7 +709,12 @@ def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
     )
     assignment_seconds = time.perf_counter() - assignment_started
     assignment = _json_response(assignment_body, "assignment response")
-    _validate_assignment(assignment, loaded, session.base_profile)
+    _validate_assignment(
+        assignment,
+        loaded,
+        session.base_profile,
+        session.numerical_profile,
+    )
     resources = assignment["resource_profile"]
 
     artifact_started = time.perf_counter()
@@ -755,7 +792,12 @@ def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
                 or adapter_tensors is None
             ):
                 raise RuntimeError("native session layer bundle was not loaded")
-            model = build_layer_bundle_streamed_lora_model(
+            bundle_builder = (
+                build_layer_bundle_int8_lora_model
+                if session.numerical_profile == INT8_FROZEN_LINEAR_PROFILE
+                else build_layer_bundle_streamed_lora_model
+            )
+            model = bundle_builder(
                 loaded.campaign,
                 loaded.config,
                 bundle_dir,
@@ -768,6 +810,8 @@ def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
                 raise RuntimeError("native session base artifact was not loaded")
             model = build_lora_model(loaded.campaign, loaded.config)
             _load_frozen_base(loaded, model, base_path)
+            if session.numerical_profile == INT8_FROZEN_LINEAR_PROFILE:
+                model = quantize_lora_frozen_base(model)
         session.model = model
         session.base_digest = base_digest
         session.model_build_count += 1
@@ -789,6 +833,11 @@ def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
     expected_weight_identity = lora_weight_checkpoint_sha256(
         loaded,
         adapter_digest,
+        numerical_profile=(
+            session.numerical_profile
+            if session.numerical_profile != EXACT_CPU_FP32_PROFILE
+            else None
+        ),
     )
     if assignment.get("weight_checkpoint_sha256") != expected_weight_identity:
         raise ValueError("assignment worker-weight identity mismatch")
@@ -841,11 +890,9 @@ def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
     }
     if session.base_profile == "layer-bundle":
         telemetry["model_artifacts"] = list(bundle_downloaded_artifacts)
-    runtime_backend = (
-        "python-native-cpu-layer-bundle-f32"
-        if session.base_profile == "layer-bundle"
-        else "python-native-cpu-f32"
-    )
+    runtime_backend = _NATIVE_RUNTIME_BACKENDS[
+        (session.numerical_profile, session.base_profile)
+    ]
     result_request = Request(
         _coordinator_url(origin, assignment["result_url"]),
         data=gradient_bytes,
@@ -891,6 +938,7 @@ def run_assignment(
     lora_path: str | Path,
     cache_dir: str | Path,
     base_profile: str = "resident",
+    numerical_profile: str = EXACT_CPU_FP32_PROFILE,
 ) -> NativeWorkerResult:
     return _run_session_assignment(
         _create_session_state(
@@ -901,6 +949,7 @@ def run_assignment(
             lora_path=lora_path,
             cache_dir=cache_dir,
             base_profile=base_profile,
+            numerical_profile=numerical_profile,
         )
     )
 
@@ -919,6 +968,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--base-profile",
         choices=("resident", "layer-bundle"),
         default="resident",
+    )
+    parser.add_argument(
+        "--numerical-profile",
+        choices=(EXACT_CPU_FP32_PROFILE, INT8_FROZEN_LINEAR_PROFILE),
+        default=EXACT_CPU_FP32_PROFILE,
     )
     parser.add_argument(
         "--assignments",
@@ -952,6 +1006,7 @@ def main() -> None:
         lora_path=args.lora_config,
         cache_dir=args.cache,
         base_profile=args.base_profile,
+        numerical_profile=args.numerical_profile,
     )
     results = [session.run_assignment() for _ in range(args.assignments)]
     payload: dict[str, object]

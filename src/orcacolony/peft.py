@@ -206,7 +206,18 @@ class LoRALinear(nn.Module):
         return self.base(inputs) + adapter_output * self.scaling
 
 
+EXACT_CPU_FP32_PROFILE = "exact-cpu-fp32-v1"
+BURN_NDARRAY_F32_PROFILE = "burn-ndarray-f32-v1"
+BURN_WEBGPU_F32_PROFILE = "burn-webgpu-f32-v1"
 INT8_FROZEN_LINEAR_PROFILE = "int8-per-output-symmetric-f32-dequant-v1"
+NUMERICAL_PROFILES = frozenset(
+    {
+        EXACT_CPU_FP32_PROFILE,
+        BURN_NDARRAY_F32_PROFILE,
+        BURN_WEBGPU_F32_PROFILE,
+        INT8_FROZEN_LINEAR_PROFILE,
+    }
+)
 
 
 class _Int8FrozenLinearFunction(torch.autograd.Function):
@@ -577,6 +588,17 @@ def build_lora_model(
     return model
 
 
+def quantize_lora_frozen_base(model: VolunteerDecoder) -> VolunteerDecoder:
+    """Convert an already authenticated FP32 LoRA base to the int8 profile."""
+
+    if _quantize_frozen_linears(model) <= 0:
+        raise ValueError("int8 frozen-linear profile did not replace any layers")
+    if any(isinstance(module, nn.Linear) for module in model.modules()):
+        raise ValueError("int8 frozen-linear profile retained an FP32 linear")
+    adapter_named_parameters(model)
+    return model
+
+
 def build_int8_lora_model(
     campaign: CampaignConfig,
     config: LoRAConfig,
@@ -589,11 +611,24 @@ def build_int8_lora_model(
     linears; it reduces steady tensor storage, not peak startup residency.
     """
 
-    model = build_lora_model(campaign, config)
-    if _quantize_frozen_linears(model) <= 0:
-        raise ValueError("int8 frozen-linear profile did not replace any layers")
-    adapter_named_parameters(model)
-    return model
+    return quantize_lora_frozen_base(build_lora_model(campaign, config))
+
+
+def _validated_lora_numerical_profile(value: object) -> str:
+    if not isinstance(value, str) or value not in NUMERICAL_PROFILES:
+        raise ValueError("LoRA numerical profile is unsupported")
+    return value
+
+
+def build_profiled_lora_model(
+    campaign: CampaignConfig,
+    config: LoRAConfig,
+    numerical_profile: str,
+) -> VolunteerDecoder:
+    profile = _validated_lora_numerical_profile(numerical_profile)
+    if profile == INT8_FROZEN_LINEAR_PROFILE:
+        return build_int8_lora_model(campaign, config)
+    return build_lora_model(campaign, config)
 
 
 def build_streamed_lora_model(
@@ -1868,9 +1903,24 @@ def _base_parameter_state(model: nn.Module) -> dict[str, Tensor]:
 def lora_weight_checkpoint_sha256(
     loaded: LoadedLoRAManifest,
     adapter_sha256: str,
+    *,
+    numerical_profile: str | None = None,
 ) -> str:
     if _SHA256_PATTERN.fullmatch(adapter_sha256) is None:
         raise ValueError("adapter_sha256 must be a lowercase SHA-256 digest")
+    if numerical_profile is not None:
+        profile = _validated_lora_numerical_profile(numerical_profile)
+        return _sha256_bytes(
+            _canonical_json(
+                {
+                    "format": "orcacolony_lora_checkpoint_identity_v2",
+                    "lora_manifest_sha256": loaded.manifest_sha256,
+                    "base_model_sha256": loaded.config.base_model_sha256,
+                    "adapter_sha256": adapter_sha256,
+                    "numerical_profile": profile,
+                }
+            )
+        )
     return _sha256_bytes(
         _canonical_json(
             {
@@ -1933,6 +1983,7 @@ def lora_resume_state_sha256(
     dataset_cursor: int,
     dataset_revision: str,
     loss_history: list[float],
+    numerical_profile: str | None = None,
 ) -> str:
     for label, digest in (
         ("weight checkpoint", weight_checkpoint_sha256),
@@ -1941,8 +1992,12 @@ def lora_resume_state_sha256(
     ):
         if _SHA256_PATTERN.fullmatch(digest) is None:
             raise ValueError(f"LoRA {label} digest must be lowercase SHA-256")
-    payload = {
-        "format": "orcacolony_lora_resume_state_identity_v1",
+    payload: dict[str, object] = {
+        "format": (
+            "orcacolony_lora_resume_state_identity_v2"
+            if numerical_profile is not None
+            else "orcacolony_lora_resume_state_identity_v1"
+        ),
         "campaign_id": loaded.campaign.campaign["id"],
         "campaign_sha256": loaded.campaign_sha256,
         "lora_manifest_sha256": loaded.manifest_sha256,
@@ -1956,6 +2011,10 @@ def lora_resume_state_sha256(
         "dataset_revision": dataset_revision,
         "loss_history": loss_history,
     }
+    if numerical_profile is not None:
+        payload["numerical_profile"] = _validated_lora_numerical_profile(
+            numerical_profile
+        )
     return _sha256_bytes(_canonical_json(payload))
 
 
@@ -2007,6 +2066,7 @@ def save_lora_checkpoint(
     step: int,
     dataset_cursor: int,
     loss_history: list[float],
+    numerical_profile: str | None = None,
 ) -> LoRATrainingResult:
     adapters = adapter_named_parameters(model)
     optimizer_parameters = {
@@ -2049,7 +2109,16 @@ def save_lora_checkpoint(
     save_safetensors_file(optimizer_tensors, str(optimizer_tmp))
     os.replace(optimizer_tmp, optimizer_path)
 
-    weight_checkpoint_sha256 = lora_weight_checkpoint_sha256(loaded, adapter_sha256)
+    profile = (
+        _validated_lora_numerical_profile(numerical_profile)
+        if numerical_profile is not None
+        else None
+    )
+    weight_checkpoint_sha256 = lora_weight_checkpoint_sha256(
+        loaded,
+        adapter_sha256,
+        numerical_profile=profile,
+    )
     adapter_file_sha256 = _sha256_file(adapter_path)
     optimizer_file_sha256 = _sha256_file(optimizer_path)
     dataset_revision = (
@@ -2067,9 +2136,14 @@ def save_lora_checkpoint(
         dataset_cursor=normalized_cursor,
         dataset_revision=dataset_revision,
         loss_history=normalized_history,
+        numerical_profile=profile,
     )
-    state = {
-        "format": "orcacolony_lora_checkpoint_v1",
+    state: dict[str, object] = {
+        "format": (
+            "orcacolony_lora_checkpoint_v2"
+            if profile is not None
+            else "orcacolony_lora_checkpoint_v1"
+        ),
         "campaign_id": loaded.campaign.campaign["id"],
         "campaign_sha256": loaded.campaign_sha256,
         "lora_manifest_sha256": loaded.manifest_sha256,
@@ -2092,6 +2166,8 @@ def save_lora_checkpoint(
             "sha256": optimizer_file_sha256,
         },
     }
+    if profile is not None:
+        state["numerical_profile"] = profile
     state_tmp.write_text(
         json.dumps(state, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -2111,6 +2187,8 @@ def save_lora_checkpoint(
 def load_lora_checkpoint(
     loaded: LoadedLoRAManifest,
     checkpoint_dir: str | Path,
+    *,
+    expected_numerical_profile: str | None = None,
 ) -> tuple[VolunteerDecoder, torch.optim.AdamW, int, int, list[float]]:
     checkpoint = Path(checkpoint_dir).resolve()
     state_path = _safe_checkpoint_artifact_path(
@@ -2125,28 +2203,39 @@ def load_lora_checkpoint(
         ),
         "LoRA checkpoint state",
     )
-    _require_exact_fields(
-        state,
-        {
-            "format",
-            "campaign_id",
-            "campaign_sha256",
-            "lora_manifest_sha256",
-            "base_model_sha256",
-            "weight_checkpoint_sha256",
-            "checkpoint_sha256",
-            "step",
-            "optimizer_step",
-            "dataset_cursor",
-            "dataset_revision",
-            "loss_history",
-            "adapter",
-            "optimizer",
-        },
-        "LoRA checkpoint state",
-    )
-    if state.get("format") != "orcacolony_lora_checkpoint_v1":
+    checkpoint_format = state.get("format")
+    state_fields = {
+        "format",
+        "campaign_id",
+        "campaign_sha256",
+        "lora_manifest_sha256",
+        "base_model_sha256",
+        "weight_checkpoint_sha256",
+        "checkpoint_sha256",
+        "step",
+        "optimizer_step",
+        "dataset_cursor",
+        "dataset_revision",
+        "loss_history",
+        "adapter",
+        "optimizer",
+    }
+    if checkpoint_format == "orcacolony_lora_checkpoint_v1":
+        numerical_profile = EXACT_CPU_FP32_PROFILE
+        identity_profile = None
+    elif checkpoint_format == "orcacolony_lora_checkpoint_v2":
+        state_fields.add("numerical_profile")
+        numerical_profile = _validated_lora_numerical_profile(
+            state.get("numerical_profile")
+        )
+        identity_profile = numerical_profile
+    else:
         raise ValueError("unsupported LoRA checkpoint format")
+    _require_exact_fields(state, state_fields, "LoRA checkpoint state")
+    if expected_numerical_profile is not None and numerical_profile != (
+        _validated_lora_numerical_profile(expected_numerical_profile)
+    ):
+        raise ValueError("LoRA checkpoint numerical profile mismatch")
     if state.get("campaign_id") != loaded.campaign.campaign["id"]:
         raise ValueError("LoRA checkpoint campaign does not match configuration")
     if state.get("campaign_sha256") != loaded.campaign_sha256:
@@ -2213,11 +2302,19 @@ def load_lora_checkpoint(
     adapter_sha256 = tensor_sha256(adapter_tensors)
     if adapter_sha256 != adapter_state.get("tensor_sha256"):
         raise ValueError("LoRA adapter tensor digest mismatch")
-    weight_checkpoint_sha256 = lora_weight_checkpoint_sha256(loaded, adapter_sha256)
+    weight_checkpoint_sha256 = lora_weight_checkpoint_sha256(
+        loaded,
+        adapter_sha256,
+        numerical_profile=identity_profile,
+    )
     if weight_checkpoint_sha256 != state.get("weight_checkpoint_sha256"):
         raise ValueError("LoRA weight checkpoint identity mismatch")
 
-    model = build_lora_model(loaded.campaign, loaded.config)
+    model = build_profiled_lora_model(
+        loaded.campaign,
+        loaded.config,
+        numerical_profile,
+    )
     if adapter_state.get("tensor_order") != list(adapter_named_parameters(model)):
         raise ValueError("LoRA adapter tensor order does not match the manifest")
     load_adapter_state(model, adapter_tensors)
@@ -2260,6 +2357,7 @@ def load_lora_checkpoint(
         dataset_cursor=dataset_cursor,
         dataset_revision=expected_dataset_revision,
         loss_history=loss_history,
+        numerical_profile=identity_profile,
     )
     if checkpoint_sha256 != state.get("checkpoint_sha256"):
         raise ValueError("LoRA checkpoint identity mismatch")
@@ -2314,6 +2412,9 @@ def evaluate_lora_checkpoint(
         "format": "orcacolony_evaluation_v1",
         "campaign_id": loaded.campaign.campaign["id"],
         "training_method": "frozen-base-lora",
+        "numerical_profile": checkpoint_state.get(
+            "numerical_profile", EXACT_CPU_FP32_PROFILE
+        ),
         "step": step,
         "dataset_revision": dataset.revision,
         "base_model_sha256": checkpoint_state["base_model_sha256"],
@@ -2336,10 +2437,20 @@ def run_lora_training(
     target_steps: int,
     resume_from: str | Path | None = None,
     dataset: PackedDataset | None = None,
+    numerical_profile: str | None = None,
 ) -> LoRATrainingResult:
     validate_dataset_artifacts(loaded.campaign, dataset)
+    profile = (
+        _validated_lora_numerical_profile(numerical_profile)
+        if numerical_profile is not None
+        else EXACT_CPU_FP32_PROFILE
+    )
     if resume_from is None:
-        model = build_lora_model(loaded.campaign, loaded.config)
+        model = build_profiled_lora_model(
+            loaded.campaign,
+            loaded.config,
+            profile,
+        )
         optimizer = create_adapter_optimizer(model, loaded.campaign.training)
         step = 0
         dataset_cursor = 0
@@ -2348,6 +2459,7 @@ def run_lora_training(
         model, optimizer, step, dataset_cursor, loss_history = load_lora_checkpoint(
             loaded,
             resume_from,
+            expected_numerical_profile=profile,
         )
     if target_steps < step or (target_steps == step and resume_from is not None):
         raise ValueError("target_steps must be greater than the LoRA checkpoint step")
@@ -2379,6 +2491,7 @@ def run_lora_training(
         step=step,
         dataset_cursor=dataset_cursor,
         loss_history=loss_history,
+        numerical_profile=numerical_profile,
     )
 
 

@@ -29,13 +29,19 @@ from .artifacts import PackedDataset
 from .coordinator import _tensor_metrics
 from .participants import ParticipantRegistry, load_participants
 from .peft import (
+    BURN_NDARRAY_F32_PROFILE,
+    BURN_WEBGPU_F32_PROFILE,
+    EXACT_CPU_FP32_PROFILE,
+    INT8_FROZEN_LINEAR_PROFILE,
     LAYER_BUNDLE_STREAMED_FP32_PROFILE,
+    NUMERICAL_PROFILES,
     LoadedLoRAManifest,
     _safe_checkpoint_artifact_path,
     adapter_named_parameters,
     apply_adapter_gradient_step,
     base_layer_bundle_artifact_contract,
     build_lora_model,
+    build_profiled_lora_model,
     compute_adapter_gradients,
     create_adapter_optimizer,
     export_base_layer_bundle,
@@ -73,15 +79,70 @@ class LeasedGradient:
     coordinator_receive_seconds: float | None = None
 
 
-RUNTIME_BACKENDS = frozenset(
+EXACT_FP32_RUNTIME_BACKENDS = frozenset(
     {
-        "burn-ndarray-f32",
-        "burn-webgpu-f32",
         "python-native-cpu-f32",
         "python-native-cpu-layer-bundle-f32",
         "python-oracle-f32",
     }
 )
+BURN_NDARRAY_RUNTIME_BACKENDS = frozenset({"burn-ndarray-f32"})
+BURN_WEBGPU_RUNTIME_BACKENDS = frozenset({"burn-webgpu-f32"})
+INT8_RUNTIME_BACKENDS = frozenset(
+    {
+        "python-native-cpu-int8-f32-dequant",
+        "python-native-cpu-layer-bundle-int8-f32-dequant",
+        "python-oracle-int8-f32-dequant",
+    }
+)
+_PROFILE_RUNTIME_BACKENDS = {
+    EXACT_CPU_FP32_PROFILE: EXACT_FP32_RUNTIME_BACKENDS,
+    BURN_NDARRAY_F32_PROFILE: BURN_NDARRAY_RUNTIME_BACKENDS,
+    BURN_WEBGPU_F32_PROFILE: BURN_WEBGPU_RUNTIME_BACKENDS,
+    INT8_FROZEN_LINEAR_PROFILE: INT8_RUNTIME_BACKENDS,
+}
+RUNTIME_BACKENDS = frozenset().union(*_PROFILE_RUNTIME_BACKENDS.values())
+_RUNTIME_NUMERICAL_PROFILE = {
+    backend: profile
+    for profile, backends in _PROFILE_RUNTIME_BACKENDS.items()
+    for backend in backends
+}
+_LAYER_BUNDLE_RUNTIME_BACKENDS = frozenset(
+    {
+        "python-native-cpu-layer-bundle-f32",
+        "python-native-cpu-layer-bundle-int8-f32-dequant",
+    }
+)
+_ORACLE_RUNTIME_BACKENDS = frozenset(
+    {"python-oracle-f32", "python-oracle-int8-f32-dequant"}
+)
+
+
+def _validated_numerical_profile(value: object) -> str:
+    if not isinstance(value, str) or value not in NUMERICAL_PROFILES:
+        raise ValueError("numerical profile is unsupported")
+    return value
+
+
+def _checkpoint_numerical_profile(profile: str) -> str | None:
+    return None if profile == EXACT_CPU_FP32_PROFILE else profile
+
+
+def _validate_checkpoint_profile_metrics(
+    profile: str,
+    metrics: Mapping[str, float | int | str],
+) -> None:
+    strict_profile = profile in {
+        EXACT_CPU_FP32_PROFILE,
+        INT8_FROZEN_LINEAR_PROFILE,
+    }
+    minimum_cosine = 0.999999 if strict_profile else 0.999
+    maximum_relative_l2 = 1e-6 if strict_profile else 0.01
+    if (
+        float(metrics["cosine_similarity"]) < minimum_cosine
+        or float(metrics["relative_l2_error"]) > maximum_relative_l2
+    ):
+        raise ValueError("checkpoint is outside the numerical-profile oracle gate")
 
 _RUNTIME_TELEMETRY_FIELDS = (
     "assignment_fetch",
@@ -112,7 +173,7 @@ def _expected_model_download_bytes(
 ) -> int:
     field = (
         "layer_bundle_download_bytes"
-        if runtime_backend == "python-native-cpu-layer-bundle-f32"
+        if runtime_backend in _LAYER_BUNDLE_RUNTIME_BACKENDS
         else "model_download_bytes"
     )
     return int(resource_profile[field])
@@ -135,7 +196,7 @@ def _validate_worker_telemetry(
     base_layer_bundle: Mapping[str, object] | None = None,
 ) -> dict[str, object] | None:
     if payload is None:
-        if runtime_backend != "python-oracle-f32":
+        if runtime_backend not in _ORACLE_RUNTIME_BACKENDS:
             raise ValueError("worker telemetry is required")
         return None
     envelope_fields = {
@@ -152,7 +213,7 @@ def _validate_worker_telemetry(
         or payload.get("format") != "orcacolony_worker_telemetry_v1"
         or (
             has_model_artifacts
-            and runtime_backend != "python-native-cpu-layer-bundle-f32"
+            and runtime_backend not in _LAYER_BUNDLE_RUNTIME_BACKENDS
         )
     ):
         raise ValueError("worker telemetry envelope is invalid")
@@ -460,6 +521,7 @@ class GlobalStepCoordinator:
         dataset: PackedDataset | None = None,
         lora: LoadedLoRAManifest | None = None,
         publish_base_layer_bundle: bool = False,
+        numerical_profile: str = EXACT_CPU_FP32_PROFILE,
     ) -> GlobalStepCoordinator:
         if worker_count < 2:
             raise ValueError("multi-worker proof requires at least two workers")
@@ -473,6 +535,10 @@ class GlobalStepCoordinator:
             raise ValueError("LoRA manifest campaign does not match coordinator campaign")
         if publish_base_layer_bundle and lora is None:
             raise ValueError("base layer bundles require a frozen-base LoRA campaign")
+        profile = _validated_numerical_profile(numerical_profile)
+        if lora is None and profile == INT8_FROZEN_LINEAR_PROFILE:
+            raise ValueError("int8 numerical profile requires a LoRA campaign")
+        checkpoint_profile = _checkpoint_numerical_profile(profile)
         validate_dataset_artifacts(campaign, dataset)
 
         state_dir = Path(state_dir)
@@ -492,6 +558,7 @@ class GlobalStepCoordinator:
                     state_dir / "base-checkpoint",
                     target_steps=0,
                     dataset=dataset,
+                    numerical_profile=checkpoint_profile,
                 )
                 (
                     initial_model,
@@ -499,7 +566,11 @@ class GlobalStepCoordinator:
                     base_step,
                     dataset_cursor,
                     loss_history,
-                ) = load_lora_checkpoint(lora, initial_checkpoint.checkpoint_dir)
+                ) = load_lora_checkpoint(
+                    lora,
+                    initial_checkpoint.checkpoint_dir,
+                    expected_numerical_profile=profile,
+                )
                 resume_state_sha256 = initial_checkpoint.checkpoint_sha256
                 source_weight_checkpoint_sha256 = (
                     initial_checkpoint.weight_checkpoint_sha256
@@ -512,7 +583,11 @@ class GlobalStepCoordinator:
                     base_step,
                     dataset_cursor,
                     loss_history,
-                ) = load_lora_checkpoint(lora, source_checkpoint)
+                ) = load_lora_checkpoint(
+                    lora,
+                    source_checkpoint,
+                    expected_numerical_profile=profile,
+                )
                 source_state_path = _safe_checkpoint_artifact_path(
                     source_checkpoint,
                     "state.json",
@@ -556,6 +631,7 @@ class GlobalStepCoordinator:
             checkpoint_sha256 = lora_weight_checkpoint_sha256(
                 lora,
                 initial_adapter_sha256,
+                numerical_profile=checkpoint_profile,
             )
             if checkpoint_sha256 != source_weight_checkpoint_sha256:
                 raise ValueError("LoRA source weight checkpoint identity mismatch")
@@ -565,6 +641,7 @@ class GlobalStepCoordinator:
                 target_steps=base_step + 1,
                 resume_from=state_dir / "base-checkpoint",
                 dataset=dataset,
+                numerical_profile=checkpoint_profile,
             )
         else:
             initial_adapter_sha256 = None
@@ -661,7 +738,11 @@ class GlobalStepCoordinator:
             assignment_inputs = inputs[start:end].contiguous()
             assignment_targets = targets[start:end].contiguous()
             if lora is not None:
-                model = build_lora_model(campaign, lora.config)
+                model = build_profiled_lora_model(
+                    campaign,
+                    lora.config,
+                    profile,
+                )
                 load_adapter_state(model, initial_adapters)
                 submitted = compute_adapter_gradients(
                     model,
@@ -691,6 +772,7 @@ class GlobalStepCoordinator:
                 "training_method": (
                     "frozen-base-lora" if lora is not None else "dense"
                 ),
+                "numerical_profile": profile,
                 "dataset_revision": (
                     dataset.revision if dataset is not None else "synthetic-fixture-v1"
                 ),
@@ -773,6 +855,7 @@ class GlobalStepCoordinator:
             ),
             "initial_adapter_sha256": initial_adapter_sha256,
             "resume_state_sha256": resume_state_sha256,
+            "numerical_profile": profile,
             "base_layer_bundle": base_layer_bundle,
             "participants": participants.as_payload(),
             "participants_revision": participants.revision,
@@ -810,12 +893,25 @@ class GlobalStepCoordinator:
         participants: ParticipantRegistry,
         dataset: PackedDataset | None = None,
         lora: LoadedLoRAManifest | None = None,
+        numerical_profile: str = EXACT_CPU_FP32_PROFILE,
     ) -> GlobalStepCoordinator:
         validate_dataset_artifacts(campaign, dataset)
         state_dir = Path(state_dir)
         state = json.loads((state_dir / "global-state.json").read_text(encoding="utf-8"))
         if state.get("format") != "orcacolony_global_step_v1":
             raise ValueError("unsupported global-step state format")
+        requested_profile = _validated_numerical_profile(numerical_profile)
+        numerical_profile_migrated = "numerical_profile" not in state
+        if numerical_profile_migrated:
+            if requested_profile != EXACT_CPU_FP32_PROFILE:
+                raise ValueError("legacy global-step numerical profile is FP32")
+            state["numerical_profile"] = EXACT_CPU_FP32_PROFILE
+            for assignment in state.get("assignments", []):
+                if isinstance(assignment, dict):
+                    assignment["numerical_profile"] = EXACT_CPU_FP32_PROFILE
+        stored_profile = _validated_numerical_profile(state.get("numerical_profile"))
+        if stored_profile != requested_profile:
+            raise ValueError("global-step numerical profile does not match configuration")
         if state.get("campaign_id") != campaign.campaign["id"]:
             raise ValueError("global-step campaign does not match configuration")
         training_method = state.get("training_method", "dense")
@@ -837,7 +933,7 @@ class GlobalStepCoordinator:
         campaign_revision = _revision(_campaign_payload(campaign))
         migrated = "participants_revision" not in state
         profile_migrated = "training_method" not in state
-        if migrated or profile_migrated:
+        if migrated or profile_migrated or numerical_profile_migrated:
             state.setdefault("base_step", 0)
             state.setdefault("dataset_cursor", 0)
             state.setdefault("loss_history", [])
@@ -896,11 +992,19 @@ class GlobalStepCoordinator:
             if adapter_sha256 != state["initial_adapter_sha256"]:
                 raise ValueError("global-step initial adapter digest mismatch")
             if (
-                lora_weight_checkpoint_sha256(lora, adapter_sha256)
+                lora_weight_checkpoint_sha256(
+                    lora,
+                    adapter_sha256,
+                    numerical_profile=_checkpoint_numerical_profile(stored_profile),
+                )
                 != state["checkpoint_sha256"]
             ):
                 raise ValueError("global-step LoRA checkpoint digest mismatch")
-            load_lora_checkpoint(lora, state_dir / "base-checkpoint")
+            load_lora_checkpoint(
+                lora,
+                state_dir / "base-checkpoint",
+                expected_numerical_profile=stored_profile,
+            )
             base_checkpoint_state = json.loads(
                 (state_dir / "base-checkpoint" / "state.json").read_text(
                     encoding="utf-8"
@@ -928,6 +1032,8 @@ class GlobalStepCoordinator:
             if canonical_base_layer_bundle != stored_base_layer_bundle:
                 raise ValueError("global-step base layer bundle contract differs")
         for assignment in state["assignments"]:
+            if assignment.get("numerical_profile") != stored_profile:
+                raise ValueError("assignment numerical profile differs")
             assignment_bundle_sha256 = assignment.get(
                 "base_layer_bundle_manifest_sha256"
             )
@@ -959,12 +1065,16 @@ class GlobalStepCoordinator:
                     "legacy-unknown" if assignment["state"] == "accepted" else None
                 )
                 state_changed = True
+            runtime_backend = assignment["runtime_backend"]
             if (
-                assignment["runtime_backend"]
-                == "python-native-cpu-layer-bundle-f32"
+                runtime_backend in _LAYER_BUNDLE_RUNTIME_BACKENDS
                 and stored_base_layer_bundle is None
             ):
                 raise ValueError("persisted layer-bundle runtime was not assigned")
+            if runtime_backend not in {None, "legacy-unknown"} and (
+                _RUNTIME_NUMERICAL_PROFILE.get(str(runtime_backend)) != stored_profile
+            ):
+                raise ValueError("persisted runtime numerical profile differs")
             instrumentation = assignment.get("instrumentation")
             if instrumentation is not None:
                 if not isinstance(instrumentation, Mapping) or set(instrumentation) != {
@@ -1027,7 +1137,12 @@ class GlobalStepCoordinator:
         if state_changed:
             coordinator._write_state()
         lock_path = state_dir / "campaign-lock.json"
-        if migrated or profile_migrated or protocol_migrated:
+        if (
+            migrated
+            or profile_migrated
+            or numerical_profile_migrated
+            or protocol_migrated
+        ):
             coordinator._write_campaign_lock()
         elif not lock_path.exists() or json.loads(lock_path.read_text(encoding="utf-8")) != coordinator._campaign_lock_payload():
             raise ValueError("campaign lock mismatch")
@@ -1041,7 +1156,11 @@ class GlobalStepCoordinator:
                 (coordinator.checkpoint_dir / "state.json").read_text(encoding="utf-8")
             )
             if lora is not None:
-                load_lora_checkpoint(lora, coordinator.checkpoint_dir)
+                load_lora_checkpoint(
+                    lora,
+                    coordinator.checkpoint_dir,
+                    expected_numerical_profile=stored_profile,
+                )
                 if (
                     checkpoint_state["base_model_sha256"] != state["model_sha256"]
                     or checkpoint_state["adapter"]["tensor_sha256"]
@@ -1095,6 +1214,7 @@ class GlobalStepCoordinator:
             ),
             "adapter_sha256": self._state.get("initial_adapter_sha256"),
             "resume_state_sha256": self._state.get("resume_state_sha256"),
+            "numerical_profile": self._state["numerical_profile"],
             "dataset_revision": self._state.get(
                 "dataset_revision", "synthetic-fixture-v1"
             ),
@@ -1155,6 +1275,9 @@ class GlobalStepCoordinator:
                     "instrumentation": assignment.get("instrumentation"),
                     "dataset_revision": assignment["dataset_revision"],
                     "training_method": assignment.get("training_method", "dense"),
+                    "numerical_profile": assignment.get(
+                        "numerical_profile", self._state["numerical_profile"]
+                    ),
                 }
             )
         _atomic_json(
@@ -1239,6 +1362,7 @@ class GlobalStepCoordinator:
             "assignment_id": assignment_id,
             "checkpoint_sha256": assignment["checkpoint_sha256"],
             "training_method": assignment.get("training_method", "dense"),
+            "numerical_profile": self._state["numerical_profile"],
             "dataset_revision": assignment["dataset_revision"],
             "model": assignment["model"],
             "global_step": assignment["global_step"],
@@ -1264,8 +1388,10 @@ class GlobalStepCoordinator:
             ),
             "runtime_backends": sorted(
                 backend
-                for backend in RUNTIME_BACKENDS
-                if backend != "python-native-cpu-layer-bundle-f32"
+                for backend in _PROFILE_RUNTIME_BACKENDS[
+                    str(self._state["numerical_profile"])
+                ]
+                if backend not in _LAYER_BUNDLE_RUNTIME_BACKENDS
                 or public_bundle is not None
             ),
             "telemetry_protocol_revision": 1,
@@ -1399,8 +1525,12 @@ class GlobalStepCoordinator:
             if submission.runtime_backend not in RUNTIME_BACKENDS:
                 raise ValueError("runtime backend is not supported")
             if (
-                submission.runtime_backend
-                == "python-native-cpu-layer-bundle-f32"
+                _RUNTIME_NUMERICAL_PROFILE[submission.runtime_backend]
+                != self._state["numerical_profile"]
+            ):
+                raise ValueError("runtime backend numerical profile does not match assignment")
+            if (
+                submission.runtime_backend in _LAYER_BUNDLE_RUNTIME_BACKENDS
                 and self._state.get("base_layer_bundle") is None
             ):
                 raise ValueError("layer-bundle runtime was not assigned")
@@ -1419,18 +1549,35 @@ class GlobalStepCoordinator:
                 public_assignment.get("base_layer_bundle"),  # type: ignore[arg-type]
             )
             expected_loss = float(assignment["expected_loss_sum"])
-            if abs(submission.loss_sum - expected_loss) / abs(expected_loss) > 0.002:
-                raise ValueError("loss sum is outside the M2 tolerance")
-
             gradients = load_safetensors(submission.safetensors)
             expected_gradients = load_safetensors_file(
                 str(self.oracle_gradient_path(submission.assignment_id))
             )
             gradient_metrics = _tensor_metrics(expected_gradients, gradients)
-            if float(gradient_metrics["cosine_similarity"]) < 0.999:
-                raise ValueError("gradient cosine similarity is outside the M2 tolerance")
-            if float(gradient_metrics["relative_l2_error"]) > 0.01:
-                raise ValueError("gradient relative L2 error is outside the M2 tolerance")
+            profile = str(self._state["numerical_profile"])
+            strict_profile = profile in {
+                EXACT_CPU_FP32_PROFILE,
+                INT8_FROZEN_LINEAR_PROFILE,
+            }
+            if strict_profile:
+                if submission.loss_sum != expected_loss:
+                    raise ValueError("loss sum is not bit-exact for numerical profile")
+                if set(gradients) != set(expected_gradients) or any(
+                    not torch.equal(gradients[name], expected_gradients[name])
+                    for name in expected_gradients
+                ):
+                    raise ValueError("gradient is not bit-exact for numerical profile")
+            else:
+                if abs(submission.loss_sum - expected_loss) / abs(expected_loss) > 0.002:
+                    raise ValueError("loss sum is outside the numerical-profile tolerance")
+                if float(gradient_metrics["cosine_similarity"]) < 0.999:
+                    raise ValueError(
+                        "gradient cosine similarity is outside the numerical-profile tolerance"
+                    )
+                if float(gradient_metrics["relative_l2_error"]) > 0.01:
+                    raise ValueError(
+                        "gradient relative L2 error is outside the numerical-profile tolerance"
+                    )
 
             result_file = f"{submission.assignment_id}.safetensors"
             _atomic_bytes(self.results_dir / result_file, submission.safetensors)
@@ -1535,6 +1682,10 @@ class GlobalStepCoordinator:
             load_safetensors_file(str(self.reference_dir / "model.safetensors")),
             load_safetensors_file(str(self.checkpoint_dir / "model.safetensors")),
         )
+        _validate_checkpoint_profile_metrics(
+            str(self._state["numerical_profile"]),
+            checkpoint_metrics,
+        )
         self._state.update(
             {
                 "state": "step_complete",
@@ -1575,6 +1726,10 @@ class GlobalStepCoordinator:
     def _finalize_lora_locked(self) -> None:
         if self.lora is None:
             raise RuntimeError("LoRA finalization requires a loaded manifest")
+        numerical_profile = _validated_numerical_profile(
+            self._state["numerical_profile"]
+        )
+        checkpoint_profile = _checkpoint_numerical_profile(numerical_profile)
         if self._state.get("has_base_checkpoint", False):
             (
                 model,
@@ -1582,9 +1737,17 @@ class GlobalStepCoordinator:
                 base_step,
                 dataset_cursor,
                 loss_history,
-            ) = load_lora_checkpoint(self.lora, self.base_checkpoint_dir)
+            ) = load_lora_checkpoint(
+                self.lora,
+                self.base_checkpoint_dir,
+                expected_numerical_profile=numerical_profile,
+            )
         else:
-            model = build_lora_model(self.campaign, self.lora.config)
+            model = build_profiled_lora_model(
+                self.campaign,
+                self.lora.config,
+                numerical_profile,
+            )
             load_adapter_state(
                 model,
                 load_safetensors_file(str(self.initial_adapter_path)),
@@ -1633,11 +1796,13 @@ class GlobalStepCoordinator:
             step=next_step,
             dataset_cursor=next_cursor,
             loss_history=[*loss_history, total_loss_sum / total_loss_weight],
+            numerical_profile=checkpoint_profile,
         )
         checkpoint_metrics = _tensor_metrics(
             load_safetensors_file(str(self.reference_dir / "adapter.safetensors")),
             load_safetensors_file(str(self.checkpoint_dir / "adapter.safetensors")),
         )
+        _validate_checkpoint_profile_metrics(numerical_profile, checkpoint_metrics)
         self._state.update(
             {
                 "state": "step_complete",
@@ -1659,6 +1824,7 @@ class GlobalStepCoordinator:
             {
                 "format": "orcacolony_global_step_receipt_v2",
                 "training_method": "frozen-base-lora",
+                "numerical_profile": numerical_profile,
                 "state": "step_complete",
                 "step": next_step,
                 "model_sha256": checkpoint.base_model_sha256,
@@ -1725,6 +1891,7 @@ class GlobalStepCoordinator:
             "campaign_id": self._state["campaign_id"],
             "checkpoint_sha256": self._state["checkpoint_sha256"],
             "training_method": self._state.get("training_method", "dense"),
+            "numerical_profile": self._state["numerical_profile"],
             "base_model_sha256": self._state.get("base_model_sha256"),
             "initial_adapter_sha256": self._state.get("initial_adapter_sha256"),
             "step": self._state["step"],
@@ -2082,6 +2249,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--lease-seconds", type=int, default=120)
     parser.add_argument("--resume-from", type=Path)
+    parser.add_argument(
+        "--numerical-profile",
+        choices=tuple(sorted(_PROFILE_RUNTIME_BACKENDS)),
+        default=EXACT_CPU_FP32_PROFILE,
+    )
     parser.add_argument("--publish-base-layer-bundle", action="store_true")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
@@ -2116,6 +2288,7 @@ def main() -> None:
             participants=participants,
             dataset=dataset,
             lora=lora,
+            numerical_profile=args.numerical_profile,
         )
     else:
         coordinator = GlobalStepCoordinator.create(
@@ -2128,6 +2301,7 @@ def main() -> None:
             dataset=dataset,
             lora=lora,
             publish_base_layer_bundle=args.publish_base_layer_bundle,
+            numerical_profile=args.numerical_profile,
         )
     server = create_http_server(
         coordinator,

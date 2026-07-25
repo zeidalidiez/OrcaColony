@@ -47,7 +47,7 @@ uv run python -m orcacolony.coordinator \
 
 The verified browser round trip accepted all 52 tensors and produced a step-1 checkpoint with cosine similarity `0.9999999999820228` and relative L2 error `5.996203529187336e-6` against the canonical Python step.
 
-The same client also completes the M2 two-worker proof through `python -m orcacolony.multiworker`. Two browser workers processed disjoint ranges `[0, 2]` and `[2, 4]`; their centrally aggregated checkpoint reached cosine similarity `0.9999999999820688` and relative L2 error `5.988475132799176e-6` against the full-batch Python step.
+The same client also completes the M2 two-worker proof through `python -m orcacolony.multiworker`. Start CPU/WASM rounds with `--numerical-profile burn-ndarray-f32-v1` and WebGPU rounds with `--numerical-profile burn-webgpu-f32-v1`; one campaign cannot mix them with each other or with exact CPU FP32. Two browser workers processed disjoint ranges `[0, 2]` and `[2, 4]`; their centrally aggregated checkpoint reached cosine similarity `0.9999999999820688` and relative L2 error `5.988475132799176e-6` against the full-batch Python step.
 
 Passing `--resume-from <previous-state>/checkpoint` continues the canonical model, AdamW state, step number, dataset cursor, and loss history. A verified second browser round used ranges `[4, 6]` and `[6, 8]` and matched the resumed Python step with relative L2 error `2.185048989144713e-7`.
 

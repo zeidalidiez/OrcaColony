@@ -82,6 +82,94 @@ def _rewrite_optimizer(
     state_path.write_text(json.dumps(state), encoding="utf-8")
 
 
+def test_int8_lora_checkpoint_binds_profile_and_restarts_exactly(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    numerical_profile = peft.INT8_FROZEN_LINEAR_PROFILE
+    first = run_lora_training(
+        loaded,
+        tmp_path / "first",
+        target_steps=1,
+        numerical_profile=numerical_profile,
+    )
+    first_state = json.loads(
+        (first.checkpoint_dir / "state.json").read_text(encoding="utf-8")
+    )
+
+    assert first_state["format"] == "orcacolony_lora_checkpoint_v2"
+    assert first_state["numerical_profile"] == numerical_profile
+    assert first.weight_checkpoint_sha256 == peft.lora_weight_checkpoint_sha256(
+        loaded,
+        first.adapter_sha256,
+        numerical_profile=numerical_profile,
+    )
+    model, _, step, _, _ = load_lora_checkpoint(
+        loaded,
+        first.checkpoint_dir,
+        expected_numerical_profile=numerical_profile,
+    )
+    assert step == 1
+    assert any(isinstance(module, peft.Int8FrozenLinear) for module in model.modules())
+
+    resumed = run_lora_training(
+        loaded,
+        tmp_path / "resumed",
+        target_steps=2,
+        resume_from=first.checkpoint_dir,
+        numerical_profile=numerical_profile,
+    )
+    uninterrupted = run_lora_training(
+        loaded,
+        tmp_path / "uninterrupted",
+        target_steps=2,
+        numerical_profile=numerical_profile,
+    )
+    assert resumed.adapter_sha256 == uninterrupted.adapter_sha256
+    assert resumed.weight_checkpoint_sha256 == uninterrupted.weight_checkpoint_sha256
+    assert resumed.checkpoint_sha256 == uninterrupted.checkpoint_sha256
+    resumed_optimizer = load_file(
+        str(resumed.checkpoint_dir / "optimizer.safetensors")
+    )
+    uninterrupted_optimizer = load_file(
+        str(uninterrupted.checkpoint_dir / "optimizer.safetensors")
+    )
+    assert set(resumed_optimizer) == set(uninterrupted_optimizer)
+    assert all(
+        torch.equal(resumed_optimizer[name], uninterrupted_optimizer[name])
+        for name in resumed_optimizer
+    )
+
+    with pytest.raises(ValueError, match="numerical profile mismatch"):
+        load_lora_checkpoint(
+            loaded,
+            first.checkpoint_dir,
+            expected_numerical_profile=peft.EXACT_CPU_FP32_PROFILE,
+        )
+    first_state["numerical_profile"] = peft.EXACT_CPU_FP32_PROFILE
+    (first.checkpoint_dir / "state.json").write_text(
+        json.dumps(first_state),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="weight checkpoint identity mismatch"):
+        load_lora_checkpoint(loaded, first.checkpoint_dir)
+
+
+def test_default_lora_checkpoint_remains_v1_fp32_compatible(tmp_path: Path) -> None:
+    loaded, checkpoint = _saved_checkpoint(tmp_path)
+    state = json.loads((checkpoint / "state.json").read_text(encoding="utf-8"))
+
+    assert state["format"] == "orcacolony_lora_checkpoint_v1"
+    assert "numerical_profile" not in state
+    model, _, step, _, _ = load_lora_checkpoint(
+        loaded,
+        checkpoint,
+        expected_numerical_profile=peft.EXACT_CPU_FP32_PROFILE,
+    )
+    assert step == 1
+    assert not any(isinstance(module, peft.Int8FrozenLinear) for module in model.modules())
+
+
 def test_lora_fixture_freezes_the_base_and_exports_complete_gradients() -> None:
     campaign = load_campaign(CONFIG)
     config = _lora_config()

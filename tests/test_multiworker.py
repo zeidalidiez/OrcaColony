@@ -7,10 +7,12 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 import pytest
+import torch
 from safetensors.torch import load as load_safetensors
 from safetensors.torch import load_file as load_safetensors_file
+from safetensors.torch import save as save_safetensors
 
-from orcacolony import multiworker
+from orcacolony import multiworker, peft
 from orcacolony.multiworker import (
     GlobalStepCoordinator,
     LeasedGradient,
@@ -57,6 +59,8 @@ def participants_for(campaign_id: object) -> ParticipantRegistry:
 def submission_for(
     coordinator: GlobalStepCoordinator,
     assignment: dict[str, object],
+    *,
+    runtime_backend: str = "python-oracle-f32",
 ) -> LeasedGradient:
     return LeasedGradient(
         assignment_id=str(assignment["assignment_id"]),
@@ -67,7 +71,7 @@ def submission_for(
         safetensors=coordinator.oracle_gradient_path(
             str(assignment["assignment_id"])
         ).read_bytes(),
-        runtime_backend="python-oracle-f32",
+        runtime_backend=runtime_backend,
     )
 
 
@@ -189,6 +193,7 @@ def test_burn_worker_telemetry_is_required_and_bound_to_assignment_bytes(
         tmp_path / "coordinator",
         worker_count=2,
         participants=participants,
+        numerical_profile=peft.BURN_NDARRAY_F32_PROFILE,
     )
     assignment = coordinator.lease("worker-a", worker_token="test-token", now=100)
     burn_submission = replace(
@@ -202,7 +207,7 @@ def test_burn_worker_telemetry_is_required_and_bound_to_assignment_bytes(
         submission_for(coordinator, assignment),
         runtime_backend="python-native-cpu-layer-bundle-f32",
     )
-    with pytest.raises(ValueError, match="layer-bundle runtime was not assigned"):
+    with pytest.raises(ValueError, match="numerical profile"):
         coordinator.accept(unassigned_bundle_submission, now=101)
 
     telemetry = worker_telemetry(coordinator, assignment)
@@ -210,6 +215,36 @@ def test_burn_worker_telemetry_is_required_and_bound_to_assignment_bytes(
     with pytest.raises(ValueError, match="result does not match assignment"):
         coordinator.accept(
             replace(burn_submission, worker_telemetry=telemetry),
+            now=101,
+        )
+
+
+def test_exact_fp32_profile_rejects_a_one_ulp_gradient_change(tmp_path: Path) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        tmp_path / "coordinator",
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    assignment = coordinator.lease("worker-a", worker_token="test-token", now=100)
+    assert assignment["runtime_backends"] == [
+        "python-native-cpu-f32",
+        "python-oracle-f32",
+    ]
+    submission = submission_for(coordinator, assignment)
+    gradients = load_safetensors(submission.safetensors)
+    name = sorted(gradients)[0]
+    changed = gradients[name].clone()
+    flat = changed.reshape(-1)
+    flat[0] = torch.nextafter(flat[0], torch.tensor(float("inf")))
+    gradients[name] = changed
+
+    with pytest.raises(ValueError, match="not bit-exact"):
+        coordinator.accept(
+            replace(submission, safetensors=save_safetensors(gradients)),
             now=101,
         )
 
@@ -295,10 +330,6 @@ def test_two_non_overlapping_workers_match_one_reference_global_step(
     assert set(range(*first["data_range"])).isdisjoint(range(*second["data_range"]))
 
     first_submission = submission_for(coordinator, first)
-    first_submission = replace(
-        first_submission,
-        loss_sum=first_submission.loss_sum + 0.001,
-    )
     first_receipt = coordinator.accept(first_submission, now=101)
     final_receipt = coordinator.accept(submission_for(coordinator, second), now=101)
 
@@ -518,6 +549,86 @@ def test_next_global_step_resumes_model_optimizer_and_dataset_cursor(
     assert len(checkpoint_state["loss_history"]) == 2
 
 
+def test_int8_profile_binds_oracle_assignment_checkpoint_and_restart(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+        numerical_profile=peft.INT8_FROZEN_LINEAR_PROFILE,
+    )
+
+    first = coordinator.lease("worker-a", worker_token="test-token", now=100)
+    assert first["numerical_profile"] == peft.INT8_FROZEN_LINEAR_PROFILE
+    assert first["runtime_backends"] == [
+        "python-native-cpu-int8-f32-dequant",
+        "python-oracle-int8-f32-dequant",
+    ]
+    assert first["weight_checkpoint_sha256"] == peft.lora_weight_checkpoint_sha256(
+        loaded,
+        str(first["adapter_sha256"]),
+        numerical_profile=peft.INT8_FROZEN_LINEAR_PROFILE,
+    )
+    with pytest.raises(ValueError, match="numerical profile"):
+        coordinator.accept(submission_for(coordinator, first), now=101)
+    coordinator.accept(
+        submission_for(
+            coordinator,
+            first,
+            runtime_backend="python-oracle-int8-f32-dequant",
+        ),
+        now=101,
+    )
+    second = coordinator.lease("worker-b", worker_token="test-token", now=100)
+    receipt = coordinator.accept(
+        submission_for(
+            coordinator,
+            second,
+            runtime_backend="python-oracle-int8-f32-dequant",
+        ),
+        now=101,
+    )
+
+    assert receipt.step_complete is True
+    assert receipt.checkpoint_metrics["relative_l2_error"] < 1e-6
+    checkpoint_state = json.loads(
+        (coordinator.checkpoint_dir / "state.json").read_text(encoding="utf-8")
+    )
+    assert checkpoint_state["format"] == "orcacolony_lora_checkpoint_v2"
+    assert checkpoint_state["numerical_profile"] == peft.INT8_FROZEN_LINEAR_PROFILE
+    global_state = json.loads(
+        (state_dir / "global-state.json").read_text(encoding="utf-8")
+    )
+    assert global_state["numerical_profile"] == peft.INT8_FROZEN_LINEAR_PROFILE
+    global_receipt = json.loads(
+        (state_dir / "global-receipt.json").read_text(encoding="utf-8")
+    )
+    assert global_receipt["numerical_profile"] == peft.INT8_FROZEN_LINEAR_PROFILE
+
+    recovered = GlobalStepCoordinator.load(
+        loaded.campaign,
+        state_dir,
+        participants=participants,
+        lora=loaded,
+        numerical_profile=peft.INT8_FROZEN_LINEAR_PROFILE,
+    )
+    assert recovered.status()["numerical_profile"] == peft.INT8_FROZEN_LINEAR_PROFILE
+    with pytest.raises(ValueError, match="numerical profile"):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+            numerical_profile=peft.EXACT_CPU_FP32_PROFILE,
+        )
+
+
 def test_lora_workers_aggregate_only_adapters_and_reload_the_checkpoint(
     tmp_path: Path,
 ) -> None:
@@ -654,8 +765,8 @@ def test_lora_resume_revalidates_artifact_paths_before_copying(
 
     real_load = multiworker.load_lora_checkpoint
 
-    def mutate_after_load(lora, checkpoint):
-        result = real_load(lora, checkpoint)
+    def mutate_after_load(lora, checkpoint, **kwargs):
+        result = real_load(lora, checkpoint, **kwargs)
         state_path = Path(checkpoint) / "state.json"
         state = json.loads(state_path.read_text(encoding="utf-8"))
         state["optimizer"]["file"] = "../optimizer.safetensors"

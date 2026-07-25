@@ -17,11 +17,17 @@ from .multiworker import (
     _atomic_json,
     _aggregate_resource_observations,
     _campaign_payload,
+    _checkpoint_numerical_profile,
     _revision,
+    _validated_numerical_profile,
     create_http_server,
 )
 from .participants import ParticipantRegistry, load_participants
 from .peft import (
+    BURN_NDARRAY_F32_PROFILE,
+    BURN_WEBGPU_F32_PROFILE,
+    EXACT_CPU_FP32_PROFILE,
+    INT8_FROZEN_LINEAR_PROFILE,
     LoadedLoRAManifest,
     evaluate_lora_checkpoint,
     load_lora_manifest,
@@ -74,6 +80,7 @@ class CampaignCoordinator:
         dataset: PackedDataset | None = None,
         lora: LoadedLoRAManifest | None = None,
         publish_base_layer_bundle: bool = False,
+        numerical_profile: str = EXACT_CPU_FP32_PROFILE,
     ) -> CampaignCoordinator:
         if target_steps < 1:
             raise ValueError("campaign target steps must be positive")
@@ -83,6 +90,10 @@ class CampaignCoordinator:
             raise ValueError("LoRA manifest campaign does not match campaign run")
         if publish_base_layer_bundle and lora is None:
             raise ValueError("base layer bundle publication requires frozen-base LoRA")
+        profile = _validated_numerical_profile(numerical_profile)
+        if lora is None and profile == INT8_FROZEN_LINEAR_PROFILE:
+            raise ValueError("int8 numerical profile requires frozen-base LoRA")
+        checkpoint_profile = _checkpoint_numerical_profile(profile)
         state_dir = Path(state_dir)
         if state_dir.exists() and any(state_dir.iterdir()):
             raise ValueError(f"campaign state directory is not empty: {state_dir}")
@@ -101,6 +112,7 @@ class CampaignCoordinator:
             dataset=dataset,
             lora=lora,
             publish_base_layer_bundle=publish_base_layer_bundle,
+            numerical_profile=profile,
         )
         state: dict[str, object] = {
             "format": "orcacolony_campaign_state_v1",
@@ -126,6 +138,7 @@ class CampaignCoordinator:
             "base_model_sha256": (
                 lora.config.base_model_sha256 if lora is not None else None
             ),
+            "numerical_profile": profile,
             "publish_base_layer_bundle": publish_base_layer_bundle,
         }
         coordinator = cls(campaign, state_dir, participants, state, current, dataset, lora)
@@ -139,6 +152,7 @@ class CampaignCoordinator:
                     state_dir / baseline_relative,
                     target_steps=0,
                     dataset=dataset,
+                    numerical_profile=checkpoint_profile,
                 )
                 baseline_identity = baseline.weight_checkpoint_sha256
                 baseline_checkpoint = baseline.checkpoint_dir
@@ -169,6 +183,7 @@ class CampaignCoordinator:
         participants: ParticipantRegistry,
         dataset: PackedDataset | None = None,
         lora: LoadedLoRAManifest | None = None,
+        numerical_profile: str = EXACT_CPU_FP32_PROFILE,
     ) -> CampaignCoordinator:
         state_dir = Path(state_dir)
         state = json.loads(
@@ -176,6 +191,15 @@ class CampaignCoordinator:
         )
         if state.get("format") != "orcacolony_campaign_state_v1":
             raise ValueError("unsupported campaign state format")
+        requested_profile = _validated_numerical_profile(numerical_profile)
+        numerical_profile_migrated = "numerical_profile" not in state
+        if numerical_profile_migrated:
+            if requested_profile != EXACT_CPU_FP32_PROFILE:
+                raise ValueError("legacy campaign numerical profile is FP32")
+            state["numerical_profile"] = EXACT_CPU_FP32_PROFILE
+        stored_profile = _validated_numerical_profile(state.get("numerical_profile"))
+        if stored_profile != requested_profile:
+            raise ValueError("campaign numerical profile does not match configuration")
         if state.get("campaign_id") != campaign.campaign["id"]:
             raise ValueError("campaign state does not match configuration")
         if state.get("campaign_revision") != _revision(_campaign_payload(campaign)):
@@ -206,6 +230,7 @@ class CampaignCoordinator:
             participants=participants,
             dataset=dataset,
             lora=lora,
+            numerical_profile=stored_profile,
         )
         if current.has_base_layer_bundle != bool(state["publish_base_layer_bundle"]):
             raise ValueError("campaign layer-bundle publication state differs")
@@ -222,6 +247,10 @@ class CampaignCoordinator:
             expected_round = Path("rounds") / f"round-{step - 1:08d}"
             if checkpoint.get("round") != expected_round.as_posix():
                 raise ValueError("campaign checkpoint round path is invalid")
+            if numerical_profile_migrated and "numerical_profile" not in checkpoint:
+                checkpoint["numerical_profile"] = stored_profile
+            if checkpoint.get("numerical_profile") != stored_profile:
+                raise ValueError("campaign checkpoint numerical profile mismatch")
             prior_round = (state_dir / expected_round).resolve()
             if prior_round == current_resolved:
                 continue
@@ -231,6 +260,7 @@ class CampaignCoordinator:
                 participants=participants,
                 dataset=dataset,
                 lora=lora,
+                numerical_profile=stored_profile,
             )
             if prior_coordinator.has_base_layer_bundle != bool(
                 state["publish_base_layer_bundle"]
@@ -238,7 +268,10 @@ class CampaignCoordinator:
                 raise ValueError("prior campaign layer-bundle state differs")
         coordinator = cls(campaign, state_dir, participants, state, current, dataset, lora)
         lock_path = state_dir / "campaign-lock.json"
-        if (
+        if numerical_profile_migrated:
+            coordinator._write_state()
+            coordinator._write_lock()
+        elif (
             not lock_path.is_file()
             or json.loads(lock_path.read_text(encoding="utf-8"))
             != coordinator._lock_payload()
@@ -313,6 +346,7 @@ class CampaignCoordinator:
             ),
             "worker_count": self._state["worker_count"],
             "target_steps": self._state["target_steps"],
+            "numerical_profile": self._state["numerical_profile"],
             "assignment_protocol_revision": 1,
             "result_protocol_revision": 2,
         }
@@ -341,6 +375,7 @@ class CampaignCoordinator:
                 "dataset_revision": self._state.get(
                     "dataset_revision", "synthetic-fixture-v1"
                 ),
+                "numerical_profile": self._state["numerical_profile"],
                 "profile": (
                     dict(self.campaign.evaluation)
                     if self.campaign.evaluation is not None
@@ -404,6 +439,7 @@ class CampaignCoordinator:
                     "step": completed_step,
                     "path": checkpoint.relative_to(self.state_dir).as_posix(),
                     "round": self._state["current_round"],
+                    "numerical_profile": self._state["numerical_profile"],
                 }
             )
         self._state["completed_steps"] = completed_step
@@ -427,6 +463,7 @@ class CampaignCoordinator:
                 participants=self.participants,
                 dataset=self.dataset,
                 lora=self.lora,
+                numerical_profile=str(self._state["numerical_profile"]),
             )
         else:
             next_round = GlobalStepCoordinator.create(
@@ -441,6 +478,7 @@ class CampaignCoordinator:
                 publish_base_layer_bundle=bool(
                     self._state["publish_base_layer_bundle"]
                 ),
+                numerical_profile=str(self._state["numerical_profile"]),
             )
         if next_round.has_base_layer_bundle != bool(
             self._state["publish_base_layer_bundle"]
@@ -469,6 +507,7 @@ class CampaignCoordinator:
                 "dataset_revision": self._state.get(
                     "dataset_revision", "synthetic-fixture-v1"
                 ),
+                "numerical_profile": self._state["numerical_profile"],
                 "entries": entries,
             },
         )
@@ -478,6 +517,7 @@ class CampaignCoordinator:
         return {
             "state": self._state["state"],
             "campaign_id": self._state["campaign_id"],
+            "numerical_profile": self._state["numerical_profile"],
             "completed_steps": self._state["completed_steps"],
             "target_steps": self._state["target_steps"],
             "current_step": current["step"],
@@ -650,6 +690,7 @@ class CampaignCoordinator:
                     "objective": self.campaign.campaign["objective"],
                     "state": self._state["state"],
                     "training_method": current_round["training_method"],
+                    "numerical_profile": self._state["numerical_profile"],
                 },
                 "model": {
                     **asdict(self.campaign.model),
@@ -673,6 +714,7 @@ class CampaignCoordinator:
                     "leased_assignments": assignment_states.count("leased"),
                 },
                 "checkpoint": {
+                    "numerical_profile": self._state["numerical_profile"],
                     "sha256": (
                         resume_state_sha256
                         if lora_mode
@@ -728,6 +770,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--target-steps", type=int, required=True)
     parser.add_argument("--lease-seconds", type=int, default=120)
+    parser.add_argument(
+        "--numerical-profile",
+        choices=(
+            EXACT_CPU_FP32_PROFILE,
+            BURN_NDARRAY_F32_PROFILE,
+            BURN_WEBGPU_F32_PROFILE,
+            INT8_FROZEN_LINEAR_PROFILE,
+        ),
+        default=EXACT_CPU_FP32_PROFILE,
+    )
     parser.add_argument("--publish-base-layer-bundle", action="store_true")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
@@ -759,6 +811,7 @@ def main() -> None:
             participants=participants,
             dataset=dataset,
             lora=lora,
+            numerical_profile=args.numerical_profile,
         )
         if coordinator.status()["target_steps"] != args.target_steps:
             raise ValueError("target steps do not match the campaign lock")
@@ -773,6 +826,7 @@ def main() -> None:
             dataset=dataset,
             lora=lora,
             publish_base_layer_bundle=args.publish_base_layer_bundle,
+            numerical_profile=args.numerical_profile,
         )
     server = create_http_server(
         coordinator,  # type: ignore[arg-type]

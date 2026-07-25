@@ -4,7 +4,7 @@
 
 **Given** the persistent T2 worker's complete FP32 CPU residency, **when** every frozen `nn.Linear` weight is stored as per-output-channel symmetric int8 with FP32 scales/biases and dequantized inside a custom autograd function, **then** how much model tensor storage is removed and how far do FP32 adapter gradients move?
 
-This is an offline feasibility spike. It does **not** add a connected runtime backend or loosen coordinator acceptance.
+This began as an offline feasibility spike. P4 now promotes the measured design as a connected **homogeneous** numerical profile without loosening or impersonating exact FP32 acceptance.
 
 ## Approach
 
@@ -97,7 +97,27 @@ Reproduce the isolated converted/direct comparison with [`startup-proof.py`](sta
 
 Converted and direct modes returned identical loss and gradient SHA-256 at both scales. At T2, direct construction reduced peak RSS through build by **66.75%**, current post-build RSS by **30.82%**, and final process peak by **38.75%**. It read each linear shard once (`340,070,400` logical tensor bytes) and retained no FP32 linear weight. T1's final peak was 2.71% higher despite a lower build peak, so the result is scale/workload dependent. Timings are raw one-run observations with warm local storage and should not be treated as a stable speed ranking.
 
-## Verdict: PARTIAL
+## Connected P4 qualification
+
+[`connected_campaign.py`](connected_campaign.py) runs two real authenticated T1 native workers for two optimizer steps under `int8-per-output-symmetric-f32-dequant-v1`: one loads the complete authenticated resident base before quantizing it, while the other constructs int8 directly from the authenticated layer bundle. The coordinator is restarted after step 1 while both persistent worker sessions retain their validated models.
+
+```bash
+uv run python spikes/int8-frozen-linear/connected_campaign.py \
+  --campaign campaign/t1-tinystories-smoke.json \
+  --lora campaign/t1-tinystories-lora-smoke.json \
+  --dataset .artifacts/p3-t1-profile/dataset \
+  --browser-root spikes/burn-browser-gradient/www \
+  --state .artifacts/p4-int8-connected-state \
+  --exact-reference .artifacts/p4-int8-exact-reference \
+  --output spikes/int8-frozen-linear/results/connected-t1.json \
+  --target-steps 2
+```
+
+The preserved result records four accepted assignments, exact per-worker parity against the int8 oracle, maximum canonical-checkpoint relative L2 `6.12852298785371e-8`, one model build per worker, zero warm model transfer, and v2 checkpoint/resume identities authenticated with the numerical profile. Frozen held-out mean loss improved from `9.042177319526672` to `9.040553331375122`. The final connected int8 adapter remained deliberately distinct from exact FP32 at `0.011018934557552882` relative L2, and loading the campaign as exact FP32 failed closed.
+
+Exact CPU FP32 is now a separate bit-exact worker-acceptance profile. Burn NdArray and WebGPU have separate runtime/numerical identities and retain their measured tolerance gates rather than being advertised as exact CPU FP32. Workers from different numerical profiles cannot enter one campaign; resident and bundle **placements** may mix only when their numerical identity is the same.
+
+## Verdict: QUALIFIED FOR HOMOGENEOUS T1 CAMPAIGNS
 
 ### What worked
 
@@ -105,13 +125,14 @@ Converted and direct modes returned identical loss and gradient SHA-256 at both 
 - Unique resident model tensor storage fell by 43.08% at T0, 50.18% at T1, and 69.23% at T2.
 - Loss-sum drift stayed below 0.006% in all three deterministic comparisons.
 - Adapter-gradient cosine remained above 0.99954.
+- Connected resident and direct-bundle workers matched the profile-specific int8 oracle exactly and survived a coordinator restart with profile-bound checkpoints.
 
 ### What did not
 
 - Adapter gradients did not preserve the current FP32 numerical contract: relative L2 reached 3.038% at T2.
-- The original one-gradient storage comparison did not prove connected acceptance, trajectory behavior, held-out quality, process RSS, or throughput.
-- The trajectory proves deterministic restart, homogeneous two-shard aggregation, and positive held-out movement at T1, but not connected execution, longer convergence, or T2 trajectory quality.
-- Direct bundle construction now removes complete FP32 startup residency, but connected numerical-profile assignment/oracle/checkpoint provenance is not implemented.
+- The original one-gradient storage comparison alone did not prove connected acceptance, trajectory behavior, held-out quality, process RSS, or throughput; those claims come from the separate trajectory, startup, and connected records.
+- The connected qualification is two T1 steps on one Windows host. It does not establish long-horizon convergence, heterogeneous WAN performance, or a T2 connected trajectory.
+- Int8 remains numerically incompatible with exact FP32 and is rejected from exact-FP32 campaigns.
 
 ### Surprises
 
@@ -120,7 +141,7 @@ Converted and direct modes returned identical loss and gradient SHA-256 at both 
 
 ### Recommendation for the real build
 
-1. Reuse the custom int8 frozen-linear/autograd design as an explicit **offline numerical profile**, not as `python-native-cpu-f32` and not under the current FP32 tolerance.
-2. Use the fixed quantized trajectory as the profile-specific oracle; add profile identity to assignments/checkpoints before any connected homogeneous campaign.
-3. Keep the connected exact-FP32 layer-bundle worker as the baseline and keep int8 out of mixed exact aggregation; placement and numerical-profile decisions remain separate.
-4. Promote the direct bundle loader only through a connected homogeneous int8 campaign with explicit profile identity and a profile-specific oracle. Keep exact-FP32 acceptance unchanged.
+1. Keep `int8-per-output-symmetric-f32-dequant-v1` profile-bound and homogeneous; never relabel it as `python-native-cpu-f32`.
+2. Preserve exact CPU FP32 as the bit-exact baseline and preserve separate Burn runtime profiles with their own measured gates.
+3. Reuse resident and direct-bundle int8 placements within one campaign only while base, adapter, numerical-profile, worker-weight, and resumable-state identities all match.
+4. Treat longer T1/T2 trajectories and heterogeneous remote-host measurements as new experiments, not as reasons to weaken this bounded qualification.

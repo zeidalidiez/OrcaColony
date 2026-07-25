@@ -7,7 +7,7 @@ import threading
 import pytest
 import torch
 
-from orcacolony import native_worker
+from orcacolony import native_worker, peft
 from orcacolony.campaign_run import CampaignCoordinator
 from orcacolony.multiworker import GlobalStepCoordinator, create_http_server
 from orcacolony.native_worker import (
@@ -150,6 +150,76 @@ def test_native_cpu_worker_reuses_content_addressed_base_and_adapter_cache(
     assert len(list((cache_dir / "adapter").glob("*.safetensors"))) == 1
 
 
+def test_connected_int8_workers_mix_resident_and_layer_bundle_placements(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    token = "native-int8-profile-test-token"
+    participants = _single_contributor_registry(
+        str(loaded.campaign.campaign["id"]),
+        ["int8-resident", "int8-bundle"],
+        token,
+    )
+    state_dir = tmp_path / "coordinator"
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+        publish_base_layer_bundle=True,
+        numerical_profile=peft.INT8_FROZEN_LINEAR_PROFILE,
+    )
+    server = create_http_server(coordinator, BROWSER_ROOT, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    coordinator_url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        resident = run_assignment(
+            coordinator_url=coordinator_url,
+            worker_id="int8-resident",
+            worker_token=token,
+            campaign_path=CONFIG,
+            lora_path=LORA_CONFIG,
+            cache_dir=tmp_path / "resident-cache",
+            numerical_profile=peft.INT8_FROZEN_LINEAR_PROFILE,
+        )
+        bundle = run_assignment(
+            coordinator_url=coordinator_url,
+            worker_id="int8-bundle",
+            worker_token=token,
+            campaign_path=CONFIG,
+            lora_path=LORA_CONFIG,
+            cache_dir=tmp_path / "bundle-cache",
+            base_profile="layer-bundle",
+            numerical_profile=peft.INT8_FROZEN_LINEAR_PROFILE,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+    assert resident.receipt["accepted"] is True
+    assert bundle.receipt["accepted"] is True
+    assert bundle.receipt["step_complete"] is True
+    assert coordinator.status()["numerical_profile"] == (
+        peft.INT8_FROZEN_LINEAR_PROFILE
+    )
+    assert (
+        coordinator.status()["checkpoint_metrics"]["relative_l2_error"] <= 2e-7
+    )
+    ledger = json.loads(
+        (state_dir / "accepted-work.json").read_text(encoding="utf-8")
+    )
+    assert {entry["runtime_backend"] for entry in ledger["entries"]} == {
+        "python-native-cpu-int8-f32-dequant",
+        "python-native-cpu-layer-bundle-int8-f32-dequant",
+    }
+    assert {entry["numerical_profile"] for entry in ledger["entries"]} == {
+        peft.INT8_FROZEN_LINEAR_PROFILE
+    }
+
+
 def test_connected_layer_bundle_worker_repairs_a_partial_cache_across_restart(
     tmp_path: Path,
 ) -> None:
@@ -275,6 +345,13 @@ def test_layer_bundle_assignment_binds_each_artifact_url(tmp_path: Path) -> None
 
     with pytest.raises(ValueError, match="artifact URL differs"):
         _validate_assignment(tampered, loaded, "layer-bundle")
+    with pytest.raises(ValueError, match="numerical profile"):
+        _validate_assignment(
+            assignment,
+            loaded,
+            "layer-bundle",
+            peft.INT8_FROZEN_LINEAR_PROFILE,
+        )
 
 
 def test_layer_bundle_publication_and_fresh_cache_reject_raw_mutation(
@@ -455,13 +532,19 @@ def test_mixed_exact_profile_t2_evidence_is_qualified_and_evaluated() -> None:
 
 
 @pytest.mark.parametrize(
-    ("base_profile", "publish_base_layer_bundle"),
-    (("resident", False), ("layer-bundle", True)),
+    ("base_profile", "publish_base_layer_bundle", "numerical_profile"),
+    (
+        ("resident", False, peft.EXACT_CPU_FP32_PROFILE),
+        ("layer-bundle", True, peft.EXACT_CPU_FP32_PROFILE),
+        ("resident", False, peft.INT8_FROZEN_LINEAR_PROFILE),
+        ("layer-bundle", True, peft.INT8_FROZEN_LINEAR_PROFILE),
+    ),
 )
 def test_persistent_native_session_reuses_model_and_refreshes_adapter_across_steps(
     tmp_path: Path,
     base_profile: str,
     publish_base_layer_bundle: bool,
+    numerical_profile: str,
 ) -> None:
     loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
     token = "persistent-native-worker-test-token"
@@ -491,6 +574,7 @@ def test_persistent_native_session_reuses_model_and_refreshes_adapter_across_ste
         target_steps=2,
         lora=loaded,
         publish_base_layer_bundle=publish_base_layer_bundle,
+        numerical_profile=numerical_profile,
     )
     server = create_http_server(coordinator, BROWSER_ROOT, port=0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -504,6 +588,7 @@ def test_persistent_native_session_reuses_model_and_refreshes_adapter_across_ste
             lora_path=LORA_CONFIG,
             cache_dir=tmp_path / f"persistent-cache-{base_profile}",
             base_profile=base_profile,
+            numerical_profile=numerical_profile,
         )
         results = [session.run_assignment() for _ in range(4)]
     finally:
