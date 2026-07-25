@@ -168,6 +168,12 @@ The reproducible [`int8-frozen-linear` spike](spikes/int8-frozen-linear) reduced
 
 The [`streamed-fp32-linear` spike](spikes/streamed-fp32-linear) retained only `27,482,112` model-tensor bytes at T2 versus `367,552,512` for full residency, a 92.52% reduction. Complete adapter gradients and loss were bit-identical. The T2 gradient read `673,053,696` application-level storage bytes and took 1.307x the full-resident runtime on one warm local-storage run, including a defensive copy before validation/use. This builder still constructs the full FP32 model before exporting its linears, so the next slice must construct directly from the authenticated base artifact before claiming lower startup RSS or larger-than-RAM execution.
 
+### Direct streamed startup profile
+
+`build_direct_streamed_lora_model(...)` creates the decoder and LoRA wrappers on PyTorch's `meta` device, replaces all frozen linears with path-only modules backed by one authenticated base safetensors file, materializes only non-linear tensors/adapters on CPU, and supports deterministic restart from base plus adapter artifacts. It never calls the resident FP32 model builder.
+
+The [`direct-streamed-fp32` startup proof](spikes/direct-streamed-fp32) preserved the exact T2 loss and gradient SHA-256 while reducing retained tensors by 92.52%, RSS after build by 49.67%, and RSS after gradient by 45.88%. It did **not** solve startup peak: peak RSS fell only 1.94%, build time rose to 1.713x, and gradient time rose to 2.305x. The profile therefore remains offline. The next offload slice must use a pre-authenticated per-layer bundle/manifest bound to `base_model_sha256`, avoiding repeated full-container opens/hashes before any connected claim.
+
 ## T1 scale proof
 
 `campaign/t1-smoke.json` raises the same dynamic browser runtime to the planned T1 shape: 6 layers, width 256, 4 heads, 8,192 tokens, context 256, and exactly 6,901,760 parameters. Build its synthetic parity fixture with:

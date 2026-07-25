@@ -174,6 +174,8 @@ Completed within the first P3 measurement and native-baseline slice:
 - Ran and preserved the exact-FP32 `streamed-fp32-linear` comparison across T0/T1/T2. T2 retained tensor bytes fell from `367,552,512` to `27,482,112` (92.52%) while loss and every adapter-gradient value remained bit-identical.
 - The T2 streamed gradient issued 95 authenticated layer reads totaling `673,053,696` bytes, 1.979 times the 340,077,504-byte linear artifact set, and took 1.307 times the full-resident runtime on a warm local-storage run after defensively copying each mapped tensor before validation/use.
 - Added the explicit offline `streamed-fp32-frozen-linear-v1` builder. Every forward/backward reload validates exact tensor names, shapes, FP32 dtype, finite values, and tensor identity. Like the int8 builder, this first version converts a fully constructed model and therefore does not yet lower startup peak RSS.
+- Added `direct-streamed-fp32-v1`: a restartable meta/empty builder that authenticates one raw base artifact before/after construction, partitions every base tensor exactly, materializes only non-linear/adapter tensors, and streams 48 T2 frozen linears directly from that artifact. It never invokes the resident FP32 builder.
+- In isolated T2 processes, direct streaming preserved exact loss and gradient SHA-256 while reducing retained tensors by 92.52%, RSS after build by 49.67%, and RSS after gradient by 45.88%. Peak RSS fell only 1.94%; build and gradient runtime rose to 1.713x and 2.305x. The single-file profile is therefore insufficient for connected offload.
 
 ### P4 — Qualify numerical and mixed execution profiles
 
@@ -215,11 +217,11 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Build the streamed T2 profile directly from the authenticated base safetensors without first materializing every FP32 linear. Measure startup and steady RSS, cold/warm storage reads, and retry behavior; only then consider it evidence for larger-than-RAM execution. Carry int8 into P4 as a distinct numerical trajectory rather than weakening the connected FP32 contract.
+Build a pre-authenticated per-layer bundle/manifest bound to `base_model_sha256`, then construct T2 directly from that bundle without complete-base rescans or repeated monolithic-container opens. Re-measure isolated startup peak/current RSS and cold/warm reads before any connected offload claim. Carry int8 into P4 as a distinct numerical trajectory rather than weakening the connected FP32 contract.
 
 ## Remaining major work
 
-- Direct-from-artifact native construction plus connected exact-FP32 mapped/layer-streamed execution.
+- Per-layer authenticated bundle construction plus connected exact-FP32 mapped/layer-streamed execution.
 - Quantized-profile oracle, trajectory, and homogeneous-campaign proof in P4.
 - Profile certification and mixed-profile proof.
 - Rolling-submodel feasibility study.
@@ -264,3 +266,4 @@ Build the streamed T2 profile directly from the authenticated base safetensors w
 - Published the persistent-session study with failure-atomic refresh evidence and retained its throughput-only, one-worker, FP32-resident limitations.
 - Proved int8 frozen-linear storage reduction across T0/T1/T2, preserved the partial numerical result, and refused to admit its 1.7%–3.0% adapter-gradient drift under the FP32 worker identity.
 - Proved exact-FP32 streamed linears retain only 7.48% of T2 model tensor bytes with bit-identical gradients, while preserving the startup-RSS and warm-page-cache limitations that still block a larger-than-RAM claim.
+- Proved direct meta/empty construction halves steady T2 process RSS without materializing resident FP32 linears, but rejected it for connected use because complete-base scanning reduced peak RSS by only 1.94% and made gradients 2.305x slower.

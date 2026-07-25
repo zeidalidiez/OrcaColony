@@ -311,6 +311,118 @@ def test_streamed_fp32_frozen_linear_profile_is_exact_and_detects_mutation(
         first.load_tensors()
 
 
+def test_direct_streamed_profile_builds_from_artifacts_without_full_fp32_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded = peft.load_lora_manifest(CONFIG, LORA_CONFIG)
+    base_model = build_model(loaded.campaign)
+    base_path = tmp_path / "base-model.safetensors"
+    save_file(
+        {
+            name: tensor.detach().cpu().contiguous()
+            for name, tensor in base_model.state_dict().items()
+        },
+        base_path,
+    )
+    base_artifact_sha256 = hashlib.sha256(base_path.read_bytes()).hexdigest()
+    resident_model = peft.build_lora_model(loaded.campaign, loaded.config)
+    adapter_state = {
+        name: tensor.detach().clone()
+        for name, tensor in peft.adapter_named_parameters(resident_model).items()
+    }
+    tokens = loaded.campaign.training.batch_size * loaded.campaign.model.context_length
+    inputs = (torch.arange(tokens, dtype=torch.long) * 17 + 3).remainder(
+        loaded.campaign.training.active_vocabulary_size
+    ).reshape(
+        loaded.campaign.training.batch_size,
+        loaded.campaign.model.context_length,
+    )
+    targets = (inputs + 1).remainder(
+        loaded.campaign.training.active_vocabulary_size
+    )
+
+    def forbidden_full_builder(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("direct streamed construction materialized the FP32 builder")
+
+    monkeypatch.setattr(peft, "build_lora_model", forbidden_full_builder)
+    with pytest.raises(ValueError, match="base artifact SHA-256 mismatch"):
+        peft.build_direct_streamed_lora_model(
+            loaded.campaign,
+            loaded.config,
+            base_path,
+            "0" * 64,
+            adapter_state,
+        )
+    direct_model = peft.build_direct_streamed_lora_model(
+        loaded.campaign,
+        loaded.config,
+        base_path,
+        base_artifact_sha256,
+        adapter_state,
+    )
+
+    direct_linears = [
+        module
+        for module in direct_model.modules()
+        if isinstance(module, peft.DirectStreamedFrozenLinear)
+    ]
+    assert peft.DIRECT_STREAMED_FP32_PROFILE == "direct-streamed-fp32-v1"
+    assert len(direct_linears) == 16
+    assert all(parameter.device.type == "cpu" for parameter in direct_model.parameters())
+
+    resident = peft.compute_adapter_gradients(resident_model, inputs, targets)
+    direct = peft.compute_adapter_gradients(direct_model, inputs, targets)
+    assert direct.loss_sum == resident.loss_sum
+    assert all(
+        torch.equal(direct.gradients[name], tensor)
+        for name, tensor in resident.gradients.items()
+    )
+    assert sum(module.read_count for module in direct_linears) == 31
+
+    short_inputs = inputs[:, :8]
+    short_targets = targets[:, :8]
+    resident_short = peft.compute_adapter_gradients(
+        resident_model,
+        short_inputs,
+        short_targets,
+    )
+    direct_short = peft.compute_adapter_gradients(
+        direct_model,
+        short_inputs,
+        short_targets,
+    )
+    assert direct_short.loss_sum == resident_short.loss_sum
+    assert all(
+        torch.equal(direct_short.gradients[name], tensor)
+        for name, tensor in resident_short.gradients.items()
+    )
+
+    restarted = peft.build_direct_streamed_lora_model(
+        loaded.campaign,
+        loaded.config,
+        base_path,
+        base_artifact_sha256,
+        adapter_state,
+    )
+    restarted_result = peft.compute_adapter_gradients(restarted, inputs, targets)
+    assert restarted_result.loss_sum == resident.loss_sum
+    assert all(
+        torch.equal(restarted_result.gradients[name], tensor)
+        for name, tensor in resident.gradients.items()
+    )
+
+    first_direct = direct_linears[0]
+    mutated_base = {
+        name: tensor.clone()
+        for name, tensor in load_file(base_path, device="cpu").items()
+    }
+    mutated_base[first_direct.weight_key][0, 0] += 1.0
+    save_file(mutated_base, base_path)
+    with pytest.raises(ValueError, match="direct streamed tensor digest mismatch"):
+        first_direct.load_tensors()
+
+
 def test_adapter_gradient_application_matches_an_independent_mean_loss_step() -> None:
     campaign = load_campaign(CONFIG)
     config = _lora_config()

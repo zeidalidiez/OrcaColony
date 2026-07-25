@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import torch
+from safetensors import safe_open
 from safetensors.torch import load_file as load_safetensors_file
 from safetensors.torch import save_file as save_safetensors_file
 from torch import Tensor, nn
@@ -21,6 +22,7 @@ from torch.nn import functional as F
 from .artifacts import PackedDataset
 from .reference import (
     CampaignConfig,
+    CausalSelfAttention,
     TrainingConfig,
     VolunteerDecoder,
     build_model,
@@ -336,6 +338,161 @@ def _stream_frozen_linears(
     return count
 
 
+DIRECT_STREAMED_FP32_PROFILE = "direct-streamed-fp32-v1"
+
+
+def _direct_tensor_snapshot(artifact_path: Path, key: str) -> Tensor:
+    with safe_open(artifact_path, framework="pt", device="cpu") as reader:
+        if key not in reader.keys():
+            raise ValueError(f"base artifact is missing tensor: {key}")
+        return reader.get_tensor(key).clone().contiguous()
+
+
+def _direct_linear_snapshot(
+    artifact_path: Path,
+    weight_key: str,
+    bias_key: str | None,
+) -> dict[str, Tensor]:
+    tensors = {"weight": _direct_tensor_snapshot(artifact_path, weight_key)}
+    if bias_key is not None:
+        tensors["bias"] = _direct_tensor_snapshot(artifact_path, bias_key)
+    return tensors
+
+
+class _DirectStreamedFrozenLinearFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, inputs: Tensor, module: "DirectStreamedFrozenLinear") -> Tensor:
+        weight, bias = module.load_tensors()
+        ctx.module = module
+        with torch.autocast(device_type=inputs.device.type, enabled=False):
+            return F.linear(inputs.float(), weight, bias)
+
+    @staticmethod
+    def backward(ctx, grad_output: Tensor) -> tuple[Tensor, None]:
+        weight, _ = ctx.module.load_tensors()
+        with torch.autocast(device_type=grad_output.device.type, enabled=False):
+            return grad_output.float().matmul(weight), None
+
+
+class DirectStreamedFrozenLinear(nn.Module):
+    """Path-only FP32 frozen linear backed by one authenticated base artifact."""
+
+    def __init__(
+        self,
+        artifact_path: Path,
+        weight_key: str,
+        bias_key: str | None,
+        expected_tensors: Mapping[str, Tensor],
+    ) -> None:
+        super().__init__()
+        weight = expected_tensors["weight"]
+        if weight.ndim != 2 or weight.dtype != torch.float32:
+            raise ValueError("direct streamed weight must be a rank-2 FP32 tensor")
+        bias = expected_tensors.get("bias")
+        if bias_key is None:
+            if bias is not None:
+                raise ValueError("unexpected direct streamed bias")
+        elif bias is None or bias.shape != (weight.shape[0],):
+            raise ValueError("direct streamed bias shape differs")
+        self.artifact_path = artifact_path.resolve(strict=True)
+        self.weight_key = weight_key
+        self.bias_key = bias_key
+        self.out_features = int(weight.shape[0])
+        self.in_features = int(weight.shape[1])
+        self.expected_tensor_sha256 = tensor_sha256(expected_tensors)
+        self.read_bytes = 0
+        self.read_count = 0
+
+    def load_tensors(self) -> tuple[Tensor, Tensor | None]:
+        tensors = _direct_linear_snapshot(
+            self.artifact_path,
+            self.weight_key,
+            self.bias_key,
+        )
+        weight = tensors["weight"]
+        bias = tensors.get("bias")
+        if weight.shape != (self.out_features, self.in_features):
+            raise ValueError("direct streamed weight shape differs")
+        if weight.dtype != torch.float32:
+            raise ValueError("direct streamed weight must remain FP32")
+        if self.bias_key is not None:
+            if bias is None or bias.shape != (self.out_features,):
+                raise ValueError("direct streamed bias shape differs")
+            if bias.dtype != torch.float32:
+                raise ValueError("direct streamed bias must remain FP32")
+        if not all(bool(torch.isfinite(tensor).all().item()) for tensor in tensors.values()):
+            raise ValueError("direct streamed tensors contain non-finite values")
+        if tensor_sha256(tensors) != self.expected_tensor_sha256:
+            raise ValueError("direct streamed tensor digest mismatch")
+        self.read_bytes += sum(
+            tensor.numel() * tensor.element_size() for tensor in tensors.values()
+        )
+        self.read_count += 1
+        return weight, bias
+
+    def forward(self, inputs: Tensor) -> Tensor:
+        if inputs.device.type != "cpu" or inputs.dtype != torch.float32:
+            raise ValueError("direct streamed profile requires CPU FP32 activations")
+        return _DirectStreamedFrozenLinearFunction.apply(inputs, self)
+
+
+def _replace_with_direct_streamed_linears(
+    module: nn.Module,
+    artifact_path: Path,
+    prefix: str = "",
+) -> tuple[int, set[str]]:
+    count = 0
+    consumed: set[str] = set()
+    for child_name, child in list(module.named_children()):
+        child_path = f"{prefix}.{child_name}" if prefix else child_name
+        if isinstance(child, LoRALinear):
+            source = child.base
+            if not isinstance(source, nn.Linear):
+                raise ValueError("direct streamed LoRA base is not linear")
+            weight_key = f"{child_path}.weight"
+            bias_key = f"{child_path}.bias" if source.bias is not None else None
+            expected = _direct_linear_snapshot(artifact_path, weight_key, bias_key)
+            child.base = DirectStreamedFrozenLinear(
+                artifact_path,
+                weight_key,
+                bias_key,
+                expected,
+            )
+            consumed.add(weight_key)
+            if bias_key is not None:
+                consumed.add(bias_key)
+            count += 1
+        elif isinstance(child, nn.Linear):
+            if any(parameter.requires_grad for parameter in child.parameters()):
+                raise ValueError("direct streaming requires frozen linear parameters")
+            weight_key = f"{child_path}.weight"
+            bias_key = f"{child_path}.bias" if child.bias is not None else None
+            expected = _direct_linear_snapshot(artifact_path, weight_key, bias_key)
+            setattr(
+                module,
+                child_name,
+                DirectStreamedFrozenLinear(
+                    artifact_path,
+                    weight_key,
+                    bias_key,
+                    expected,
+                ),
+            )
+            consumed.add(weight_key)
+            if bias_key is not None:
+                consumed.add(bias_key)
+            count += 1
+        else:
+            nested_count, nested_consumed = _replace_with_direct_streamed_linears(
+                child,
+                artifact_path,
+                child_path,
+            )
+            count += nested_count
+            consumed.update(nested_consumed)
+    return count, consumed
+
+
 def _resolve_child(module: nn.Module, component: str) -> nn.Module:
     if component.isdigit() and isinstance(module, (nn.ModuleList, nn.Sequential)):
         index = int(component)
@@ -433,6 +590,90 @@ def build_streamed_lora_model(
     except BaseException:
         shutil.rmtree(storage, ignore_errors=True)
         raise
+    return model
+
+
+def build_direct_streamed_lora_model(
+    campaign: CampaignConfig,
+    config: LoRAConfig,
+    base_artifact_path: str | Path,
+    base_artifact_sha256: str,
+    adapter_state: Mapping[str, Tensor],
+) -> VolunteerDecoder:
+    """Construct an exact-FP32 streamed model directly from authenticated artifacts.
+
+    ``base_artifact_sha256`` is the worker-facing raw-file identity supplied by
+    an authenticated artifact manifest. It is intentionally distinct from the
+    canonical tensor-set identity in ``config.base_model_sha256``. The complete
+    artifact is hashed before and after construction; every streamed linear
+    also retains and rechecks its own tensor-set identity on every load.
+    """
+
+    if _SHA256_PATTERN.fullmatch(base_artifact_sha256) is None:
+        raise ValueError("base artifact SHA-256 must be a lowercase digest")
+    artifact_path = Path(base_artifact_path).resolve(strict=True)
+    if not artifact_path.is_file():
+        raise ValueError("base artifact path must be a regular file")
+    if _sha256_file(artifact_path) != base_artifact_sha256:
+        raise ValueError("base artifact SHA-256 mismatch")
+
+    with torch.device("meta"):
+        model = VolunteerDecoder(campaign.model)
+        for parameter in model.parameters():
+            parameter.requires_grad_(False)
+        generator = torch.Generator(device="cpu")
+        generator.manual_seed(config.adapter_seed)
+        for target in config.targets:
+            parent, child_name = _resolve_parent(model, target)
+            child = getattr(parent, child_name, None)
+            if not isinstance(child, nn.Linear):
+                raise ValueError(f"LoRA target is not a linear layer: {target}")
+            setattr(parent, child_name, LoRALinear(child, config, generator))
+
+    direct_count, consumed = _replace_with_direct_streamed_linears(
+        model,
+        artifact_path,
+    )
+    if direct_count <= 0:
+        raise ValueError("direct streamed profile did not replace any linears")
+    model.to_empty(device="cpu")
+
+    with safe_open(artifact_path, framework="pt", device="cpu") as reader:
+        artifact_names = set(reader.keys())
+    with torch.no_grad():
+        for name, parameter in model.named_parameters():
+            if name.endswith(".lora_a") or name.endswith(".lora_b"):
+                continue
+            tensor = _direct_tensor_snapshot(artifact_path, name)
+            if tensor.shape != parameter.shape:
+                raise ValueError(f"base artifact tensor shape differs: {name}")
+            if tensor.dtype != torch.float32:
+                raise ValueError(f"base artifact tensor is not FP32: {name}")
+            if not bool(torch.isfinite(tensor).all().item()):
+                raise ValueError(f"base artifact tensor is non-finite: {name}")
+            parameter.copy_(tensor)
+            consumed.add(name)
+
+    context_length = campaign.model.context_length
+    causal_mask = torch.triu(
+        torch.ones(context_length, context_length, dtype=torch.bool),
+        diagonal=1,
+    )
+    for module in model.modules():
+        if isinstance(module, CausalSelfAttention):
+            module.causal_mask = causal_mask.clone()
+
+    if consumed != artifact_names:
+        missing = sorted(artifact_names - consumed)
+        unexpected = sorted(consumed - artifact_names)
+        raise ValueError(
+            "base artifact tensor partition differs: "
+            f"unconsumed={missing}, missing={unexpected}"
+        )
+    load_adapter_state(model, adapter_state)
+    adapter_named_parameters(model)
+    if _sha256_file(artifact_path) != base_artifact_sha256:
+        raise ValueError("base artifact changed during direct construction")
     return model
 
 

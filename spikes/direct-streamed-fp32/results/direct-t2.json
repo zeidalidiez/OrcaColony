@@ -1,0 +1,22 @@
+{
+  "adapter_value_count": 147456,
+  "base_file_bytes": 366190504,
+  "base_file_sha256": "47a536cd24b50e7a3bd7a36dc224e2e31774ab0c1c0738df0256e6f579fc15e5",
+  "build_seconds": 3.5416698999906657,
+  "campaign_id": "orcacolony-t2-tinystories-memory-smoke-v1",
+  "direct_linear_count": 48,
+  "format": "orcacolony_direct_streamed_startup_proof_v1",
+  "gradient_seconds": 7.4465390000113985,
+  "gradient_sha256": "227b763759a9a63da9eae0ca98af6166a2bccd0dd08212aa668a3b09cdf3b11d",
+  "initial_rss_bytes": 645914624,
+  "loss_sum": 4687.0,
+  "loss_weight_sum": 512,
+  "mode": "direct",
+  "parameter_count": 91544064,
+  "peak_rss_bytes": 1377845248,
+  "resident_tensor_bytes": 27482112,
+  "rss_after_build_bytes": 339329024,
+  "rss_after_gradient_bytes": 404025344,
+  "streamed_read_bytes": 673053696,
+  "streamed_read_count": 95
+}
