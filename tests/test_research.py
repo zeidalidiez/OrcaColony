@@ -397,9 +397,11 @@ def test_all_committed_research_records_build(
     assert study_paths
 
     built = 0
+    expected = 0
     for study_path in study_paths:
         study = json.loads(study_path.read_text(encoding="utf-8"))
         for reference in study["experiments"]:
+            expected += 1
             experiment_id = reference["experiment_id"]
             experiment_path = study_path.parent / reference["manifest"]
             evidence_path = study_path.parent / "evidence" / f"{experiment_id}.json"
@@ -422,4 +424,5 @@ def test_all_committed_research_records_build(
             assert (output / "RESULT.md").is_file()
             built += 1
 
-    assert built == 2
+    assert expected >= 2
+    assert built == expected

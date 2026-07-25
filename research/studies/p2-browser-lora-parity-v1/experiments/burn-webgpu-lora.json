@@ -1,0 +1,82 @@
+{
+  "format": "orcacolony_experiment_v1",
+  "study_id": "p2-browser-lora-parity-v1",
+  "experiment_id": "burn-webgpu-lora",
+  "title": "Burn WebGPU frozen-base LoRA parity",
+  "status": "validated",
+  "subject": {
+    "kind": "browser-runtime-profile",
+    "id": "burn-webgpu-lora-fp32",
+    "revision": "git:7aab3ccf536234a45bf0e21753e044d70af66fcd"
+  },
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "7aab3ccf536234a45bf0e21753e044d70af66fcd",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/7aab3ccf536234a45bf0e21753e044d70af66fcd"
+    },
+    {
+      "id": "python-gradient",
+      "kind": "safetensors-sha256",
+      "revision": "7ce16dfd740fd5a249257de6ab442943577b86917f9ae77604c5097ce1a5b8e2",
+      "uri": "generated:.artifacts/browser-lora-fixture/gradients.safetensors"
+    }
+  ],
+  "method": {
+    "training_method": {
+      "id": "frozen-base-lora",
+      "label": "Frozen-base LoRA",
+      "description": "Execute the exact base while differentiating only the declared rank-4 QKV adapters."
+    },
+    "execution_topology": {
+      "id": "standalone-browser-parity",
+      "label": "Standalone browser parity",
+      "description": "One browser independently completes the full forward/backward fixture without coordinator communication."
+    },
+    "memory_profiles": [
+      {
+        "id": "browser-webgpu-resident",
+        "label": "Browser WebGPU-resident",
+        "description": "The complete small fixture is uploaded through the browser WebGPU runtime for this numerical proof."
+      }
+    ],
+    "numerical_profiles": [
+      {
+        "id": "burn-webgpu-f32-lora",
+        "label": "Burn WebGPU FP32 LoRA",
+        "description": "Burn 0.21 Autodiff over Wgpu f32 tensors in browser WebGPU."
+      }
+    ]
+  },
+  "worker_profiles": [
+    {
+      "id": "headless-chrome-150-windows-webgpu",
+      "label": "Headless Chrome 150 on Windows WebGPU",
+      "description": "Local browser execution through the available Windows WebGPU adapter."
+    }
+  ],
+  "resource_budget": {
+    "limits": [
+      {
+        "id": "browser-passes",
+        "label": "Browser backward passes",
+        "value": 1,
+        "unit": "passes"
+      },
+      {
+        "id": "wall-time",
+        "label": "Maximum elapsed browser time",
+        "value": 60,
+        "unit": "seconds"
+      }
+    ]
+  },
+  "reproduction": {
+    "command": [
+      "bash",
+      "spikes/burn-browser-gradient/build-browser.sh"
+    ],
+    "notes": "At commit 7aab3ccf536234a45bf0e21753e044d70af66fcd, build the exact LoRA fixture, serve www, open ?backend=webgpu in a WebGPU-capable browser, and run the browser backward pass."
+  }
+}

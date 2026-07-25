@@ -1,0 +1,82 @@
+{
+  "format": "orcacolony_experiment_v1",
+  "study_id": "p2-browser-lora-parity-v1",
+  "experiment_id": "burn-cpu-wasm-lora",
+  "title": "Burn CPU/WASM frozen-base LoRA parity",
+  "status": "validated",
+  "subject": {
+    "kind": "browser-runtime-profile",
+    "id": "burn-ndarray-lora-fp32",
+    "revision": "git:7aab3ccf536234a45bf0e21753e044d70af66fcd"
+  },
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "7aab3ccf536234a45bf0e21753e044d70af66fcd",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/7aab3ccf536234a45bf0e21753e044d70af66fcd"
+    },
+    {
+      "id": "python-gradient",
+      "kind": "safetensors-sha256",
+      "revision": "7ce16dfd740fd5a249257de6ab442943577b86917f9ae77604c5097ce1a5b8e2",
+      "uri": "generated:.artifacts/browser-lora-fixture/gradients.safetensors"
+    }
+  ],
+  "method": {
+    "training_method": {
+      "id": "frozen-base-lora",
+      "label": "Frozen-base LoRA",
+      "description": "Execute the exact base while differentiating only the declared rank-4 QKV adapters."
+    },
+    "execution_topology": {
+      "id": "standalone-browser-parity",
+      "label": "Standalone browser parity",
+      "description": "One browser independently completes the full forward/backward fixture without coordinator communication."
+    },
+    "memory_profiles": [
+      {
+        "id": "browser-cpu-resident",
+        "label": "Browser CPU-resident",
+        "description": "The complete small fixture resides in browser-addressable WASM memory for this numerical proof."
+      }
+    ],
+    "numerical_profiles": [
+      {
+        "id": "burn-ndarray-f32-lora",
+        "label": "Burn NdArray FP32 LoRA",
+        "description": "Burn 0.21 Autodiff over NdArray f32 tensors in browser WASM."
+      }
+    ]
+  },
+  "worker_profiles": [
+    {
+      "id": "headless-chrome-150-windows-cpu",
+      "label": "Headless Chrome 150 on Windows CPU",
+      "description": "Local browser execution with the CPU/WASM query profile."
+    }
+  ],
+  "resource_budget": {
+    "limits": [
+      {
+        "id": "browser-passes",
+        "label": "Browser backward passes",
+        "value": 1,
+        "unit": "passes"
+      },
+      {
+        "id": "wall-time",
+        "label": "Maximum elapsed browser time",
+        "value": 60,
+        "unit": "seconds"
+      }
+    ]
+  },
+  "reproduction": {
+    "command": [
+      "bash",
+      "spikes/burn-browser-gradient/build-browser.sh"
+    ],
+    "notes": "At commit 7aab3ccf536234a45bf0e21753e044d70af66fcd, set ORCACOLONY_LORA_CONFIG=campaign/t0-lora-smoke.json and ORCACOLONY_FIXTURE_DIR to a fresh path, serve www, open ?backend=cpu, and run the browser backward pass."
+  }
+}

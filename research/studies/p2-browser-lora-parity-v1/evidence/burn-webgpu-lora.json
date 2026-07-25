@@ -1,0 +1,102 @@
+{
+  "format": "orcacolony_experiment_evidence_v1",
+  "study_id": "p2-browser-lora-parity-v1",
+  "experiment_id": "burn-webgpu-lora",
+  "outcome": "validated",
+  "completed_at": "2026-07-25T02:00:11Z",
+  "summary": "Burn WebGPU matched the exact Python summed loss and exported all 8 declared LoRA gradients across 8,192 values with cosine similarity 0.9999999999998102.",
+  "measurements": [
+    {
+      "id": "summed-loss",
+      "label": "Browser summed loss",
+      "value": 4267.70556640625,
+      "unit": "loss"
+    },
+    {
+      "id": "loss-relative-error",
+      "label": "Loss relative error",
+      "value": 0.0,
+      "unit": "ratio"
+    },
+    {
+      "id": "gradient-relative-l2",
+      "label": "Gradient relative L2 error",
+      "value": 6.144610293037611e-7,
+      "unit": "ratio"
+    },
+    {
+      "id": "gradient-max-absolute-error",
+      "label": "Gradient maximum absolute error",
+      "value": 1.1175870895385742e-6,
+      "unit": "gradient"
+    },
+    {
+      "id": "elapsed",
+      "label": "Browser elapsed time",
+      "value": 21.65,
+      "unit": "seconds"
+    }
+  ],
+  "evaluation": {
+    "primary_metric": {
+      "id": "gradient-cosine-similarity",
+      "value": 0.9999999999998102
+    },
+    "guardrails": [
+      {
+        "id": "complete-adapter-tensor-set",
+        "passed": true,
+        "detail": "The browser exported exactly 8 tensors and 8,192 values with the Python names and shapes."
+      },
+      {
+        "id": "loss-parity",
+        "passed": true,
+        "detail": "The WebGPU summed loss was exactly equal to the Python oracle value."
+      },
+      {
+        "id": "gradient-relative-l2",
+        "passed": true,
+        "detail": "Relative L2 error was 6.144610293037611e-7."
+      },
+      {
+        "id": "dense-browser-regression",
+        "passed": true,
+        "detail": "The separate fresh dense CPU/WASM regression retained all 52 tensors and its prior parity."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "webgpu-parity",
+      "label": "WebGPU adapter parity established",
+      "description": "The GPU browser backend reproduced the complete adapter-gradient contract and exact summed loss inside every gate.",
+      "kind": "positive"
+    },
+    {
+      "id": "webgpu-startup-cost",
+      "label": "WebGPU elapsed time exceeded CPU/WASM in this proof",
+      "description": "The measured 21.650-second end-to-end time includes backend initialization and readback and was much slower than the 0.978-second CPU/WASM run on this host.",
+      "kind": "negative"
+    }
+  ],
+  "limitations": [
+    "The elapsed comparison is one cold local run and is not a general CPU-versus-GPU benchmark.",
+    "This is a local parity run, not a coordinator assignment with leases, retries, or canonical adapter state.",
+    "The complete base remains browser-resident and no offload path is tested.",
+    "The synthetic T0 fixture does not establish useful adaptation quality."
+  ],
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "7aab3ccf536234a45bf0e21753e044d70af66fcd",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/7aab3ccf536234a45bf0e21753e044d70af66fcd"
+    },
+    {
+      "id": "python-gradient",
+      "kind": "safetensors-sha256",
+      "revision": "7ce16dfd740fd5a249257de6ab442943577b86917f9ae77604c5097ce1a5b8e2",
+      "uri": "generated:.artifacts/browser-lora-fixture/gradients.safetensors"
+    }
+  ]
+}

@@ -42,6 +42,7 @@ The output path must not already exist. Remove or choose another ignored `.artif
 
 - `p1-research-contract-smoke-v1` validates the research-record machinery itself. It makes no training-method claim.
 - `p2-lora-numerical-v1` validates the first frozen-base LoRA numerical slice against an independent one-step reference. Its evidence explicitly does not claim browser/native parity, campaign recovery, offload performance, or useful model adaptation.
+- `p2-browser-lora-parity-v1` compares CPU/WASM and WebGPU against the same Python adapter-gradient oracle. It records the WebGPU cold-run cost as a negative finding and does not claim coordinator integration or offload.
 
 Every committed study, linked experiment, and conventionally named evidence file is rebuilt by the repository test suite. To render the P2 result directly, substitute the three `p2-lora-numerical-v1` manifest paths in the command above and choose a fresh ignored output directory.
 

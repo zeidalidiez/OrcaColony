@@ -1,0 +1,83 @@
+{
+  "format": "orcacolony_study_v1",
+  "study_id": "p2-browser-lora-parity-v1",
+  "title": "P2 browser frozen-base LoRA gradient parity",
+  "hypothesis": "Burn CPU/WASM and WebGPU can execute the exact frozen-base rank-4 QKV LoRA fixture and export the complete eight-tensor adapter-gradient set within the declared numerical gates without changing the existing dense browser path.",
+  "status": "validated",
+  "use_case": {
+    "claim": "Qualify broadly accessible browser runtimes for later owner-approved PEFT campaigns before changing the coordinator contract.",
+    "baseline": {
+      "id": "python-lora-oracle",
+      "label": "Python LoRA oracle",
+      "description": "The exact Python FP32 summed-loss gradient fixture with SHA-256 7ce16dfd740fd5a249257de6ab442943577b86917f9ae77604c5097ce1a5b8e2."
+    },
+    "primary_metric": {
+      "id": "gradient-cosine-similarity",
+      "label": "Adapter-gradient cosine similarity",
+      "description": "Cosine similarity across all declared adapter-gradient values relative to the Python oracle.",
+      "direction": "maximize",
+      "success_threshold": 0.999,
+      "unit": "cosine"
+    },
+    "repeated_validation_suite": {
+      "id": "browser-lora-cpu-wasm",
+      "label": "CPU/WASM LoRA parity",
+      "description": "Run the exact fixture through Burn Autodiff NdArray in browser WASM and compare every adapter gradient.",
+      "revision": "git:7aab3ccf536234a45bf0e21753e044d70af66fcd:run_lora_gradient_cpu"
+    },
+    "final_holdout_suite": {
+      "id": "browser-lora-webgpu",
+      "label": "WebGPU LoRA parity",
+      "description": "Run the same fixture through Burn Autodiff Wgpu and compare every adapter gradient after CPU semantics are established.",
+      "revision": "git:7aab3ccf536234a45bf0e21753e044d70af66fcd:run_lora_gradient"
+    },
+    "guardrails": [
+      {
+        "id": "complete-adapter-tensor-set",
+        "label": "Complete adapter tensor set",
+        "description": "Exactly 8 tensors and 8,192 values must be exported with the Python names and shapes."
+      },
+      {
+        "id": "loss-parity",
+        "label": "Summed-loss parity",
+        "description": "Relative summed-loss error must not exceed 0.002."
+      },
+      {
+        "id": "gradient-relative-l2",
+        "label": "Gradient relative L2",
+        "description": "Relative L2 error across the adapter gradients must not exceed 0.01."
+      },
+      {
+        "id": "dense-browser-regression",
+        "label": "Dense browser regression remains green",
+        "description": "The original 52-tensor CPU/WASM dense fixture must retain its established parity result."
+      }
+    ]
+  },
+  "independent_variables": [
+    {
+      "id": "browser-backend",
+      "label": "Browser execution backend",
+      "description": "Compare Burn NdArray CPU/WASM with Burn Wgpu WebGPU using the same fixture."
+    }
+  ],
+  "controlled_variables": [
+    {
+      "id": "base-adapter-batch",
+      "label": "Base, adapter, and batch",
+      "description": "Keep the T0 base digest, LoRA manifest, adapter initialization, token batch, summed loss, and Python gradient oracle exact."
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "burn-cpu-wasm-lora",
+      "role": "candidate",
+      "manifest": "experiments/burn-cpu-wasm-lora.json"
+    },
+    {
+      "experiment_id": "burn-webgpu-lora",
+      "role": "candidate",
+      "manifest": "experiments/burn-webgpu-lora.json"
+    }
+  ]
+}

@@ -126,6 +126,8 @@ Completed within the first P2 numerical slice:
 - Proved real CPU/WASM browser parity over all 8 adapter tensors and 8,192 values: cosine `0.999999999999924`, relative L2 `3.851581853662727e-7`, maximum absolute error `1.3113021850585938e-6`, and `0.978 s` elapsed.
 - Proved real WebGPU browser parity over the same adapter set: exact Python summed loss, cosine `0.9999999999998102`, relative L2 `6.144610293037611e-7`, maximum absolute error `1.1175870895385742e-6`, and `21.650 s` elapsed.
 - Rebuilt and reran the original dense CPU/WASM path after the LoRA change; all 52 gradients retained their prior relative L2 result `2.788216012272494e-7`.
+- Published the two-experiment `p2-browser-lora-parity-v1` study pinned to browser implementation commit `7aab3ccf536234a45bf0e21753e044d70af66fcd`; both result bundles and every checksum verified.
+- Preserved the 21.650-second WebGPU cold-run cost as a negative finding rather than hiding it behind the passing numerical gate.
 
 ### P3 — Qualify local memory tiers
 
@@ -181,7 +183,7 @@ The native worker is the first target for explicit offload. Browser support rema
 
 ## Immediate next bounded target
 
-Pin and publish the browser LoRA parity result through the research-record contract, then extend the coordinator with an explicit adapter campaign mode: exact adapter checkpoint identity, adapter-only result validation and aggregation, coordinator-owned optimizer state, restart/retry, evaluation, and release. A useful public base remains later P2 work.
+Extend the coordinator with an explicit adapter campaign mode: exact base-plus-adapter checkpoint identity, adapter-only assignment/result validation and aggregation, coordinator-owned adapter optimizer state, restart/retry, evaluation, and release. Keep the current dense mode unchanged and prove the first connected CPU/WASM adapter assignment against an independent Python step. A useful public base remains later P2 work.
 
 ## Remaining major work
 
@@ -218,3 +220,4 @@ Pin and publish the browser LoRA parity result through the research-record contr
 - Added the exact LoRA manifest and deterministic artifact exporter, fixed checksum output to use portable LF records, and proved two real byte-identical exports with all hashes valid.
 - Published and rebuilt the validated `p2-lora-numerical-v1` research record while retaining explicit limits on what the proof establishes.
 - Proved frozen-base LoRA adapter-gradient parity in real CPU/WASM and WebGPU browser runs while retaining the original dense browser result.
+- Published and checksum-verified the CPU/WASM and WebGPU browser parity experiments, including the slower WebGPU cold-run finding and explicit coordinator/offload limitations.
