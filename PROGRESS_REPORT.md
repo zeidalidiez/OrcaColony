@@ -77,12 +77,18 @@ The current architecture uses replicated full-model data parallelism: every dire
 
 ### P1 — Add the research study and experiment contract
 
-**Status:** Next bounded implementation target
+**Status:** In progress
 
 - Machine-readable study manifest tying comparable campaigns to one hypothesis and use case.
 - Experiment status: proposed, active, validated, rejected, inconclusive, or promoted.
 - Reproducibility fields for model/data/code revisions, worker profiles, execution topology, numerical profile, resource use, and evaluation results.
 - A standard result report that includes negative findings and limitations.
+
+Completed within P1:
+
+- Added the fail-closed `orcacolony_study_v1` validator.
+- Kept research variables and experiment roles open through identified, display-ready descriptors instead of a narrow fixed method menu.
+- Locked the hypothesis, use-case baseline, primary metric and threshold, repeated validation suite, final holdout, guardrails, controlled variables, and safe experiment references.
 
 ### P2 — Prove PEFT with complete adapter-gradient semantics
 
@@ -148,7 +154,7 @@ The native worker is the first target for explicit offload. Browser support rema
 
 ## Immediate next bounded target
 
-Implement the smallest end-to-end P1 research-record slice without changing the stable v0.1 campaign path: define machine-readable study and experiment manifests, validate them fail-closed, generate a standard result record, and prove the flow with a fixture and focused tests. The artifact must be runnable before broader research UI or plugin abstractions are considered.
+Complete the next P1 vertical slice without changing the stable v0.1 campaign path: add the linked experiment/evidence contracts and deterministic result-bundle generator, then exercise them through a runnable fixture. Broader research UI and plugin abstractions remain out of scope.
 
 ## Remaining major work
 
@@ -178,3 +184,4 @@ Implement the smallest end-to-end P1 research-record slice without changing the 
 - Completed the P0 specification alignment while preserving the v0.1 numerical, trust, provenance, and release contracts.
 - Defined campaigns versus studies; separated training method, execution topology, memory placement, and numerical profile.
 - Added the fixed use-case evaluation contract, native hierarchical-memory direction, partial-model research semantics, profile qualification sequence, and experimental graduation rules.
+- Added the first runnable P1 code: a fail-closed study-manifest validator with open, display-ready research descriptors and safe experiment references.
