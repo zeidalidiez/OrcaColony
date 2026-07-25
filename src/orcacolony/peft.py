@@ -238,6 +238,104 @@ def _quantize_frozen_linears(module: nn.Module) -> int:
     return count
 
 
+STREAMED_FP32_FROZEN_LINEAR_PROFILE = "streamed-fp32-frozen-linear-v1"
+
+
+class _StreamedFrozenLinearFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, inputs: Tensor, module: "StreamedFrozenLinear") -> Tensor:
+        ctx.module = module
+        weight, bias = module.load_tensors()
+        with torch.autocast(device_type="cpu", enabled=False):
+            return F.linear(inputs, weight, bias)
+
+    @staticmethod
+    def backward(ctx, grad_output: Tensor) -> tuple[Tensor, None]:
+        weight, _ = ctx.module.load_tensors()
+        with torch.autocast(device_type="cpu", enabled=False):
+            return grad_output.float().matmul(weight), None
+
+
+class StreamedFrozenLinear(nn.Module):
+    """Path-only exact-FP32 frozen linear with authenticated reloads."""
+
+    def __init__(self, source: nn.Linear, artifact_path: Path) -> None:
+        super().__init__()
+        if any(parameter.requires_grad for parameter in source.parameters()):
+            raise ValueError("streamed frozen linear source must not be trainable")
+        tensors = {"weight": source.weight.detach().cpu().contiguous()}
+        if source.bias is not None:
+            tensors["bias"] = source.bias.detach().cpu().contiguous()
+        save_safetensors_file(tensors, artifact_path)
+        self.artifact_path = artifact_path
+        self.expected_tensor_sha256 = tensor_sha256(tensors)
+        self.in_features = source.in_features
+        self.out_features = source.out_features
+        self.has_bias = source.bias is not None
+        self.artifact_bytes = artifact_path.stat().st_size
+        self.read_bytes = 0
+        self.read_count = 0
+
+    def load_tensors(self) -> tuple[Tensor, Tensor | None]:
+        mapped = load_safetensors_file(self.artifact_path, device="cpu")
+        tensors = {
+            name: tensor.clone().contiguous() for name, tensor in mapped.items()
+        }
+        del mapped
+        expected_names = {"weight", "bias"} if self.has_bias else {"weight"}
+        if set(tensors) != expected_names:
+            raise ValueError("streamed linear tensor names differ")
+        weight = tensors["weight"]
+        bias = tensors.get("bias")
+        if weight.dtype != torch.float32 or weight.shape != (
+            self.out_features,
+            self.in_features,
+        ):
+            raise ValueError("streamed linear weight contract differs")
+        if bias is not None and (
+            bias.dtype != torch.float32 or bias.shape != (self.out_features,)
+        ):
+            raise ValueError("streamed linear bias contract differs")
+        if tensor_sha256(tensors) != self.expected_tensor_sha256:
+            raise ValueError("streamed linear tensor digest mismatch")
+        if any(not torch.isfinite(tensor).all() for tensor in tensors.values()):
+            raise ValueError("streamed linear tensors must be finite")
+        self.read_bytes += sum(
+            tensor.numel() * tensor.element_size() for tensor in tensors.values()
+        )
+        self.read_count += 1
+        return weight, bias
+
+    def forward(self, inputs: Tensor) -> Tensor:
+        if inputs.dtype != torch.float32 or inputs.device.type != "cpu":
+            raise ValueError("streamed frozen-linear profile requires CPU FP32 activations")
+        return _StreamedFrozenLinearFunction.apply(inputs, self)
+
+
+def _stream_frozen_linears(
+    module: nn.Module,
+    storage_dir: Path,
+    counter: list[int],
+) -> int:
+    count = 0
+    for child_name, child in list(module.named_children()):
+        if isinstance(child, LoRALinear):
+            if not isinstance(child.base, nn.Linear):
+                raise ValueError("LoRA base is not an FP32 linear layer")
+            artifact_path = storage_dir / f"linear-{counter[0]:05d}.safetensors"
+            counter[0] += 1
+            child.base = StreamedFrozenLinear(child.base, artifact_path)
+            count += 1
+        elif isinstance(child, nn.Linear):
+            artifact_path = storage_dir / f"linear-{counter[0]:05d}.safetensors"
+            counter[0] += 1
+            setattr(module, child_name, StreamedFrozenLinear(child, artifact_path))
+            count += 1
+        else:
+            count += _stream_frozen_linears(child, storage_dir, counter)
+    return count
+
+
 def _resolve_child(module: nn.Module, component: str) -> nn.Module:
     if component.isdigit() and isinstance(module, (nn.ModuleList, nn.Sequential)):
         index = int(component)
@@ -303,6 +401,38 @@ def build_int8_lora_model(
     if _quantize_frozen_linears(model) <= 0:
         raise ValueError("int8 frozen-linear profile did not replace any layers")
     adapter_named_parameters(model)
+    return model
+
+
+def build_streamed_lora_model(
+    campaign: CampaignConfig,
+    config: LoRAConfig,
+    storage_dir: str | Path,
+) -> VolunteerDecoder:
+    """Build the explicit offline exact-FP32 streamed-linear profile.
+
+    The builder authenticates and constructs the complete FP32 model before it
+    exports and removes frozen linears. It proves steady retained tensor
+    reduction, not lower peak startup residency. Every forward/backward reload
+    revalidates names, shapes, dtypes, finite values, and tensor identity.
+    """
+
+    model = build_lora_model(campaign, config)
+    storage = Path(storage_dir)
+    if storage.exists():
+        raise FileExistsError(f"streamed linear storage already exists: {storage}")
+    if not storage.parent.is_dir():
+        raise FileNotFoundError(
+            f"streamed linear storage parent does not exist: {storage.parent}"
+        )
+    storage.mkdir()
+    try:
+        if _stream_frozen_linears(model, storage, [0]) <= 0:
+            raise ValueError("streamed frozen-linear profile did not replace any layers")
+        adapter_named_parameters(model)
+    except BaseException:
+        shutil.rmtree(storage, ignore_errors=True)
+        raise
     return model
 
 

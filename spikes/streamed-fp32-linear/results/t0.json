@@ -1,0 +1,22 @@
+{
+  "campaign_id": "orcacolony-t0-smoke-v1",
+  "format": "orcacolony_streamed_fp32_frozen_linear_spike_v1",
+  "fp32_gradient_seconds": 0.11305539999739267,
+  "fp32_loss_sum": 4290.85107421875,
+  "fp32_resident_tensor_bytes": 5434368,
+  "gradient_metrics": {
+    "cosine_similarity": 1.0,
+    "max_absolute_error": 0.0,
+    "relative_l2_error": 0.0
+  },
+  "parameter_count": 1334016,
+  "resident_tensor_reduction_ratio": 0.5822498586772188,
+  "runtime_ratio": 2.5479455205612003,
+  "streamed_artifact_bytes": 3166464,
+  "streamed_gradient_seconds": 0.2880589999986114,
+  "streamed_linear_count": 16,
+  "streamed_loss_sum": 4290.85107421875,
+  "streamed_read_bytes": 6130176,
+  "streamed_read_count": 31,
+  "streamed_resident_tensor_bytes": 2270208
+}

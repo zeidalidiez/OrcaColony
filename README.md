@@ -162,6 +162,12 @@ The one-shot T2 baseline spent `1.013742800001637 s` revalidating its 366,190,50
 
 The reproducible [`int8-frozen-linear` spike](spikes/int8-frozen-linear) reduced unique resident model-tensor bytes by 43.08% at T0, 50.18% at T1, and 69.23% at T2. T2 adapter-gradient cosine remained `0.9995400`, but relative L2 reached `0.03038196`—about 3,038 times the connected FP32 bound. The result is therefore partial: quantized training needs an explicit quantized oracle/trajectory in P4, while P3 proceeds to exact-FP32 mapped or layer-streamed placement. The current builder converts an already constructed FP32 model, so it proves steady tensor storage rather than lower peak startup residency.
 
+### Offline exact-FP32 streamed-linear profile
+
+`build_streamed_lora_model(..., storage_dir)` exposes `streamed-fp32-frozen-linear-v1`. It exports each frozen linear to an exclusive per-layer safetensors directory, removes those tensors from the resident model, and reloads authenticated FP32 weights in both forward and backward. Every reload checks exact names, shapes, dtypes, finite values, and tensor SHA-256; CPU FP32 semantics remain distinct from ambient autocast.
+
+The [`streamed-fp32-linear` spike](spikes/streamed-fp32-linear) retained only `27,482,112` model-tensor bytes at T2 versus `367,552,512` for full residency, a 92.52% reduction. Complete adapter gradients and loss were bit-identical. The T2 gradient read `673,053,696` application-level storage bytes and took 1.307x the full-resident runtime on one warm local-storage run, including a defensive copy before validation/use. This builder still constructs the full FP32 model before exporting its linears, so the next slice must construct directly from the authenticated base artifact before claiming lower startup RSS or larger-than-RAM execution.
+
 ## T1 scale proof
 
 `campaign/t1-smoke.json` raises the same dynamic browser runtime to the planned T1 shape: 6 layers, width 256, 4 heads, 8,192 tokens, context 256, and exactly 6,901,760 parameters. Build its synthetic parity fixture with:

@@ -229,6 +229,88 @@ def test_int8_frozen_linear_profile_reduces_resident_tensors_with_explicit_drift
     assert relative_l2 > 1e-3  # Deliberately not the connected FP32 profile.
 
 
+def test_streamed_fp32_frozen_linear_profile_is_exact_and_detects_mutation(
+    tmp_path: Path,
+) -> None:
+    loaded = peft.load_lora_manifest(CONFIG, LORA_CONFIG)
+    tokens = loaded.campaign.training.batch_size * loaded.campaign.model.context_length
+    inputs = (torch.arange(tokens, dtype=torch.long) * 17 + 3).remainder(
+        loaded.campaign.training.active_vocabulary_size
+    ).reshape(
+        loaded.campaign.training.batch_size,
+        loaded.campaign.model.context_length,
+    )
+    targets = (inputs + 1).remainder(
+        loaded.campaign.training.active_vocabulary_size
+    )
+    fp32_model = peft.build_lora_model(loaded.campaign, loaded.config)
+    streamed_model = peft.build_streamed_lora_model(
+        loaded.campaign,
+        loaded.config,
+        tmp_path / "streamed-linears",
+    )
+
+    def resident_tensor_bytes(model: torch.nn.Module) -> int:
+        seen: set[int] = set()
+        total = 0
+        for tensor in [*model.parameters(), *model.buffers()]:
+            pointer = tensor.untyped_storage().data_ptr()
+            if pointer not in seen:
+                seen.add(pointer)
+                total += tensor.untyped_storage().nbytes()
+        return total
+
+    streamed_linears = [
+        module
+        for module in streamed_model.modules()
+        if isinstance(module, peft.StreamedFrozenLinear)
+    ]
+    assert peft.STREAMED_FP32_FROZEN_LINEAR_PROFILE == (
+        "streamed-fp32-frozen-linear-v1"
+    )
+    assert len(streamed_linears) == 16
+    assert resident_tensor_bytes(streamed_model) < resident_tensor_bytes(fp32_model) * 0.5
+
+    fp32 = peft.compute_adapter_gradients(fp32_model, inputs, targets)
+    streamed = peft.compute_adapter_gradients(streamed_model, inputs, targets)
+    assert streamed.loss_sum == fp32.loss_sum
+    assert all(
+        torch.equal(streamed.gradients[name], tensor)
+        for name, tensor in fp32.gradients.items()
+    )
+    assert sum(module.read_count for module in streamed_linears) == 31
+
+    with pytest.raises(ValueError, match="requires CPU FP32 activations"):
+        streamed_linears[0](
+            torch.zeros(1, streamed_linears[0].in_features, dtype=torch.float16)
+        )
+    autocast_input = torch.zeros(
+        1,
+        streamed_linears[0].in_features,
+        dtype=torch.float32,
+        requires_grad=True,
+    )
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        autocast_output = streamed_linears[0](autocast_input)
+    assert autocast_output.dtype == torch.float32
+    autocast_output.sum().backward()
+    assert autocast_input.grad is not None
+    assert autocast_input.grad.dtype == torch.float32
+
+    first = streamed_linears[0]
+    snapshot_weight, _ = first.load_tensors()
+    snapshot_before_mutation = snapshot_weight.clone()
+    with first.artifact_path.open("r+b") as stream:
+        stream.seek(-1, 2)
+        final_byte = stream.read(1)
+        stream.seek(-1, 2)
+        stream.write(bytes([final_byte[0] ^ 0x01]))
+        stream.flush()
+    assert torch.equal(snapshot_weight, snapshot_before_mutation)
+    with pytest.raises(ValueError, match="streamed linear tensor digest mismatch"):
+        first.load_tensors()
+
+
 def test_adapter_gradient_application_matches_an_independent_mean_loss_step() -> None:
     campaign = load_campaign(CONFIG)
     config = _lora_config()

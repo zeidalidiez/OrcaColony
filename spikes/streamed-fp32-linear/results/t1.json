@@ -1,0 +1,22 @@
+{
+  "campaign_id": "orcacolony-t1-tinystories-smoke-v1",
+  "format": "orcacolony_streamed_fp32_frozen_linear_spike_v1",
+  "fp32_gradient_seconds": 0.4527620000008028,
+  "fp32_loss_sum": 4636.095703125,
+  "fp32_resident_tensor_bytes": 28098560,
+  "gradient_metrics": {
+    "cosine_similarity": 1.0000000000000002,
+    "max_absolute_error": 0.0,
+    "relative_l2_error": 0.0
+  },
+  "parameter_count": 6901760,
+  "resident_tensor_reduction_ratio": 0.6736880466472304,
+  "runtime_ratio": 1.6125754811484714,
+  "streamed_artifact_bytes": 18933168,
+  "streamed_gradient_seconds": 0.7301128999970388,
+  "streamed_linear_count": 24,
+  "streamed_loss_sum": 4636.095703125,
+  "streamed_read_bytes": 37069824,
+  "streamed_read_count": 47,
+  "streamed_resident_tensor_bytes": 9168896
+}
