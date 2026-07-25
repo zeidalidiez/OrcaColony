@@ -127,6 +127,30 @@ def test_lora_fixture_freezes_the_base_and_exports_complete_gradients() -> None:
         )
 
 
+def test_adapter_state_validation_is_atomic() -> None:
+    campaign = load_campaign(CONFIG)
+    model = build_lora_model(campaign, _lora_config())
+    adapters = adapter_named_parameters(model)
+    before = {
+        name: parameter.detach().clone()
+        for name, parameter in adapters.items()
+    }
+    replacement = {
+        name: torch.full_like(parameter, float(index + 1))
+        for index, (name, parameter) in enumerate(adapters.items())
+    }
+    malformed_name = list(adapters)[1]
+    replacement[malformed_name] = torch.zeros(1, dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="adapter checkpoint shape differs"):
+        peft.load_adapter_state(model, replacement)
+
+    assert all(
+        torch.equal(parameter, before[name])
+        for name, parameter in adapters.items()
+    )
+
+
 def test_adapter_gradient_application_matches_an_independent_mean_loss_step() -> None:
     campaign = load_campaign(CONFIG)
     config = _lora_config()

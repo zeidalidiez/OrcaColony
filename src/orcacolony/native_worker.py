@@ -41,6 +41,8 @@ class NativeWorkerResult:
     assignment_id: str
     receipt: Mapping[str, object]
     telemetry: Mapping[str, object]
+    reused_model: bool
+    reused_adapter: bool
 
 
 def _origin(value: str) -> tuple[str, str, int]:
@@ -339,7 +341,22 @@ def _validate_assignment(
         raise ValueError("assignment resource profile is invalid")
 
 
-def run_assignment(
+@dataclass
+class _NativeSessionState:
+    origin: str
+    worker_id: str
+    worker_token: str
+    loaded: LoadedLoRAManifest
+    opener: Any
+    cache_dir: Path
+    model: torch.nn.Module | None = None
+    base_digest: str | None = None
+    adapter_digest: str | None = None
+    model_build_count: int = 0
+    adapter_load_count: int = 0
+
+
+def _create_session_state(
     *,
     coordinator_url: str,
     worker_id: str,
@@ -347,12 +364,58 @@ def run_assignment(
     campaign_path: str | Path,
     lora_path: str | Path,
     cache_dir: str | Path,
-) -> NativeWorkerResult:
+) -> _NativeSessionState:
     origin = normalize_http_origin(coordinator_url)
     if not worker_id or not worker_token:
         raise ValueError("worker ID and token must not be empty")
-    loaded = load_lora_manifest(campaign_path, lora_path)
-    opener = build_opener(_SameOriginRedirectHandler(origin))
+    return _NativeSessionState(
+        origin=origin,
+        worker_id=worker_id,
+        worker_token=worker_token,
+        loaded=load_lora_manifest(campaign_path, lora_path),
+        opener=build_opener(_SameOriginRedirectHandler(origin)),
+        cache_dir=Path(cache_dir),
+    )
+
+
+class NativeWorkerSession:
+    def __init__(
+        self,
+        *,
+        coordinator_url: str,
+        worker_id: str,
+        worker_token: str,
+        campaign_path: str | Path,
+        lora_path: str | Path,
+        cache_dir: str | Path,
+    ) -> None:
+        self._state = _create_session_state(
+            coordinator_url=coordinator_url,
+            worker_id=worker_id,
+            worker_token=worker_token,
+            campaign_path=campaign_path,
+            lora_path=lora_path,
+            cache_dir=cache_dir,
+        )
+
+    @property
+    def model_build_count(self) -> int:
+        return self._state.model_build_count
+
+    @property
+    def adapter_load_count(self) -> int:
+        return self._state.adapter_load_count
+
+    def run_assignment(self) -> NativeWorkerResult:
+        return _run_session_assignment(self._state)
+
+
+def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
+    origin = session.origin
+    worker_id = session.worker_id
+    worker_token = session.worker_token
+    loaded = session.loaded
+    opener = session.opener
 
     assignment_started = time.perf_counter()
     assignment_request = Request(
@@ -373,34 +436,64 @@ def run_assignment(
     resources = assignment["resource_profile"]
 
     artifact_started = time.perf_counter()
-    base_path, model_network_bytes = _cached_artifact(
-        opener=opener,
-        origin=origin,
-        cache_dir=Path(cache_dir),
-        kind="model",
-        digest=assignment["base_model_sha256"],
-        artifact_url=assignment["model_url"],
-        expected_bytes=resources["model_download_bytes"],
-    )
-    adapter_path, adapter_network_bytes = _cached_artifact(
-        opener=opener,
-        origin=origin,
-        cache_dir=Path(cache_dir),
-        kind="adapter",
-        digest=assignment["adapter_sha256"],
-        artifact_url=assignment["adapter_url"],
-        expected_bytes=resources["adapter_download_bytes"],
-    )
+    base_digest = str(assignment["base_model_sha256"])
+    reused_model = session.model is not None
+    base_path: Path | None = None
+    if reused_model:
+        if session.base_digest != base_digest:
+            raise ValueError("persistent native session base identity changed")
+        model_network_bytes = 0
+    else:
+        base_path, model_network_bytes = _cached_artifact(
+            opener=opener,
+            origin=origin,
+            cache_dir=session.cache_dir,
+            kind="model",
+            digest=base_digest,
+            artifact_url=assignment["model_url"],
+            expected_bytes=resources["model_download_bytes"],
+        )
+    adapter_digest = str(assignment["adapter_sha256"])
+    reused_adapter = session.model is not None and session.adapter_digest == adapter_digest
+    adapter_path: Path | None = None
+    if reused_adapter:
+        adapter_network_bytes = 0
+    else:
+        adapter_path, adapter_network_bytes = _cached_artifact(
+            opener=opener,
+            origin=origin,
+            cache_dir=session.cache_dir,
+            kind="adapter",
+            digest=adapter_digest,
+            artifact_url=assignment["adapter_url"],
+            expected_bytes=resources["adapter_download_bytes"],
+        )
     artifact_seconds = time.perf_counter() - artifact_started
 
     runtime_started = time.perf_counter()
-    model = build_lora_model(loaded.campaign, loaded.config)
-    _load_frozen_base(loaded, model, base_path)
-    adapter_tensors = load_safetensors_file(str(adapter_path))
-    load_adapter_state(model, adapter_tensors)
+    if session.model is None:
+        if base_path is None:
+            raise RuntimeError("native session base artifact was not loaded")
+        model = build_lora_model(loaded.campaign, loaded.config)
+        _load_frozen_base(loaded, model, base_path)
+        session.model = model
+        session.base_digest = base_digest
+        session.model_build_count += 1
+    else:
+        model = session.model
+    if not reused_adapter:
+        if adapter_path is None:
+            raise RuntimeError("native session adapter artifact was not loaded")
+        adapter_tensors = load_safetensors_file(str(adapter_path))
+        loaded_adapter_digest = tensor_sha256(adapter_tensors)
+        if loaded_adapter_digest != adapter_digest:
+            raise ValueError("native session adapter tensor digest mismatch")
+        load_adapter_state(model, adapter_tensors)
+        session.adapter_digest = loaded_adapter_digest
+        session.adapter_load_count += 1
     expected_weight_identity = lora_weight_checkpoint_sha256(
         loaded,
-        tensor_sha256(adapter_tensors),
+        adapter_digest,
     )
     if assignment.get("weight_checkpoint_sha256") != expected_weight_identity:
         raise ValueError("assignment worker-weight identity mismatch")
@@ -482,12 +575,35 @@ def run_assignment(
         assignment_id=str(assignment["assignment_id"]),
         receipt=receipt,
         telemetry=telemetry,
+        reused_model=reused_model,
+        reused_adapter=reused_adapter,
+    )
+
+
+def run_assignment(
+    *,
+    coordinator_url: str,
+    worker_id: str,
+    worker_token: str,
+    campaign_path: str | Path,
+    lora_path: str | Path,
+    cache_dir: str | Path,
+) -> NativeWorkerResult:
+    return _run_session_assignment(
+        _create_session_state(
+            coordinator_url=coordinator_url,
+            worker_id=worker_id,
+            worker_token=worker_token,
+            campaign_path=campaign_path,
+            lora_path=lora_path,
+            cache_dir=cache_dir,
+        )
     )
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run one authenticated cached-base native CPU LoRA assignment"
+        description="Run authenticated cached-base native CPU LoRA assignments"
     )
     parser.add_argument("--coordinator", required=True)
     parser.add_argument("--worker-id", required=True)
@@ -495,13 +611,31 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--lora-config", type=Path, required=True)
     parser.add_argument("--cache", type=Path, required=True)
+    parser.add_argument(
+        "--assignments",
+        type=int,
+        default=1,
+        help="Bounded number of assignments to run in one persistent process.",
+    )
     return parser
+
+
+def _result_payload(result: NativeWorkerResult) -> dict[str, object]:
+    return {
+        "assignment_id": result.assignment_id,
+        "receipt": result.receipt,
+        "telemetry": result.telemetry,
+        "reused_model": result.reused_model,
+        "reused_adapter": result.reused_adapter,
+    }
 
 
 def main() -> None:
     args = _build_parser().parse_args()
+    if args.assignments <= 0 or args.assignments > 10000:
+        raise SystemExit("--assignments must be between 1 and 10000")
     token = args.worker_token_file.read_text(encoding="utf-8").strip()
-    result = run_assignment(
+    session = NativeWorkerSession(
         coordinator_url=args.coordinator,
         worker_id=args.worker_id,
         worker_token=token,
@@ -509,16 +643,19 @@ def main() -> None:
         lora_path=args.lora_config,
         cache_dir=args.cache,
     )
-    print(
-        json.dumps(
-            {
-                "assignment_id": result.assignment_id,
-                "receipt": result.receipt,
-                "telemetry": result.telemetry,
-            },
-            sort_keys=True,
-        )
-    )
+    results = [session.run_assignment() for _ in range(args.assignments)]
+    payload: dict[str, object]
+    if len(results) == 1:
+        payload = _result_payload(results[0])
+    else:
+        payload = {
+            "format": "orcacolony_native_worker_session_v1",
+            "assignments_completed": len(results),
+            "model_build_count": session.model_build_count,
+            "adapter_load_count": session.adapter_load_count,
+            "results": [_result_payload(result) for result in results],
+        }
+    print(json.dumps(payload, sort_keys=True))
 
 
 if __name__ == "__main__":

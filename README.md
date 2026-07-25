@@ -146,12 +146,15 @@ uv run python -m orcacolony.native_worker \
   --worker-token-file .artifacts/native-a.token \
   --config campaign/t0-smoke.json \
   --lora-config campaign/t0-lora-smoke.json \
-  --cache .artifacts/native-worker-cache
+  --cache .artifacts/native-worker-cache \
+  --assignments 2
 ```
 
 The worker pins the coordinator origin, rejects cross-origin redirects, streams the frozen base and adapter into digest-named safetensors cache entries, validates tensor identities before reuse, computes only the declared adapter gradients, and submits through the same lease and telemetry contract. The reproducible [`p3-native-resource-profile-v1`](research/studies/p3-native-resource-profile-v1) study extends the proof to frozen TinyStories T1 and a 91,544,064-parameter T2 profile. At both scales the warm second process fetched zero base and adapter payload bytes. T2 retained `2.1866353039878446e-7` checkpoint relative L2, improved held-out mean loss by `0.0033478736877441406`, and measured `1,746,419,712` bytes peak process RSS.
 
-The T2 warm process spent `1.013742800001637 s` revalidating its 366,190,504-byte cached base and `1.9494272000010824 s` rebuilding/loading the runtime before `1.653274500000407 s` of gradient compute. That measured 1.79:1 non-compute/compute ratio selects a persistent native process/model session as the next throughput profile; quantized frozen-base placement remains the next memory profile. The current worker is still complete FP32 CPU residency after load, not mapped/NVMe tensor offload.
+`--assignments N` is a bounded persistent session: it validates and builds the base/model once, reuses the in-memory adapter while its digest is unchanged, and fetches and loads only a new adapter after the coordinator advances a global step. Adapter refresh validates and converts the complete tensor set before mutating the model, so malformed state cannot leave a mixed adapter behind. The two-step integration test builds one model across four assignments and loads exactly two checkpoint-specific adapters.
+
+The one-shot T2 baseline spent `1.013742800001637 s` revalidating its 366,190,504-byte cached base and `1.9494272000010824 s` rebuilding/loading the runtime before `1.653274500000407 s` of gradient compute. In the real persistent T2 proof, the reused second assignment reduced cache validation to `0.0000092999980552122 s` and runtime initialization to `0.00012460000289138407 s` while retaining `2.1866353039878446e-7` checkpoint relative L2. The current worker is still complete FP32 CPU residency after load, not quantized placement or mapped/NVMe tensor offload.
 
 ## T1 scale proof
 

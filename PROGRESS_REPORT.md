@@ -154,9 +154,9 @@ The native worker is the first target for explicit offload. Browser support rema
 
 Completed within the first P3 measurement and native-baseline slice:
 
-- Added a strict `orcacolony_worker_telemetry_v1` contract for assignment fetch, runtime initialization, artifact fetch, gradient compute, actual transfer bytes, optional runtime-specific memory observations, and device capacity. Non-oracle runtime profiles must report it; malformed, non-finite, out-of-range, or assignment-inconsistent reports fail closed.
+- Added a strict `orcacolony_worker_telemetry_v1` contract for assignment fetch, runtime initialization, artifact fetch, gradient compute, worker-observed payload bytes, optional runtime-specific memory observations, and device capacity. Non-oracle runtime profiles must report it; malformed, non-finite, out-of-range, or assignment-inconsistent reports fail closed.
 - Added coordinator-owned artifact sizes, result-upload bytes, receive duration, persisted-result bytes, and current state-directory storage measurements to accepted receipts. Instrumentation survives restart validation and is aggregated without exposing worker identity in public campaign dashboards.
-- Added visible dashboard cards for aggregate gradient compute, network transfer, peak observed worker memory, and coordinator storage.
+- Added visible dashboard cards for aggregate gradient compute, worker API payload transfer, peak observed worker memory, and coordinator storage.
 - Proved the exact staged protocol with two real authenticated Burn CPU/WASM assignments. They reported `0.682199999988079` seconds of aggregate gradient compute, `10,681,648` frozen-base download bytes, `46,661,632` bytes of peak WASM linear memory, and retained `1.6795715402185043e-6` checkpoint relative-L2 parity.
 - Selected a content-addressed cached-base native CPU profile as the first native baseline because the browser proof transferred the immutable 5,340,824-byte base once per assignment while computing each bounded gradient in well under one second. This is a measured baseline decision, not arbitrary commitment to CPU residency as the final placement architecture.
 - Added an authenticated same-origin native worker that streams base and adapter artifacts to digest-named safetensors cache entries, revalidates tensor identities, loads only declared LoRA state, computes complete adapter gradients, reports process peak RSS, and submits through the existing coordinator contract.
@@ -165,6 +165,8 @@ Completed within the first P3 measurement and native-baseline slice:
 - Measured the T2 366,190,504-byte base, `1,746,419,712`-byte peak native process RSS, `378,093,711` bytes of coordinator storage, and `1.653274500000407` seconds of warm gradient compute. Warm cache revalidation plus runtime initialization took `2.9631700000027195` seconds, or 1.79 times compute.
 - Published `p3-native-resource-profile-v1`, pinned to implementation commit `673017df9caa4d91f6bff96a39f56a40690c71e9`, with the real connected Burn dashboard, an automated isolated-process T1/T2 proof, exact artifact hashes, numerical and held-out guardrails, privacy filtering, and explicit one-host/payload-not-wire/random-base limitations.
 - Selected a persistent native process/model session as the next throughput profile because one-shot warm setup dominates T2 compute. Quantized frozen-base placement remains the next memory profile; an idealized T2 FP32-to-int8 base conversion can reduce the observed process peak by no more than 15.73% before runtime overheads.
+- Added bounded persistent native sessions through `--assignments N`. One authenticated process now retains the validated base/model, reuses unchanged adapter state, and fetches and loads only a new checkpoint-specific adapter after campaign advancement. Adapter refresh validates and converts the complete tensor set before copying any parameter, so a malformed refresh cannot leave a mixed in-memory adapter. A two-step test completed four assignments with one model build and two adapter loads.
+- Proved the persistent session on the 91.5M-parameter T2 profile. The reused second assignment reduced base-cache validation from `1.013742800001637` seconds to `0.0000092999980552122` seconds and runtime initialization from `1.9494272000010824` seconds to `0.00012460000289138407` seconds while preserving zero model/adapter payload, `2.1866353039878446e-7` checkpoint relative L2, and the same held-out improvement.
 
 ### P4 — Qualify numerical and mixed execution profiles
 
@@ -206,11 +208,10 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Add a persistent authenticated native session that validates and loads the immutable base once, refreshes only checkpoint-specific adapter state between assignments, and reports cold-versus-reused runtime and memory. Re-run T2 to verify that warm cache validation plus runtime initialization no longer exceeds gradient compute, then begin the measured quantized frozen-base RAM profile.
+Begin the measured quantized frozen-base RAM profile at T2. Keep adapter math and coordinator FP32 aggregation unchanged, report quantized storage and resident-memory behavior separately, and certify its gradients/checkpoint against the FP32 persistent-session baseline before considering mapped/NVMe offload.
 
 ## Remaining major work
 
-- Persistent native process/model reuse across assignments and campaign steps.
 - Native worker with quantized frozen-base RAM placement and explicit mapped/NVMe offload.
 - Profile certification and mixed-profile proof.
 - Rolling-submodel feasibility study.
@@ -251,3 +252,4 @@ Add a persistent authenticated native session that validates and loads the immut
 - Added and exercised a streaming, content-addressed cached-base native CPU LoRA worker; a warm second assignment eliminated base and adapter fetch payloads while retaining tighter-than-required adapter parity.
 - Qualified cached-base native execution on frozen TinyStories at 6.9M and 91.5M parameters, with positive one-step held-out movement and sub-`2.19e-7` checkpoint relative L2.
 - Published the P3 resource-profile study and used its measured T2 setup/compute ratio to select persistent process/model reuse before quantization and mapped offload.
+- Added bounded persistent native sessions and proved T2 in-memory model/adapter reuse removes essentially all warm validation/initialization overhead without changing the canonical checkpoint.

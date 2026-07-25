@@ -4,8 +4,13 @@ import threading
 
 import pytest
 
+from orcacolony.campaign_run import CampaignCoordinator
 from orcacolony.multiworker import GlobalStepCoordinator, create_http_server
-from orcacolony.native_worker import _prepare_cache_directory, run_assignment
+from orcacolony.native_worker import (
+    NativeWorkerSession,
+    _prepare_cache_directory,
+    run_assignment,
+)
 from orcacolony.participants import ParticipantRegistry
 from orcacolony.peft import load_lora_manifest
 
@@ -113,3 +118,74 @@ def test_native_cpu_worker_reuses_content_addressed_base_and_adapter_cache(
     assert observations["memory_bytes"]["peak_process_rss"] > 0
     assert len(list((cache_dir / "model").glob("*.safetensors"))) == 1
     assert len(list((cache_dir / "adapter").glob("*.safetensors"))) == 1
+
+
+def test_persistent_native_session_reuses_model_and_refreshes_adapter_across_steps(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    token = "persistent-native-worker-test-token"
+    worker_id = "persistent-native"
+    participants = ParticipantRegistry.from_payload(
+        {
+            "format": "orcacolony_participants_v1",
+            "campaign_id": loaded.campaign.campaign["id"],
+            "participants": [
+                {
+                    "contributor_id": "persistent-native-test",
+                    "worker_ids": [worker_id],
+                    "worker_token_sha256": {
+                        worker_id: hashlib.sha256(token.encode("utf-8")).hexdigest()
+                    },
+                    "credit": {"public": False, "display_name": None},
+                }
+            ],
+        },
+        campaign_id=str(loaded.campaign.campaign["id"]),
+    )
+    coordinator = CampaignCoordinator.create(
+        loaded.campaign,
+        tmp_path / "campaign",
+        participants=participants,
+        worker_count=2,
+        target_steps=2,
+        lora=loaded,
+    )
+    server = create_http_server(coordinator, BROWSER_ROOT, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        session = NativeWorkerSession(
+            coordinator_url=f"http://127.0.0.1:{server.server_port}",
+            worker_id=worker_id,
+            worker_token=token,
+            campaign_path=CONFIG,
+            lora_path=LORA_CONFIG,
+            cache_dir=tmp_path / "persistent-cache",
+        )
+        results = [session.run_assignment() for _ in range(4)]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+    assert [result.reused_model for result in results] == [False, True, True, True]
+    assert [result.reused_adapter for result in results] == [False, True, False, True]
+    assert session.model_build_count == 1
+    assert session.adapter_load_count == 2
+    assert [result.telemetry["transfer_bytes"]["model"] for result in results] == [
+        results[0].telemetry["transfer_bytes"]["model"],
+        0,
+        0,
+        0,
+    ]
+    assert results[0].telemetry["transfer_bytes"]["model"] > 0
+    assert results[0].telemetry["transfer_bytes"]["adapter"] > 0
+    assert results[1].telemetry["transfer_bytes"]["adapter"] == 0
+    assert results[2].telemetry["transfer_bytes"]["adapter"] > 0
+    assert results[3].telemetry["transfer_bytes"]["adapter"] == 0
+    assert results[-1].receipt["step_complete"] is True
+    assert results[-1].receipt["step"] == 2
+    assert results[-1].receipt["checkpoint_metrics"]["relative_l2_error"] < 1e-6
+    assert coordinator.status()["state"] == "campaign_complete"
+    assert coordinator.dashboard()["progress"]["accepted_assignments"] == 4

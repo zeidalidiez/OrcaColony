@@ -712,19 +712,22 @@ def load_adapter_state(
             "adapter checkpoint names differ: "
             f"missing={missing}, unexpected={unexpected}"
         )
+    validated: dict[str, Tensor] = {}
+    for name, parameter in adapters.items():
+        tensor = tensors[name]
+        if tensor.dtype != torch.float32:
+            raise ValueError(f"adapter checkpoint must be float32: {name}")
+        if tensor.shape != parameter.shape:
+            raise ValueError(
+                f"adapter checkpoint shape differs for {name}: "
+                f"expected={tuple(parameter.shape)}, actual={tuple(tensor.shape)}"
+            )
+        if not bool(torch.isfinite(tensor).all()):
+            raise ValueError(f"adapter checkpoint contains non-finite values: {name}")
+        validated[name] = tensor.to(parameter.device, parameter.dtype)
     with torch.no_grad():
         for name, parameter in adapters.items():
-            tensor = tensors[name]
-            if tensor.dtype != torch.float32:
-                raise ValueError(f"adapter checkpoint must be float32: {name}")
-            if tensor.shape != parameter.shape:
-                raise ValueError(
-                    f"adapter checkpoint shape differs for {name}: "
-                    f"expected={tuple(parameter.shape)}, actual={tuple(tensor.shape)}"
-                )
-            if not bool(torch.isfinite(tensor).all()):
-                raise ValueError(f"adapter checkpoint contains non-finite values: {name}")
-            parameter.copy_(tensor.to(parameter.device, parameter.dtype))
+            parameter.copy_(validated[name])
 
 
 def save_lora_checkpoint(
