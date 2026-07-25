@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
-from orcacolony.research import validate_study_manifest
+from orcacolony.research import (
+    build_result_bundle,
+    validate_experiment_manifest,
+    validate_study_manifest,
+)
 
 
 def _descriptor(identifier: str, label: str, description: str) -> dict[str, str]:
@@ -88,6 +95,149 @@ def _study_payload() -> dict[str, object]:
     }
 
 
+def _experiment_payload() -> dict[str, object]:
+    return {
+        "format": "orcacolony_experiment_v1",
+        "study_id": "storage-offload-smoke-v1",
+        "experiment_id": "storage-offload-candidate",
+        "title": "Explicit local-storage candidate",
+        "status": "active",
+        "subject": {
+            "kind": "campaign",
+            "id": "code-transform-peft-storage-v1",
+            "revision": "sha256:" + "3" * 64,
+        },
+        "artifacts": [
+            {
+                "id": "code",
+                "kind": "git-commit",
+                "revision": "a" * 40,
+                "uri": "https://example.invalid/orcacolony/commit/" + "a" * 40,
+            },
+            {
+                "id": "dataset",
+                "kind": "dataset-manifest",
+                "revision": "sha256:" + "4" * 64,
+                "uri": "https://example.invalid/datasets/code-transform-v1",
+            },
+        ],
+        "method": {
+            "training_method": _descriptor(
+                "lora-peft",
+                "LoRA PEFT",
+                "Train only the frozen campaign's declared adapter tensors.",
+            ),
+            "execution_topology": _descriptor(
+                "replicated-full-model",
+                "Replicated full-model execution",
+                "Each worker completes its adapter-gradient assignment independently.",
+            ),
+            "memory_profiles": [
+                _descriptor(
+                    "explicit-local-storage",
+                    "Explicit local-storage offload",
+                    "Stream immutable base shards through a bounded RAM cache.",
+                )
+            ],
+            "numerical_profiles": [
+                _descriptor(
+                    "quantized-base-fp32-adapter",
+                    "Quantized base with FP32 adapters",
+                    "Keep adapter gradients and coordinator accumulation in FP32.",
+                )
+            ],
+        },
+        "worker_profiles": [
+            _descriptor(
+                "transient-native-nvme",
+                "Transient native worker with local NVMe",
+                "A community worker that may complete one assignment and leave.",
+            )
+        ],
+        "resource_budget": {
+            "limits": [
+                {
+                    "id": "wall-time",
+                    "label": "Maximum assignment wall time",
+                    "value": 1800,
+                    "unit": "seconds",
+                },
+                {
+                    "id": "network-transfer",
+                    "label": "Maximum assignment network transfer",
+                    "value": 268435456,
+                    "unit": "bytes",
+                },
+            ]
+        },
+        "reproduction": {
+            "command": [
+                "uv",
+                "run",
+                "python",
+                "-m",
+                "orcacolony.research",
+                "record",
+            ],
+            "notes": "Run with the exact study, experiment, and evidence manifests.",
+        },
+    }
+
+
+def _evidence_payload() -> dict[str, object]:
+    return {
+        "format": "orcacolony_experiment_evidence_v1",
+        "study_id": "storage-offload-smoke-v1",
+        "experiment_id": "storage-offload-candidate",
+        "outcome": "rejected",
+        "completed_at": "2026-07-24T18:00:00Z",
+        "summary": (
+            "The candidate completed correctly but missed the fixed use-case and "
+            "assignment-time gates."
+        ),
+        "measurements": [
+            {
+                "id": "assignment-wall-time",
+                "label": "Assignment wall time",
+                "value": 2400,
+                "unit": "seconds",
+            }
+        ],
+        "evaluation": {
+            "primary_metric": {
+                "id": "code-transform-pass-rate",
+                "value": 0.65,
+            },
+            "guardrails": [
+                {
+                    "id": "format-validity",
+                    "passed": True,
+                    "detail": "All generated outputs remained parseable.",
+                }
+            ],
+        },
+        "findings": [
+            {
+                "id": "storage-throughput-bottleneck",
+                "label": "Storage throughput bottleneck",
+                "description": "GPU execution remained idle while base shards loaded.",
+                "kind": "negative",
+            }
+        ],
+        "limitations": [
+            "The run covered one NVMe and GPU combination and does not generalize to all storage devices."
+        ],
+        "artifacts": [
+            {
+                "id": "measurement-log",
+                "kind": "json-log",
+                "revision": "sha256:" + "5" * 64,
+                "uri": "artifacts/measurement-log.json",
+            }
+        ],
+    }
+
+
 def test_study_manifest_accepts_described_open_research_variables() -> None:
     validate_study_manifest(_study_payload())
 
@@ -114,3 +264,62 @@ def test_study_manifest_rejects_boolean_metric_thresholds() -> None:
 
     with pytest.raises(ValueError, match="success_threshold must be a finite number"):
         validate_study_manifest(payload)
+
+
+def test_experiment_manifest_accepts_open_execution_profiles() -> None:
+    validate_experiment_manifest(_study_payload(), _experiment_payload())
+
+
+def test_experiment_manifest_must_be_linked_from_the_study() -> None:
+    experiment = _experiment_payload()
+    experiment["experiment_id"] = "unlinked-candidate"
+
+    with pytest.raises(ValueError, match="experiment is not referenced by the study"):
+        validate_experiment_manifest(_study_payload(), experiment)
+
+
+def test_result_bundle_is_deterministic_and_records_negative_findings(
+    tmp_path: Path,
+) -> None:
+    study = _study_payload()
+    experiment = _experiment_payload()
+    evidence = _evidence_payload()
+
+    first = tmp_path / "result-a"
+    second = tmp_path / "result-b"
+    first_result = build_result_bundle(study, experiment, evidence, first)
+    second_result = build_result_bundle(study, experiment, evidence, second)
+
+    assert first_result == second_result
+    for filename in (
+        "study.json",
+        "experiment.json",
+        "evidence.json",
+        "result.json",
+        "RESULT.md",
+        "SHA256SUMS",
+    ):
+        assert (first / filename).read_bytes() == (second / filename).read_bytes()
+    persisted = json.loads((first / "result.json").read_text(encoding="utf-8"))
+    assert persisted["decision"] == {
+        "guardrails_passed": True,
+        "primary_metric_passed": False,
+        "use_case_passed": False,
+    }
+    assert persisted["outcome"] == "rejected"
+    report = (first / "RESULT.md").read_text(encoding="utf-8")
+    assert "Storage throughput bottleneck" in report
+    assert "does not generalize to all storage devices" in report
+
+
+def test_result_bundle_requires_complete_guardrail_evidence(tmp_path: Path) -> None:
+    evidence = _evidence_payload()
+    evidence["evaluation"]["guardrails"] = []  # type: ignore[index]
+
+    with pytest.raises(ValueError, match="guardrail evidence must exactly match"):
+        build_result_bundle(
+            _study_payload(),
+            _experiment_payload(),
+            evidence,
+            tmp_path / "result",
+        )

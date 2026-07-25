@@ -89,6 +89,9 @@ Completed within P1:
 - Added the fail-closed `orcacolony_study_v1` validator.
 - Kept research variables and experiment roles open through identified, display-ready descriptors instead of a narrow fixed method menu.
 - Locked the hypothesis, use-case baseline, primary metric and threshold, repeated validation suite, final holdout, guardrails, controlled variables, and safe experiment references.
+- Added linked `orcacolony_experiment_v1` and `orcacolony_experiment_evidence_v1` contracts for exact subjects, artifact revisions, method/topology/placement descriptions, worker profiles, budgets, reproduction commands, measurements, evaluation, findings, and limitations.
+- Added deterministic, atomic experiment-result bundles containing canonical source manifests, source hashes, a machine-readable decision, a human-readable `RESULT.md`, and `SHA256SUMS`.
+- Enforced that validated or promoted evidence passes the declared primary metric and every guardrail while preserving rejected and inconclusive findings as publishable outcomes.
 
 ### P2 — Prove PEFT with complete adapter-gradient semantics
 
@@ -154,7 +157,7 @@ The native worker is the first target for explicit offload. Browser support rema
 
 ## Immediate next bounded target
 
-Complete the next P1 vertical slice without changing the stable v0.1 campaign path: add the linked experiment/evidence contracts and deterministic result-bundle generator, then exercise them through a runnable fixture. Broader research UI and plugin abstractions remain out of scope.
+Complete P1 through the real command path: add the `orcacolony.research record` CLI, commit a self-contained study/experiment/evidence fixture pinned to an exact implementation revision, generate and verify its result bundle, and document reproduction. Broader research UI and plugin abstractions remain out of scope.
 
 ## Remaining major work
 
@@ -185,3 +188,4 @@ Complete the next P1 vertical slice without changing the stable v0.1 campaign pa
 - Defined campaigns versus studies; separated training method, execution topology, memory placement, and numerical profile.
 - Added the fixed use-case evaluation contract, native hierarchical-memory direction, partial-model research semantics, profile qualification sequence, and experimental graduation rules.
 - Added the first runnable P1 code: a fail-closed study-manifest validator with open, display-ready research descriptors and safe experiment references.
+- Added linked experiment and evidence validation plus deterministic JSON/Markdown result bundles that retain negative findings and limitations.

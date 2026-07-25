@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import math
+import os
 import re
+import shutil
+import tempfile
 from collections.abc import Mapping, Sequence
+from datetime import datetime
+from pathlib import Path
 
 
 _STUDY_STATUSES = {
@@ -15,6 +22,8 @@ _STUDY_STATUSES = {
 }
 _ID_PATTERN = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*\Z")
 _DESCRIPTOR_FIELDS = {"id", "label", "description"}
+_ARTIFACT_FIELDS = {"id", "kind", "revision", "uri"}
+_MEASUREMENT_FIELDS = {"id", "label", "value", "unit"}
 
 
 def _require_mapping(value: object, label: str) -> Mapping[str, object]:
@@ -217,3 +226,474 @@ def validate_study_manifest(payload: Mapping[str, object]) -> None:
         "study controlled_variables",
     )
     _validate_experiment_references(study["experiments"])
+
+
+def _validate_artifact_list(value: object, label: str) -> set[str]:
+    artifacts = _require_sequence(value, label)
+    if not artifacts:
+        raise ValueError(f"{label} must not be empty")
+    identifiers: set[str] = set()
+    for artifact_value in artifacts:
+        artifact = _require_mapping(artifact_value, f"{label} entry")
+        _require_exact_fields(artifact, _ARTIFACT_FIELDS, f"{label} entry")
+        identifier = _require_id(artifact["id"], f"{label} entry id")
+        if identifier in identifiers:
+            raise ValueError(f"{label} contains duplicate ids")
+        identifiers.add(identifier)
+        _require_id(artifact["kind"], f"{label} entry kind")
+        _require_text(artifact["revision"], f"{label} entry revision")
+        _require_text(artifact["uri"], f"{label} entry uri")
+    return identifiers
+
+
+def _validate_measurement(value: object, label: str) -> str:
+    measurement = _require_mapping(value, label)
+    _require_exact_fields(measurement, _MEASUREMENT_FIELDS, label)
+    identifier = _require_id(measurement["id"], f"{label} id")
+    _require_text(measurement["label"], f"{label} label")
+    number = measurement["value"]
+    if (
+        isinstance(number, bool)
+        or not isinstance(number, (int, float))
+        or not math.isfinite(float(number))
+    ):
+        raise ValueError(f"{label} value must be a finite number")
+    _require_text(measurement["unit"], f"{label} unit")
+    return identifier
+
+
+def _validate_measurement_list(value: object, label: str) -> set[str]:
+    measurements = _require_sequence(value, label)
+    if not measurements:
+        raise ValueError(f"{label} must not be empty")
+    identifiers = {
+        _validate_measurement(entry, f"{label} entry") for entry in measurements
+    }
+    if len(identifiers) != len(measurements):
+        raise ValueError(f"{label} contains duplicate ids")
+    return identifiers
+
+
+def _validate_subject(value: object) -> None:
+    label = "experiment subject"
+    subject = _require_mapping(value, label)
+    _require_exact_fields(subject, {"kind", "id", "revision"}, label)
+    _require_id(subject["kind"], f"{label} kind")
+    _require_id(subject["id"], f"{label} id")
+    _require_text(subject["revision"], f"{label} revision")
+
+
+def _validate_method(value: object) -> None:
+    label = "experiment method"
+    method = _require_mapping(value, label)
+    _require_exact_fields(
+        method,
+        {
+            "training_method",
+            "execution_topology",
+            "memory_profiles",
+            "numerical_profiles",
+        },
+        label,
+    )
+    _validate_descriptor(method["training_method"], f"{label} training_method")
+    _validate_descriptor(method["execution_topology"], f"{label} execution_topology")
+    _validate_descriptor_list(method["memory_profiles"], f"{label} memory_profiles")
+    _validate_descriptor_list(
+        method["numerical_profiles"],
+        f"{label} numerical_profiles",
+    )
+
+
+def _validate_resource_budget(value: object) -> None:
+    label = "experiment resource_budget"
+    budget = _require_mapping(value, label)
+    _require_exact_fields(budget, {"limits"}, label)
+    _validate_measurement_list(budget["limits"], f"{label} limits")
+
+
+def _validate_reproduction(value: object) -> None:
+    label = "experiment reproduction"
+    reproduction = _require_mapping(value, label)
+    _require_exact_fields(reproduction, {"command", "notes"}, label)
+    command = _require_sequence(reproduction["command"], f"{label} command")
+    if not command:
+        raise ValueError(f"{label} command must not be empty")
+    for index, argument in enumerate(command):
+        _require_text(argument, f"{label} command argument {index}")
+    _require_text(reproduction["notes"], f"{label} notes")
+
+
+def validate_experiment_manifest(
+    study_payload: Mapping[str, object],
+    experiment_payload: Mapping[str, object],
+) -> None:
+    validate_study_manifest(study_payload)
+    experiment = _require_mapping(experiment_payload, "experiment")
+    _require_exact_fields(
+        experiment,
+        {
+            "format",
+            "study_id",
+            "experiment_id",
+            "title",
+            "status",
+            "subject",
+            "artifacts",
+            "method",
+            "worker_profiles",
+            "resource_budget",
+            "reproduction",
+        },
+        "experiment",
+    )
+    if experiment["format"] != "orcacolony_experiment_v1":
+        raise ValueError("unsupported experiment format")
+    if experiment["study_id"] != study_payload["study_id"]:
+        raise ValueError("experiment study_id does not match the study")
+    experiment_id = _require_id(
+        experiment["experiment_id"],
+        "experiment experiment_id",
+    )
+    referenced_ids = {
+        reference["experiment_id"]
+        for reference in study_payload["experiments"]  # type: ignore[union-attr]
+    }
+    if experiment_id not in referenced_ids:
+        raise ValueError("experiment is not referenced by the study")
+    _require_text(experiment["title"], "experiment title")
+    if experiment["status"] not in _STUDY_STATUSES:
+        raise ValueError("experiment status is invalid")
+    _validate_subject(experiment["subject"])
+    _validate_artifact_list(experiment["artifacts"], "experiment artifacts")
+    _validate_method(experiment["method"])
+    _validate_descriptor_list(
+        experiment["worker_profiles"],
+        "experiment worker_profiles",
+    )
+    _validate_resource_budget(experiment["resource_budget"])
+    _validate_reproduction(experiment["reproduction"])
+
+
+def _require_timestamp(value: object) -> str:
+    timestamp = _require_text(value, "evidence completed_at")
+    if not timestamp.endswith("Z"):
+        raise ValueError("evidence completed_at must be an ISO-8601 UTC timestamp")
+    try:
+        parsed = datetime.fromisoformat(timestamp[:-1] + "+00:00")
+    except ValueError as exc:
+        raise ValueError(
+            "evidence completed_at must be an ISO-8601 UTC timestamp"
+        ) from exc
+    if parsed.utcoffset() is None:
+        raise ValueError("evidence completed_at must be an ISO-8601 UTC timestamp")
+    return timestamp
+
+
+def _validate_findings(value: object) -> None:
+    label = "evidence findings"
+    findings = _require_sequence(value, label)
+    if not findings:
+        raise ValueError(f"{label} must not be empty")
+    identifiers: set[str] = set()
+    for finding_value in findings:
+        finding = _require_mapping(finding_value, f"{label} entry")
+        _require_exact_fields(
+            finding,
+            {"id", "label", "description", "kind"},
+            f"{label} entry",
+        )
+        identifier = _require_id(finding["id"], f"{label} entry id")
+        if identifier in identifiers:
+            raise ValueError(f"{label} contains duplicate ids")
+        identifiers.add(identifier)
+        _require_text(finding["label"], f"{label} entry label")
+        _require_text(finding["description"], f"{label} entry description")
+        if finding["kind"] not in {"positive", "negative", "neutral"}:
+            raise ValueError(f"{label} entry kind is invalid")
+
+
+def _validate_limitations(value: object) -> None:
+    limitations = _require_sequence(value, "evidence limitations")
+    if not limitations:
+        raise ValueError("evidence limitations must not be empty")
+    for index, limitation in enumerate(limitations):
+        _require_text(limitation, f"evidence limitation {index}")
+
+
+def _validate_evidence(
+    study: Mapping[str, object],
+    experiment: Mapping[str, object],
+    evidence_payload: Mapping[str, object],
+) -> tuple[bool, bool]:
+    label = "evidence"
+    evidence = _require_mapping(evidence_payload, label)
+    _require_exact_fields(
+        evidence,
+        {
+            "format",
+            "study_id",
+            "experiment_id",
+            "outcome",
+            "completed_at",
+            "summary",
+            "measurements",
+            "evaluation",
+            "findings",
+            "limitations",
+            "artifacts",
+        },
+        label,
+    )
+    if evidence["format"] != "orcacolony_experiment_evidence_v1":
+        raise ValueError("unsupported evidence format")
+    if evidence["study_id"] != study["study_id"]:
+        raise ValueError("evidence study_id does not match the study")
+    if evidence["experiment_id"] != experiment["experiment_id"]:
+        raise ValueError("evidence experiment_id does not match the experiment")
+    if evidence["outcome"] not in {
+        "validated",
+        "rejected",
+        "inconclusive",
+        "promoted",
+    }:
+        raise ValueError("evidence outcome is invalid")
+    _require_timestamp(evidence["completed_at"])
+    _require_text(evidence["summary"], "evidence summary")
+    _validate_measurement_list(evidence["measurements"], "evidence measurements")
+    _validate_findings(evidence["findings"])
+    _validate_limitations(evidence["limitations"])
+    _validate_artifact_list(evidence["artifacts"], "evidence artifacts")
+
+    evaluation = _require_mapping(evidence["evaluation"], "evidence evaluation")
+    _require_exact_fields(
+        evaluation,
+        {"primary_metric", "guardrails"},
+        "evidence evaluation",
+    )
+    primary = _require_mapping(
+        evaluation["primary_metric"],
+        "evidence primary_metric",
+    )
+    _require_exact_fields(primary, {"id", "value"}, "evidence primary_metric")
+    use_case = _require_mapping(study["use_case"], "study use_case")
+    metric = _require_mapping(use_case["primary_metric"], "study primary_metric")
+    if primary["id"] != metric["id"]:
+        raise ValueError("evidence primary metric does not match the study")
+    primary_value = primary["value"]
+    if (
+        isinstance(primary_value, bool)
+        or not isinstance(primary_value, (int, float))
+        or not math.isfinite(float(primary_value))
+    ):
+        raise ValueError("evidence primary metric value must be a finite number")
+    threshold = float(metric["success_threshold"])  # type: ignore[arg-type]
+    primary_passed = (
+        float(primary_value) >= threshold
+        if metric["direction"] == "maximize"
+        else float(primary_value) <= threshold
+    )
+
+    guardrails = _require_sequence(
+        evaluation["guardrails"],
+        "evidence guardrails",
+    )
+    guardrail_results: dict[str, bool] = {}
+    for guardrail_value in guardrails:
+        guardrail = _require_mapping(guardrail_value, "evidence guardrail")
+        _require_exact_fields(
+            guardrail,
+            {"id", "passed", "detail"},
+            "evidence guardrail",
+        )
+        guardrail_id = _require_id(guardrail["id"], "evidence guardrail id")
+        if guardrail_id in guardrail_results:
+            raise ValueError("evidence guardrails contain duplicate ids")
+        if not isinstance(guardrail["passed"], bool):
+            raise ValueError("evidence guardrail passed must be boolean")
+        _require_text(guardrail["detail"], "evidence guardrail detail")
+        guardrail_results[guardrail_id] = guardrail["passed"]
+    expected_guardrail_ids = {
+        guardrail["id"]
+        for guardrail in use_case["guardrails"]  # type: ignore[union-attr]
+    }
+    if set(guardrail_results) != expected_guardrail_ids:
+        raise ValueError("guardrail evidence must exactly match the study guardrails")
+    guardrails_passed = all(guardrail_results.values())
+    if evidence["outcome"] in {"validated", "promoted"} and not (
+        primary_passed and guardrails_passed
+    ):
+        raise ValueError("validated or promoted evidence must pass the use-case gate")
+    return primary_passed, guardrails_passed
+
+
+def _canonical_json(payload: Mapping[str, object]) -> bytes:
+    return (
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        + "\n"
+    ).encode("utf-8")
+
+
+def _sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _write_bytes(path: Path, payload: bytes) -> None:
+    path.write_bytes(payload)
+
+
+def _result_markdown(result: Mapping[str, object]) -> str:
+    use_case = _require_mapping(result["use_case"], "result use_case")
+    metric = _require_mapping(use_case["primary_metric"], "result primary_metric")
+    evidence = _require_mapping(result["evidence"], "result evidence")
+    evaluation = _require_mapping(evidence["evaluation"], "result evaluation")
+    primary = _require_mapping(
+        evaluation["primary_metric"],
+        "result evaluated primary metric",
+    )
+    decision = _require_mapping(result["decision"], "result decision")
+    lines = [
+        f"# {result['title']}",
+        "",
+        f"**Study:** `{result['study_id']}`  ",
+        f"**Experiment:** `{result['experiment_id']}`  ",
+        f"**Outcome:** **{str(result['outcome']).upper()}**  ",
+        f"**Completed:** {result['completed_at']}",
+        "",
+        "## Summary",
+        "",
+        str(result["summary"]),
+        "",
+        "## Hypothesis",
+        "",
+        str(result["hypothesis"]),
+        "",
+        "## Use-case evaluation",
+        "",
+        str(use_case["claim"]),
+        "",
+        (
+            f"- Primary metric: **{metric['label']}** = `{primary['value']}` "
+            f"{metric['unit']}"
+        ),
+        f"- Primary metric gate passed: **{decision['primary_metric_passed']}**",
+        f"- Guardrails passed: **{decision['guardrails_passed']}**",
+        f"- Overall use-case gate passed: **{decision['use_case_passed']}**",
+        "",
+        "## Findings",
+        "",
+    ]
+    for finding_value in evidence["findings"]:  # type: ignore[union-attr]
+        finding = _require_mapping(finding_value, "result finding")
+        lines.extend(
+            [
+                f"### {finding['label']} ({finding['kind']})",
+                "",
+                str(finding["description"]),
+                "",
+            ]
+        )
+    lines.extend(["## Limitations", ""])
+    for limitation in evidence["limitations"]:  # type: ignore[union-attr]
+        lines.append(f"- {limitation}")
+    reproduction = _require_mapping(result["reproduction"], "result reproduction")
+    lines.extend(
+        [
+            "",
+            "## Reproduction",
+            "",
+            "```json",
+            json.dumps(reproduction["command"], ensure_ascii=False),
+            "```",
+            "",
+            str(reproduction["notes"]),
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def build_result_bundle(
+    study_payload: Mapping[str, object],
+    experiment_payload: Mapping[str, object],
+    evidence_payload: Mapping[str, object],
+    output_dir: str | Path,
+) -> dict[str, object]:
+    validate_study_manifest(study_payload)
+    validate_experiment_manifest(study_payload, experiment_payload)
+    primary_passed, guardrails_passed = _validate_evidence(
+        study_payload,
+        experiment_payload,
+        evidence_payload,
+    )
+    output = Path(output_dir)
+    if output.exists():
+        raise ValueError(f"research result output already exists: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(
+        tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent)
+    )
+    try:
+        sources = {
+            "study.json": _canonical_json(study_payload),
+            "experiment.json": _canonical_json(experiment_payload),
+            "evidence.json": _canonical_json(evidence_payload),
+        }
+        source_revisions = {
+            filename.removesuffix(".json"): _sha256_bytes(payload)
+            for filename, payload in sources.items()
+        }
+        result: dict[str, object] = {
+            "format": "orcacolony_experiment_result_v1",
+            "study_id": study_payload["study_id"],
+            "experiment_id": experiment_payload["experiment_id"],
+            "title": experiment_payload["title"],
+            "study_status": study_payload["status"],
+            "experiment_status": experiment_payload["status"],
+            "outcome": evidence_payload["outcome"],
+            "completed_at": evidence_payload["completed_at"],
+            "summary": evidence_payload["summary"],
+            "hypothesis": study_payload["hypothesis"],
+            "use_case": study_payload["use_case"],
+            "independent_variables": study_payload["independent_variables"],
+            "controlled_variables": study_payload["controlled_variables"],
+            "subject": experiment_payload["subject"],
+            "method": experiment_payload["method"],
+            "worker_profiles": experiment_payload["worker_profiles"],
+            "resource_budget": experiment_payload["resource_budget"],
+            "input_artifacts": experiment_payload["artifacts"],
+            "evidence": {
+                "measurements": evidence_payload["measurements"],
+                "evaluation": evidence_payload["evaluation"],
+                "findings": evidence_payload["findings"],
+                "limitations": evidence_payload["limitations"],
+                "artifacts": evidence_payload["artifacts"],
+            },
+            "reproduction": experiment_payload["reproduction"],
+            "decision": {
+                "primary_metric_passed": primary_passed,
+                "guardrails_passed": guardrails_passed,
+                "use_case_passed": primary_passed and guardrails_passed,
+            },
+            "source_revisions": source_revisions,
+        }
+        for filename, payload in sources.items():
+            _write_bytes(temporary / filename, payload)
+        _write_bytes(temporary / "result.json", _canonical_json(result))
+        _write_bytes(
+            temporary / "RESULT.md",
+            _result_markdown(result).encode("utf-8"),
+        )
+        checksum_files = sorted(
+            path for path in temporary.iterdir() if path.is_file()
+        )
+        checksums = "".join(
+            f"{_sha256_bytes(path.read_bytes())}  {path.name}\n"
+            for path in checksum_files
+        )
+        _write_bytes(temporary / "SHA256SUMS", checksums.encode("utf-8"))
+        os.replace(temporary, output)
+        return result
+    except BaseException:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
