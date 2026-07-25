@@ -751,6 +751,39 @@ def test_layer_bundle_t2_evidence_preserves_exact_identity_and_resource_claims()
     assert bundle["build_seconds"] < direct["build_seconds"]
 
 
+def test_int8_t1_homogeneous_trajectory_is_reproducible_and_profile_separate() -> None:
+    result_path = (
+        CONFIG.parents[1]
+        / "spikes"
+        / "int8-frozen-linear"
+        / "results"
+        / "t1-trajectory.json"
+    )
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+
+    assert result["format"] == "orcacolony_int8_homogeneous_trajectory_v1"
+    assert result["campaign_steps"] == 20
+    assert result["homogeneous_profile_candidate"] is True
+    assert len(result["restart_checks"]) == 10
+    assert all(
+        check["adapter_metrics"]["max_absolute_error"] == 0.0
+        and check["optimizer_metrics"]["max_absolute_error"] == 0.0
+        for check in result["restart_checks"]
+    )
+    assert max(
+        step["homogeneous_gradient_metrics"]["relative_l2_error"]
+        for step in result["steps"]
+    ) < 1e-5
+    assert result["final_homogeneous_metrics"]["relative_l2_error"] < 1e-5
+    assert result["held_out_improvement"]["fp32"] > 0.0
+    assert result["held_out_improvement"]["int8"] > 0.0
+    assert result["resident_tensor_bytes"]["int8"] < result[
+        "resident_tensor_bytes"
+    ]["fp32"]
+    assert result["final_adapter_metrics"]["relative_l2_error"] > 1e-2
+    assert len(set(result["profiled_final_checkpoint_sha256"].values())) == 3
+
+
 def test_adapter_gradient_application_matches_an_independent_mean_loss_step() -> None:
     campaign = load_campaign(CONFIG)
     config = _lora_config()

@@ -188,12 +188,15 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P4 — Qualify numerical and mixed execution profiles
 
-**Status:** Planned
+**Status:** In progress
 
 - Certify each precision, quantization, runtime, and offload profile against a canonical fixture.
 - Separate numerical semantics from placement-only differences.
 - Prove mixed-profile aggregation before admitting profiles to the same campaign.
 - Record runtime provenance and revoke profiles that exhibit systematic numerical or operational failure.
+- Fixed a 20-step T1 TinyStories FP32/int8 trajectory with evaluations at steps `0, 1, 2, 5, 10, 20`. Two-shard homogeneous int8 stayed within `3.1241858279774175e-7` gradient relative L2 and `1.5512369314698598e-7` final-adapter relative L2 of centralized int8.
+- Proved exact int8 checkpoint restart for ten subsequent gradients, adapters, and AdamW states. Int8 held-out mean loss improved by `0.10614669322967529`, versus `0.10496234893798828` FP32, while retaining 50.18% fewer model-tensor bytes at T1.
+- Preserved the numerical boundary: int8 reached 5.12% maximum per-step gradient drift and 2.64% final-adapter drift versus FP32. It is a homogeneous-profile candidate with a distinct profile-bound identity, not an exact-profile worker or mixed-aggregation participant.
 
 ### P5 — Explore rolling partial-model training
 
@@ -226,11 +229,11 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Start P4 by defining a separate homogeneous int8 numerical profile and measuring its multi-step trajectory against the fixed TinyStories evaluation and exact-FP32 control. Do not admit int8 into mixed exact aggregation unless that profile earns an explicit, independently justified acceptance contract.
+Build a direct authenticated int8 layer-bundle loader that never constructs the complete FP32 model, bind numerical-profile identity into assignment/checkpoint provenance, and run a connected homogeneous int8 campaign against the fixed profile-specific oracle. Keep exact-FP32 acceptance and mixed aggregation unchanged.
 
 ## Remaining major work
 
-- Quantized-profile oracle, trajectory, and homogeneous-campaign proof in P4.
+- Direct int8 artifact construction and connected homogeneous-profile campaign proof.
 - Profile certification and mixed-profile proof.
 - Rolling-submodel feasibility study.
 - Exact tiled-computation feasibility study.
@@ -254,6 +257,7 @@ Start P4 by defining a separate homogeneous int8 numerical profile and measuring
 - Bound layer-bundle identities and exact shard URLs into authenticated coordinator state/assignments, added fresh-download and warm-use cache authentication, and retained strict FP32 result acceptance under a distinct runtime provenance.
 - Completed a real T1 TinyStories campaign across a coordinator restart with exact gradients, zero warm model/adapter payload bytes, no monolithic worker cache, sub-`1.24e-7` checkpoint parity, and positive held-out loss movement.
 - Qualified resident and layer-bundle workers together at T2: exact per-worker gradients, sub-`2.19e-7` aggregate checkpoint parity, positive held-out movement, and 68.15% lower bundle-worker process peak RSS with the measured runtime/payload tradeoff preserved.
+- Started P4 with a fixed 20-step T1 int8 trajectory: positive held-out movement, exact restart, sub-`3.13e-7` homogeneous aggregation drift, and explicit separation from the 2.64%-diverged FP32 adapter trajectory.
 
 ### 2026-07-24
 

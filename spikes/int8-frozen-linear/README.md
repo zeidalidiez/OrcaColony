@@ -50,6 +50,36 @@ The T2 resident-tensor result is materially better than the earlier idealized ba
 
 The numerical result is not compatible with the existing exact FP32 worker contract. Adapter-gradient relative L2 is 1.71%–3.04%, or roughly 1,709–3,038 times the current `1e-5` FP32 acceptance bound. High cosine alone is not permission to mix these gradients into the FP32 trajectory.
 
+## P4 homogeneous T1 trajectory
+
+The follow-up fixes a 20-step TinyStories campaign, evaluates steps `0, 1, 2, 5, 10, 20`, compares exact FP32 with int8, aggregates the int8 candidate from two one-sequence shards, and restarts the int8 model/AdamW state at step 10:
+
+```bash
+uv run python spikes/int8-frozen-linear/trajectory.py \
+  --campaign campaign/t1-tinystories-int8-trajectory.json \
+  --lora campaign/t1-tinystories-int8-trajectory-lora.json \
+  --dataset .artifacts/p3-t1-profile/dataset \
+  --work-dir .artifacts/int8-t1-trajectory-work \
+  --output spikes/int8-frozen-linear/results/t1-trajectory.json
+```
+
+| Step | FP32 held-out mean loss | Two-shard int8 held-out mean loss | Int8 − FP32 |
+|---:|---:|---:|---:|
+| 0 | 9.0418359041 | 9.0421773195 | +0.0003414154 |
+| 1 | 9.0412223339 | 9.0415543318 | +0.0003319979 |
+| 2 | 9.0402287245 | 9.0405533314 | +0.0003246069 |
+| 5 | 9.0347447395 | 9.0349780321 | +0.0002332926 |
+| 10 | 9.0154596567 | 9.0153789520 | −0.0000807047 |
+| 20 | 8.9368735552 | 8.9360306263 | −0.0008429289 |
+
+The candidate passed the campaign's positive-improvement gate: FP32 improved `0.1049623489`, while two-shard int8 improved `0.1061466932`. This is one short random-base TinyStories trajectory, not evidence that int8 is generally better.
+
+Two-shard int8 aggregation stayed close to the centralized int8 control: maximum per-step gradient relative L2 was `3.1241858279774175e-7`, and final adapter relative L2 was `1.5512369314698598e-7`. Ten post-restart gradients, adapters, and optimizer states were exact. By contrast, int8 intentionally followed a different trajectory from FP32: maximum per-step gradient relative L2 reached `0.051245135154007214`, and final adapter relative L2 was `0.02636555504582058`.
+
+Int8 retained `13,998,080` tensor bytes versus `28,098,560` FP32 bytes (50.18% less). Total measured two-shard int8 compute/evaluation was `10.68649519997416` seconds versus `10.177064399962546` seconds FP32 (1.050x) in the preserved run. Those timings serialize both shards and exclude HTTP, process startup, and a direct quantized artifact loader.
+
+The evidence therefore promotes int8 to a **homogeneous-profile candidate** with its own oracle and profile-bound checkpoint identity. It does not admit int8 gradients into exact-FP32 aggregation.
+
 ## Verdict: PARTIAL
 
 ### What worked
@@ -62,7 +92,8 @@ The numerical result is not compatible with the existing exact FP32 worker contr
 ### What did not
 
 - Adapter gradients did not preserve the current FP32 numerical contract: relative L2 reached 3.038% at T2.
-- This spike does not prove connected coordinator acceptance, mixed-profile aggregation, campaign convergence, held-out quality, process RSS, or throughput.
+- The original one-gradient storage comparison did not prove connected acceptance, trajectory behavior, held-out quality, process RSS, or throughput.
+- The trajectory now proves deterministic restart, homogeneous two-shard aggregation, and positive held-out movement at T1, but not connected execution, longer convergence, T2 trajectory quality, or a direct low-peak int8 loader.
 - The spike constructs an FP32 model before conversion, so it does not solve peak startup residency or larger-than-RAM loading.
 
 ### Surprises
@@ -73,6 +104,6 @@ The numerical result is not compatible with the existing exact FP32 worker contr
 ### Recommendation for the real build
 
 1. Reuse the custom int8 frozen-linear/autograd design as an explicit **offline numerical profile**, not as `python-native-cpu-f32` and not under the current FP32 tolerance.
-2. In P4, define a quantized oracle and fixed quantized trajectory, then test homogeneous quantized campaigns before any mixed-profile aggregation.
-3. Keep P3's next connected placement target exact-FP32 and pursue mapped/layer-streamed storage separately; that can address peak residency without silently changing the optimization objective.
-4. A production int8 loader must construct quantized modules directly from the frozen artifact rather than building the complete FP32 model first.
+2. Use the fixed quantized trajectory as the profile-specific oracle; add profile identity to assignments/checkpoints before any connected homogeneous campaign.
+3. Keep the connected exact-FP32 layer-bundle worker as the baseline and keep int8 out of mixed exact aggregation; placement and numerical-profile decisions remain separate.
+4. A production int8 loader must construct quantized modules directly from the frozen artifact rather than building the complete FP32 model first. The next vertical slice should load int8 weights from authenticated layer-bundle shards and keep exact-FP32 acceptance unchanged.
