@@ -1,0 +1,188 @@
+{
+  "format": "orcacolony_experiment_evidence_v1",
+  "study_id": "p3-persistent-native-session-v1",
+  "experiment_id": "persistent-t2-native-session",
+  "outcome": "validated",
+  "completed_at": "2026-07-25T06:54:13Z",
+  "summary": "A bounded persistent native T2 session built the 91.5M-parameter model once, loaded the unchanged adapter once, completed two authenticated assignments, and reduced warm cache-validation plus runtime-initialization time from 2.9631700000027195 seconds to 0.00004199999966658652 seconds (99.9985826%) while preserving zero warm immutable-state payload, 2.1866353039878446e-7 checkpoint relative L2, and the one-shot held-out improvement.",
+  "measurements": [
+    {
+      "id": "warm-setup-reduction-ratio",
+      "label": "Warm setup reduction ratio",
+      "value": 0.9999858259905214,
+      "unit": "ratio"
+    },
+    {
+      "id": "one-shot-warm-setup",
+      "label": "One-shot warm validation plus initialization",
+      "value": 2.9631700000027195,
+      "unit": "seconds"
+    },
+    {
+      "id": "persistent-warm-setup",
+      "label": "Persistent warm validation plus initialization",
+      "value": 0.00004199999966658652,
+      "unit": "seconds"
+    },
+    {
+      "id": "persistent-warm-artifact-fetch",
+      "label": "Persistent warm artifact phase",
+      "value": 0.0000024000037228688598,
+      "unit": "seconds"
+    },
+    {
+      "id": "persistent-warm-runtime-init",
+      "label": "Persistent warm runtime initialization",
+      "value": 0.00003959999594371766,
+      "unit": "seconds"
+    },
+    {
+      "id": "persistent-warm-gradient-compute",
+      "label": "Persistent warm gradient compute",
+      "value": 1.6823609999992186,
+      "unit": "seconds"
+    },
+    {
+      "id": "persistent-setup-to-compute-ratio",
+      "label": "Persistent warm setup-to-compute ratio",
+      "value": 0.000024964915179682617,
+      "unit": "ratio"
+    },
+    {
+      "id": "persistent-warm-assignment-fetch",
+      "label": "Persistent warm assignment fetch",
+      "value": 0.03344460000516847,
+      "unit": "seconds"
+    },
+    {
+      "id": "persistent-warm-model-payload",
+      "label": "Persistent warm model payload",
+      "value": 0,
+      "unit": "bytes"
+    },
+    {
+      "id": "persistent-warm-adapter-payload",
+      "label": "Persistent warm adapter payload",
+      "value": 0,
+      "unit": "bytes"
+    },
+    {
+      "id": "persistent-peak-process-rss",
+      "label": "Persistent peak process RSS",
+      "value": 1746468864,
+      "unit": "bytes"
+    },
+    {
+      "id": "persistent-coordinator-storage",
+      "label": "Persistent proof coordinator storage",
+      "value": 378093680,
+      "unit": "bytes"
+    },
+    {
+      "id": "model-build-count",
+      "label": "Model builds",
+      "value": 1,
+      "unit": "builds"
+    },
+    {
+      "id": "adapter-load-count",
+      "label": "Adapter loads",
+      "value": 1,
+      "unit": "loads"
+    },
+    {
+      "id": "checkpoint-relative-l2",
+      "label": "Checkpoint relative L2",
+      "value": 0.00000021866353039878446,
+      "unit": "ratio"
+    },
+    {
+      "id": "held-out-loss-improvement",
+      "label": "Held-out mean-loss improvement",
+      "value": 0.0033478736877441406,
+      "unit": "loss"
+    }
+  ],
+  "evaluation": {
+    "primary_metric": {
+      "id": "warm-setup-reduction-ratio",
+      "value": 0.9999858259905214
+    },
+    "guardrails": [
+      {
+        "id": "checkpoint-parity",
+        "passed": true,
+        "detail": "The persistent checkpoint relative L2 was 2.1866353039878446e-7, identical to the one-shot profile and below 1e-6."
+      },
+      {
+        "id": "held-out-loss-non-regression",
+        "passed": true,
+        "detail": "Held-out mean loss improved by 0.0033478736877441406, matching the one-shot T2 checkpoint."
+      },
+      {
+        "id": "immutable-payload-reuse",
+        "passed": true,
+        "detail": "The reused second assignment reported zero model and adapter payload bytes."
+      },
+      {
+        "id": "failure-atomic-adapter-refresh",
+        "passed": true,
+        "detail": "Exact-tree tests and an adversarial probe showed shape and conversion failures mutate no adapter parameter, leave the old digest intact, and permit old-digest reuse only with the complete old state."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "persistent-setup-eliminated",
+      "label": "Persistent reuse removes one-shot setup",
+      "description": "Warm cache validation and runtime initialization fell by 99.9985826%; setup was 0.0025% of gradient-compute time instead of dominating it.",
+      "kind": "positive"
+    },
+    {
+      "id": "trajectory-unchanged",
+      "label": "Persistent lifecycle leaves trajectory unchanged",
+      "description": "The adapter/checkpoint identities, numerical parity, and held-out result exactly matched the one-shot T2 profile.",
+      "kind": "positive"
+    },
+    {
+      "id": "memory-placement-unchanged",
+      "label": "Persistent reuse does not reduce resident memory",
+      "description": "Peak process RSS remained about 1.746GB because the complete FP32 model stays resident. Quantized placement is still required for the next memory reduction.",
+      "kind": "neutral"
+    },
+    {
+      "id": "single-worker-fills-round",
+      "label": "One worker can fill multiple shards",
+      "description": "This throughput profile intentionally lets one allowlisted worker complete both sequential shards; it does not demonstrate participant diversity or independent-failure redundancy.",
+      "kind": "negative"
+    }
+  ],
+  "limitations": [
+    "The proof ran on one Windows host over loopback and does not measure WAN scheduling or remote participant churn.",
+    "One worker ID completed both assignments; campaigns requiring contributor diversity need a separate admission/quorum policy.",
+    "The T2 base is deterministic and randomly initialized; the held-out improvement is a guardrail, not useful language-model quality.",
+    "The model remains complete FP32 CPU residency and does not prove quantization, GPU placement, mapped storage, or larger-than-RAM execution.",
+    "Failure atomicity covers validation and conversion before copy; catastrophic device failure during the final same-shape copy phase is outside this proof.",
+    "Retry after a lost HTTP receipt and partial completion of a requested --assignments count was reasoned through but not separately fault-injected."
+  ],
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "da606a03f185e3af48c34209daacb1396c4350e0",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/da606a03f185e3af48c34209daacb1396c4350e0"
+    },
+    {
+      "id": "one-shot-proof-summary",
+      "kind": "generated-json-sha256",
+      "revision": "695e5b78d9203026cfa732e060f6c86e73bf6b0dd606c1c72e2ae75df7dd5fe4",
+      "uri": "generated:.artifacts/p3-native-resource-profile-proof/proof-summary.json"
+    },
+    {
+      "id": "persistent-proof-summary",
+      "kind": "generated-json-sha256",
+      "revision": "d6939f78c6e953ae64f645e35695d944811b4a60333fe734a865bac468af7bad",
+      "uri": "generated:.artifacts/p3-persistent-native-session-proof-final/proof-summary.json"
+    }
+  ]
+}

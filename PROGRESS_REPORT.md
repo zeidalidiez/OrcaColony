@@ -167,6 +167,7 @@ Completed within the first P3 measurement and native-baseline slice:
 - Selected a persistent native process/model session as the next throughput profile because one-shot warm setup dominates T2 compute. Quantized frozen-base placement remains the next memory profile; an idealized T2 FP32-to-int8 base conversion can reduce the observed process peak by no more than 15.73% before runtime overheads.
 - Added bounded persistent native sessions through `--assignments N`. One authenticated process now retains the validated base/model, reuses unchanged adapter state, and fetches and loads only a new checkpoint-specific adapter after campaign advancement. Adapter refresh validates and converts the complete tensor set before copying any parameter, so a malformed refresh cannot leave a mixed in-memory adapter. A two-step test completed four assignments with one model build and two adapter loads.
 - Proved the persistent session on the 91.5M-parameter T2 profile. The reused second assignment reduced base-cache validation from `1.013742800001637` seconds to `0.0000092999980552122` seconds and runtime initialization from `1.9494272000010824` seconds to `0.00012460000289138407` seconds while preserving zero model/adapter payload, `2.1866353039878446e-7` checkpoint relative L2, and the same held-out improvement.
+- Published `p3-persistent-native-session-v1`, pinned to implementation commit `da606a03f185e3af48c34209daacb1396c4350e0`. Its isolated reproduction measured `0.00004199999966658652` seconds of total warm setup, a `0.9999858259905214` reduction from the one-shot baseline, while recording unchanged FP32 resident memory, single-worker shard filling, and retry-fault-injection limits.
 
 ### P4 — Qualify numerical and mixed execution profiles
 
@@ -253,3 +254,4 @@ Begin the measured quantized frozen-base RAM profile at T2. Keep adapter math an
 - Qualified cached-base native execution on frozen TinyStories at 6.9M and 91.5M parameters, with positive one-step held-out movement and sub-`2.19e-7` checkpoint relative L2.
 - Published the P3 resource-profile study and used its measured T2 setup/compute ratio to select persistent process/model reuse before quantization and mapped offload.
 - Added bounded persistent native sessions and proved T2 in-memory model/adapter reuse removes essentially all warm validation/initialization overhead without changing the canonical checkpoint.
+- Published the persistent-session study with failure-atomic refresh evidence and retained its throughput-only, one-worker, FP32-resident limitations.

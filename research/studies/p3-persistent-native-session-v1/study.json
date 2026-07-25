@@ -1,0 +1,88 @@
+{
+  "format": "orcacolony_study_v1",
+  "study_id": "p3-persistent-native-session-v1",
+  "title": "Persistent native model reuse at 91.5M parameters",
+  "hypothesis": "Keeping one validated frozen base, model graph, and unchanged adapter resident across assignments will remove at least 99% of the one-shot worker's warm cache-validation and runtime-initialization time while preserving payload, numerical, privacy, and TinyStories held-out guardrails.",
+  "status": "validated",
+  "use_case": {
+    "claim": "Determine whether repeated volunteer assignments on one installation should use a bounded persistent process before investing in quantized or mapped frozen-base placement.",
+    "baseline": {
+      "id": "one-shot-native-t2",
+      "label": "One-shot cached-base T2 worker",
+      "description": "A fresh native process validates the cached 366MB base and rebuilds the FP32 model for each assignment."
+    },
+    "primary_metric": {
+      "id": "warm-setup-reduction-ratio",
+      "label": "Warm setup reduction ratio",
+      "description": "Reduction in cache-validation plus runtime-initialization seconds for the reused second assignment versus the published one-shot T2 baseline.",
+      "direction": "maximize",
+      "success_threshold": 0.99,
+      "unit": "ratio"
+    },
+    "repeated_validation_suite": {
+      "id": "persistent-t2-two-assignment-step",
+      "label": "Persistent T2 two-assignment global step",
+      "description": "One authenticated native process completes both disjoint T2 assignments with one model build and one adapter load.",
+      "revision": "da606a03f185e3af48c34209daacb1396c4350e0"
+    },
+    "final_holdout_suite": {
+      "id": "frozen-t2-tinystories-validation",
+      "label": "Frozen T2 TinyStories validation",
+      "description": "Compare initialization and step-1 mean cross-entropy on the same four frozen validation sequences as the one-shot baseline.",
+      "revision": "a8a8868b8a2a6aa14b53f9cb18d6e47a027e90532df7607a1297817bd692c706"
+    },
+    "guardrails": [
+      {
+        "id": "checkpoint-parity",
+        "label": "Canonical checkpoint parity",
+        "description": "The persistent result must remain below 1e-6 relative L2 against the centralized FP32 adapter step."
+      },
+      {
+        "id": "held-out-loss-non-regression",
+        "label": "Held-out loss non-regression",
+        "description": "Step-1 held-out mean loss must not exceed initialization."
+      },
+      {
+        "id": "immutable-payload-reuse",
+        "label": "No warm immutable-state payload",
+        "description": "The reused second assignment must fetch zero model and adapter payload bytes."
+      },
+      {
+        "id": "failure-atomic-adapter-refresh",
+        "label": "Failure-atomic adapter refresh",
+        "description": "A malformed later tensor or conversion failure must leave all in-memory adapter parameters and the old digest consistent."
+      }
+    ]
+  },
+  "independent_variables": [
+    {
+      "id": "process-lifetime",
+      "label": "Native process lifetime",
+      "description": "Fresh one-shot process versus a bounded two-assignment persistent session."
+    }
+  ],
+  "controlled_variables": [
+    {
+      "id": "t2-profile",
+      "label": "T2 model and adapter profile",
+      "description": "91,544,064 frozen FP32 parameters and 147,456 rank-4 QKV LoRA values."
+    },
+    {
+      "id": "training-contract",
+      "label": "Training and aggregation contract",
+      "description": "Identical data ranges, summed FP32 gradients, coordinator AdamW, clipping, dataset, and evaluation profile."
+    },
+    {
+      "id": "host",
+      "label": "Local host",
+      "description": "Both baseline and candidate are isolated native workers on the same Windows host over loopback."
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "persistent-t2-native-session",
+      "role": "candidate",
+      "manifest": "experiments/persistent-t2-native-session.json"
+    }
+  ]
+}

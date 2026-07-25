@@ -1,0 +1,118 @@
+{
+  "format": "orcacolony_experiment_v1",
+  "study_id": "p3-persistent-native-session-v1",
+  "experiment_id": "persistent-t2-native-session",
+  "title": "Bounded persistent T2 native session",
+  "status": "validated",
+  "subject": {
+    "kind": "worker-lifecycle-profile",
+    "id": "persistent-native-cpu-fp32",
+    "revision": "da606a03f185e3af48c34209daacb1396c4350e0"
+  },
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "da606a03f185e3af48c34209daacb1396c4350e0",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/da606a03f185e3af48c34209daacb1396c4350e0"
+    },
+    {
+      "id": "one-shot-baseline-study",
+      "kind": "git-commit",
+      "revision": "dc8cb1315a7f0c78c265cf86b9ef283a9a2808f2",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/dc8cb1315a7f0c78c265cf86b9ef283a9a2808f2"
+    },
+    {
+      "id": "one-shot-proof-summary",
+      "kind": "generated-json-sha256",
+      "revision": "695e5b78d9203026cfa732e060f6c86e73bf6b0dd606c1c72e2ae75df7dd5fe4",
+      "uri": "generated:.artifacts/p3-native-resource-profile-proof/proof-summary.json"
+    },
+    {
+      "id": "persistent-proof-summary",
+      "kind": "generated-json-sha256",
+      "revision": "d6939f78c6e953ae64f645e35695d944811b4a60333fe734a865bac468af7bad",
+      "uri": "generated:.artifacts/p3-persistent-native-session-proof-final/proof-summary.json"
+    },
+    {
+      "id": "t2-campaign",
+      "kind": "campaign-json-sha256",
+      "revision": "17fefd83263d3e55b6c7f7409abadd9c8e9c6efb12bbb86a8f9bab551fdd43e3",
+      "uri": "repo:campaign/t2-tinystories-memory-smoke.json"
+    },
+    {
+      "id": "t2-lora-profile",
+      "kind": "lora-manifest-sha256",
+      "revision": "b20c93faff1e7abef0fe9075d555958c1889f7410f9dda782c2fa950331d437c",
+      "uri": "repo:campaign/t2-tinystories-memory-lora-smoke.json"
+    }
+  ],
+  "method": {
+    "training_method": {
+      "id": "frozen-base-qkv-lora",
+      "label": "Frozen-base QKV LoRA",
+      "description": "Rank-4 QKV adapters return complete summed FP32 gradients to canonical coordinator AdamW."
+    },
+    "execution_topology": {
+      "id": "single-process-two-assignment-session",
+      "label": "Single-process two-assignment session",
+      "description": "One authenticated worker ID completes both disjoint assignments sequentially in one process."
+    },
+    "memory_profiles": [
+      {
+        "id": "persistent-fp32-system-ram",
+        "label": "Persistent FP32 system-RAM residency",
+        "description": "The validated base/model and unchanged adapter stay resident; a changed adapter is validated atomically before refresh."
+      }
+    ],
+    "numerical_profiles": [
+      {
+        "id": "fp32-summed-adapter-gradients",
+        "label": "FP32 summed adapter gradients",
+        "description": "No numerical profile changes from the one-shot baseline."
+      }
+    ]
+  },
+  "worker_profiles": [
+    {
+      "id": "python-native-cpu-f32-persistent",
+      "label": "Persistent native Python/PyTorch CPU",
+      "description": "The CLI uses --assignments 2, one model build, one adapter load, and one authenticated token file removed after proof."
+    }
+  ],
+  "resource_budget": {
+    "limits": [
+      {
+        "id": "global-steps",
+        "label": "Global optimizer steps",
+        "value": 1,
+        "unit": "steps"
+      },
+      {
+        "id": "accepted-assignments",
+        "label": "Accepted assignments",
+        "value": 2,
+        "unit": "assignments"
+      },
+      {
+        "id": "model-parameters",
+        "label": "Frozen model parameters",
+        "value": 91544064,
+        "unit": "parameters"
+      },
+      {
+        "id": "wall-time",
+        "label": "Maximum proof wall time",
+        "value": 900,
+        "unit": "seconds"
+      }
+    ]
+  },
+  "reproduction": {
+    "command": [
+      "uv run python -m orcacolony.artifacts --output .artifacts/p3-persistent-native-dataset",
+      "uv run python research/studies/p3-persistent-native-session-v1/scripts/run-proof.py --dataset-artifacts .artifacts/p3-persistent-native-dataset --output .artifacts/p3-persistent-native-session-proof"
+    ],
+    "notes": "The script runs the coordinator in the parent process and the persistent worker in one isolated subprocess. It removes the ephemeral token and excludes device-capacity fields from proof-summary.json."
+  }
+}
