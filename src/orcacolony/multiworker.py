@@ -132,17 +132,29 @@ def _validate_worker_telemetry(
     payload: Mapping[str, object] | None,
     resource_profile: Mapping[str, object],
     runtime_backend: str,
+    base_layer_bundle: Mapping[str, object] | None = None,
 ) -> dict[str, object] | None:
     if payload is None:
         if runtime_backend != "python-oracle-f32":
             raise ValueError("worker telemetry is required")
         return None
-    if set(payload) != {
+    envelope_fields = {
         "format",
         "runtime_seconds",
         "transfer_bytes",
         "memory_bytes",
-    } or payload.get("format") != "orcacolony_worker_telemetry_v1":
+    }
+    has_model_artifacts = "model_artifacts" in payload
+    if has_model_artifacts:
+        envelope_fields.add("model_artifacts")
+    if (
+        set(payload) != envelope_fields
+        or payload.get("format") != "orcacolony_worker_telemetry_v1"
+        or (
+            has_model_artifacts
+            and runtime_backend != "python-native-cpu-layer-bundle-f32"
+        )
+    ):
         raise ValueError("worker telemetry envelope is invalid")
     runtime = _exact_mapping(
         payload.get("runtime_seconds"),
@@ -183,7 +195,53 @@ def _validate_worker_telemetry(
         "oracle_gradient": int(resource_profile["oracle_gradient_download_bytes"]),
         "result": int(resource_profile["expected_result_upload_bytes"]),
     }
+    canonical_model_artifacts: list[str] | None = None
+    if has_model_artifacts:
+        if not isinstance(base_layer_bundle, Mapping):
+            raise ValueError("worker model artifact telemetry was not assigned")
+        assigned_artifacts = base_layer_bundle.get("artifacts")
+        reported_artifacts = payload.get("model_artifacts")
+        if not isinstance(assigned_artifacts, list) or not isinstance(
+            reported_artifacts,
+            list,
+        ):
+            raise ValueError("worker model artifact telemetry is invalid")
+        assigned_sizes: dict[str, int] = {}
+        assigned_order: list[str] = []
+        for artifact in assigned_artifacts:
+            if not isinstance(artifact, Mapping):
+                raise ValueError("assigned model artifact telemetry contract is invalid")
+            name = artifact.get("file")
+            size = artifact.get("bytes")
+            if (
+                not isinstance(name, str)
+                or isinstance(size, bool)
+                or not isinstance(size, int)
+                or size < 0
+                or name in assigned_sizes
+            ):
+                raise ValueError("assigned model artifact telemetry contract is invalid")
+            assigned_order.append(name)
+            assigned_sizes[name] = size
+        if (
+            any(not isinstance(name, str) for name in reported_artifacts)
+            or len(set(reported_artifacts)) != len(reported_artifacts)
+            or any(name not in assigned_sizes for name in reported_artifacts)
+        ):
+            raise ValueError("worker model artifact telemetry is invalid")
+        reported_names = set(reported_artifacts)
+        canonical_model_artifacts = [
+            name for name in assigned_order if name in reported_names
+        ]
+        if reported_artifacts != canonical_model_artifacts:
+            raise ValueError("worker model artifact telemetry order differs")
+        if sum(assigned_sizes[name] for name in canonical_model_artifacts) != (
+            canonical_transfer["model"]
+        ):
+            raise ValueError("worker model artifact telemetry bytes differ")
     for field, expected in expected_transfer.items():
+        if field == "model" and has_model_artifacts:
+            continue
         allowed = {expected} if field == "result" else {0, expected}
         if canonical_transfer[field] not in allowed:
             raise ValueError(f"worker transfer telemetry {field} does not match assignment")
@@ -203,12 +261,15 @@ def _validate_worker_telemetry(
         ):
             raise ValueError(f"worker memory telemetry {field} is invalid")
         canonical_memory[field] = value  # type: ignore[assignment]
-    return {
+    canonical: dict[str, object] = {
         "format": "orcacolony_worker_telemetry_v1",
         "runtime_seconds": canonical_runtime,
         "transfer_bytes": canonical_transfer,
         "memory_bytes": canonical_memory,
     }
+    if canonical_model_artifacts is not None:
+        canonical["model_artifacts"] = canonical_model_artifacts
+    return canonical
 
 
 def _directory_size(path: Path) -> int:
@@ -914,13 +975,13 @@ class GlobalStepCoordinator:
                     "orcacolony_assignment_instrumentation_v1"
                 ):
                     raise ValueError("persisted assignment instrumentation is invalid")
-                resource_profile = coordinator._public_assignment(assignment)[
-                    "resource_profile"
-                ]
+                public_assignment = coordinator._public_assignment(assignment)
+                resource_profile = public_assignment["resource_profile"]
                 canonical_worker = _validate_worker_telemetry(
                     instrumentation.get("worker_reported"),  # type: ignore[arg-type]
                     resource_profile,  # type: ignore[arg-type]
                     str(assignment["runtime_backend"]),
+                    public_assignment.get("base_layer_bundle"),  # type: ignore[arg-type]
                 )
                 if canonical_worker != instrumentation.get("worker_reported"):
                     raise ValueError("persisted worker telemetry is not canonical")
@@ -1349,11 +1410,13 @@ class GlobalStepCoordinator:
                 or submission.coordinator_receive_seconds > 86_400
             ):
                 raise ValueError("coordinator receive duration is invalid")
-            resource_profile = self._public_assignment(assignment)["resource_profile"]
+            public_assignment = self._public_assignment(assignment)
+            resource_profile = public_assignment["resource_profile"]
             worker_telemetry = _validate_worker_telemetry(
                 submission.worker_telemetry,
                 resource_profile,  # type: ignore[arg-type]
                 submission.runtime_backend,
+                public_assignment.get("base_layer_bundle"),  # type: ignore[arg-type]
             )
             expected_loss = float(assignment["expected_loss_sum"])
             if abs(submission.loss_sum - expected_loss) / abs(expected_loss) > 0.002:

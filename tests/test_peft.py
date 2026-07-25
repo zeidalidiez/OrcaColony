@@ -151,6 +151,45 @@ def test_adapter_state_validation_is_atomic() -> None:
     )
 
 
+def test_adapter_state_copy_failure_rolls_back_every_parameter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    model = build_lora_model(campaign, _lora_config())
+    adapters = adapter_named_parameters(model)
+    before = {
+        name: parameter.detach().clone()
+        for name, parameter in adapters.items()
+    }
+    replacement = {
+        name: torch.full_like(parameter, float(index + 1))
+        for index, (name, parameter) in enumerate(adapters.items())
+    }
+    original_copy = torch.Tensor.copy_
+    copy_calls = 0
+
+    def fail_second_copy(
+        tensor: torch.Tensor,
+        source: torch.Tensor,
+        *args: object,
+        **kwargs: object,
+    ) -> torch.Tensor:
+        nonlocal copy_calls
+        copy_calls += 1
+        if copy_calls == 2:
+            raise RuntimeError("injected adapter copy failure")
+        return original_copy(tensor, source, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "copy_", fail_second_copy)
+    with pytest.raises(RuntimeError, match="injected adapter copy failure"):
+        peft.load_adapter_state(model, replacement)
+
+    assert all(
+        torch.equal(parameter, before[name])
+        for name, parameter in adapters.items()
+    )
+
+
 def test_int8_frozen_linear_profile_reduces_resident_tensors_with_explicit_drift() -> None:
     loaded = peft.load_lora_manifest(CONFIG, LORA_CONFIG)
     tokens = loaded.campaign.training.batch_size * loaded.campaign.model.context_length

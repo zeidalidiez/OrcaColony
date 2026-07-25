@@ -7,7 +7,7 @@ import pytest
 
 from orcacolony.artifacts import PackedDataset, build_dataset_artifacts
 from orcacolony.campaign_run import CampaignCoordinator
-from orcacolony.multiworker import LeasedGradient
+from orcacolony.multiworker import GlobalStepCoordinator, LeasedGradient
 from orcacolony.participants import ParticipantRegistry
 from orcacolony.peft import load_lora_manifest
 from orcacolony.reference import load_campaign
@@ -351,3 +351,50 @@ def test_lora_campaign_advances_evaluates_and_survives_between_step_restart(
     assert dashboard["checkpoint"]["adapter_sha256"] == evaluations[-1][
         "adapter_sha256"
     ]
+
+
+@pytest.mark.parametrize("campaign_publishes_bundle", [False, True])
+def test_campaign_restart_rejects_preexisting_next_round_bundle_mode_mismatch(
+    tmp_path: Path,
+    campaign_publishes_bundle: bool,
+) -> None:
+    lora = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(lora.campaign.campaign["id"])
+    state_dir = tmp_path / f"campaign-{campaign_publishes_bundle}"
+    coordinator = CampaignCoordinator.create(
+        lora.campaign,
+        state_dir,
+        participants=participants,
+        worker_count=2,
+        target_steps=2,
+        lora=lora,
+        publish_base_layer_bundle=campaign_publishes_bundle,
+    )
+    for worker_id in ("worker-a", "worker-b"):
+        assignment = coordinator._current.lease(
+            worker_id,
+            worker_token="test-token",
+        )
+        coordinator._current.accept(submission_for(coordinator, assignment))
+    assert coordinator._current.status()["state"] == "step_complete"
+    checkpoint = coordinator._version_checkpoint(1)
+    GlobalStepCoordinator.create(
+        lora.campaign,
+        state_dir / "rounds" / "round-00000001",
+        worker_count=2,
+        participants=participants,
+        resume_from=checkpoint,
+        lora=lora,
+        publish_base_layer_bundle=not campaign_publishes_bundle,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="next campaign layer-bundle publication state differs",
+    ):
+        CampaignCoordinator.load(
+            lora.campaign,
+            state_dir,
+            participants=participants,
+            lora=lora,
+        )

@@ -5,7 +5,9 @@ from pathlib import Path
 import threading
 
 import pytest
+import torch
 
+from orcacolony import native_worker
 from orcacolony.campaign_run import CampaignCoordinator
 from orcacolony.multiworker import GlobalStepCoordinator, create_http_server
 from orcacolony.native_worker import (
@@ -15,7 +17,7 @@ from orcacolony.native_worker import (
     run_assignment,
 )
 from orcacolony.participants import ParticipantRegistry
-from orcacolony.peft import load_lora_manifest
+from orcacolony.peft import adapter_named_parameters, load_lora_manifest
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
@@ -148,7 +150,7 @@ def test_native_cpu_worker_reuses_content_addressed_base_and_adapter_cache(
     assert len(list((cache_dir / "adapter").glob("*.safetensors"))) == 1
 
 
-def test_connected_layer_bundle_worker_reuses_exact_shards_across_restart(
+def test_connected_layer_bundle_worker_repairs_a_partial_cache_across_restart(
     tmp_path: Path,
 ) -> None:
     loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
@@ -210,6 +212,10 @@ def test_connected_layer_bundle_worker_reuses_exact_shards_across_restart(
         server.server_close()
         thread.join()
 
+    cached_bundle = cache_dir / "bundle" / bundle_contract["manifest_sha256"]
+    repaired_artifact = bundle_contract["artifacts"][2]
+    (cached_bundle / repaired_artifact["file"]).unlink()
+
     coordinator = GlobalStepCoordinator.load(
         loaded.campaign,
         state_dir,
@@ -236,12 +242,12 @@ def test_connected_layer_bundle_worker_reuses_exact_shards_across_restart(
 
     assert first.telemetry["transfer_bytes"]["model"] == expected_bundle_bytes
     assert first.telemetry["transfer_bytes"]["adapter"] > 0
-    assert second.telemetry["transfer_bytes"]["model"] == 0
+    assert second.telemetry["transfer_bytes"]["model"] == repaired_artifact["bytes"]
+    assert second.telemetry["model_artifacts"] == [repaired_artifact["file"]]
     assert second.telemetry["transfer_bytes"]["adapter"] == 0
     assert second.receipt["step_complete"] is True
     assert second.receipt["checkpoint_metrics"]["relative_l2_error"] < 1e-6
     assert not (cache_dir / "model").exists()
-    cached_bundle = cache_dir / "bundle" / bundle_contract["manifest_sha256"]
     assert len(list(cached_bundle.iterdir())) == 18
 
 
@@ -525,3 +531,75 @@ def test_persistent_native_session_reuses_model_and_refreshes_adapter_across_ste
     assert results[-1].receipt["checkpoint_metrics"]["relative_l2_error"] < 1e-6
     assert coordinator.status()["state"] == "campaign_complete"
     assert coordinator.dashboard()["progress"]["accepted_assignments"] == 4
+
+
+def test_persistent_session_quarantines_model_after_adapter_refresh_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    token = "persistent-refresh-failure-token"
+    worker_id = "persistent-refresh-failure"
+    participants = _single_contributor_registry(
+        str(loaded.campaign.campaign["id"]),
+        [worker_id],
+        token,
+    )
+    coordinator = CampaignCoordinator.create(
+        loaded.campaign,
+        tmp_path / "campaign-refresh-failure",
+        participants=participants,
+        worker_count=2,
+        target_steps=2,
+        lora=loaded,
+    )
+    server = create_http_server(coordinator, BROWSER_ROOT, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        session = NativeWorkerSession(
+            coordinator_url=f"http://127.0.0.1:{server.server_port}",
+            worker_id=worker_id,
+            worker_token=token,
+            campaign_path=CONFIG,
+            lora_path=LORA_CONFIG,
+            cache_dir=tmp_path / "persistent-refresh-failure-cache",
+        )
+        first = session.run_assignment()
+        second = session.run_assignment()
+        assert second.receipt["step_complete"] is True
+        original_load_adapter_state = native_worker.load_adapter_state
+
+        def fail_after_first_copy(
+            model: torch.nn.Module,
+            tensors: dict[str, torch.Tensor],
+        ) -> None:
+            name, parameter = next(iter(adapter_named_parameters(model).items()))
+            with torch.no_grad():
+                parameter.copy_(tensors[name])
+            raise RuntimeError("injected adapter copy failure")
+
+        monkeypatch.setattr(native_worker, "load_adapter_state", fail_after_first_copy)
+        with pytest.raises(RuntimeError, match="injected adapter copy failure"):
+            session.run_assignment()
+        assert session._state.model is None
+        assert session._state.base_digest is None
+        assert session._state.adapter_digest is None
+
+        monkeypatch.setattr(
+            native_worker,
+            "load_adapter_state",
+            original_load_adapter_state,
+        )
+        repaired = session.run_assignment()
+        final = session.run_assignment()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+    assert first.reused_model is False
+    assert repaired.reused_model is False
+    assert session.model_build_count == 2
+    assert final.receipt["step_complete"] is True
+    assert final.receipt["checkpoint_metrics"]["relative_l2_error"] < 1e-6

@@ -1984,9 +1984,18 @@ def load_adapter_state(
         if not bool(torch.isfinite(tensor).all()):
             raise ValueError(f"adapter checkpoint contains non-finite values: {name}")
         validated[name] = tensor.to(parameter.device, parameter.dtype)
+    snapshots = {
+        name: parameter.detach().clone()
+        for name, parameter in adapters.items()
+    }
     with torch.no_grad():
-        for name, parameter in adapters.items():
-            parameter.copy_(validated[name])
+        try:
+            for name, parameter in adapters.items():
+                parameter.copy_(validated[name])
+        except BaseException:
+            for name, parameter in adapters.items():
+                parameter.copy_(snapshots[name])
+            raise
 
 
 def save_lora_checkpoint(

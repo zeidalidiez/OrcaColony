@@ -262,6 +262,7 @@ Bind int8 numerical-profile identity into assignment/checkpoint provenance and r
 - Started P4 with a fixed 20-step T1 int8 trajectory: positive held-out movement, exact restart, sub-`3.13e-7` homogeneous aggregation drift, and explicit separation from the 2.64%-diverged FP32 adapter trajectory.
 - Added direct authenticated int8 bundle construction with exact converted-int8 parity and a 66.75% T2 build-peak reduction, while preserving the T1 final-peak counterexample and connected-profile provenance gap.
 - Closed a delayed layer-bundle review finding: LoRA manifests now construct `CampaignConfig` from the same in-memory campaign payload whose digest was authenticated, eliminating a second-read semantic mutation race in both resident-verification and deferred-base paths.
+- Closed the connected-layer-bundle restart/correctness review findings: partial cache repairs now report exact ordered downloaded-artifact membership and byte totals, pre-existing next rounds must match the campaign's bundle-publication mode before state advancement, adapter copies roll back on mid-install faults, and persistent native sessions quarantine any model whose refresh raises.
 
 ### 2026-07-24
 

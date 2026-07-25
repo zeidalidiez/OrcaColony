@@ -214,6 +214,67 @@ def test_burn_worker_telemetry_is_required_and_bound_to_assignment_bytes(
         )
 
 
+def test_layer_bundle_partial_transfer_telemetry_binds_artifact_membership(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        tmp_path / "coordinator",
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+        publish_base_layer_bundle=True,
+    )
+    assignment = coordinator.lease("worker-a", worker_token="test-token", now=100)
+    bundle = assignment["base_layer_bundle"]
+    first_artifact, second_artifact = bundle["artifacts"][2:4]
+    telemetry = worker_telemetry(coordinator, assignment)
+    telemetry["transfer_bytes"]["model"] = first_artifact["bytes"]
+    telemetry["transfer_bytes"]["oracle_gradient"] = 0
+    telemetry["model_artifacts"] = ["not-assigned.safetensors"]
+    submission = replace(
+        submission_for(coordinator, assignment),
+        runtime_backend="python-native-cpu-layer-bundle-f32",
+        worker_telemetry=telemetry,
+    )
+    with pytest.raises(ValueError, match="model artifact telemetry is invalid"):
+        coordinator.accept(submission, now=101)
+
+    telemetry["model_artifacts"] = [first_artifact["file"]]
+    telemetry["transfer_bytes"]["model"] = first_artifact["bytes"] + 1
+    with pytest.raises(ValueError, match="model artifact telemetry bytes differ"):
+        coordinator.accept(
+            replace(submission, worker_telemetry=telemetry),
+            now=101,
+        )
+
+    telemetry["model_artifacts"] = [
+        second_artifact["file"],
+        first_artifact["file"],
+    ]
+    telemetry["transfer_bytes"]["model"] = (
+        first_artifact["bytes"] + second_artifact["bytes"]
+    )
+    with pytest.raises(ValueError, match="model artifact telemetry order differs"):
+        coordinator.accept(
+            replace(submission, worker_telemetry=telemetry),
+            now=101,
+        )
+
+    telemetry["model_artifacts"] = [first_artifact["file"]]
+    telemetry["transfer_bytes"]["model"] = first_artifact["bytes"]
+    receipt = coordinator.accept(
+        replace(submission, worker_telemetry=telemetry),
+        now=101,
+        finalize=False,
+    )
+    assert receipt.instrumentation["worker_reported"]["model_artifacts"] == [
+        first_artifact["file"]
+    ]
+
+
 def test_two_non_overlapping_workers_match_one_reference_global_step(
     tmp_path: Path,
 ) -> None:

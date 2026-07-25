@@ -342,7 +342,7 @@ def _cached_base_layer_bundle(
     cache_dir: Path,
     assignment: Mapping[str, object],
     loaded: LoadedLoRAManifest,
-) -> tuple[Path, int, str]:
+) -> tuple[Path, int, str, tuple[str, ...]]:
     contract = _layer_bundle_assignment_contract(assignment, loaded)
     manifest_sha256 = str(contract["manifest_sha256"])
     bundle_root, bundle_root_identity = _prepare_cache_directory(cache_dir, "bundle")
@@ -353,6 +353,7 @@ def _cached_base_layer_bundle(
         pass
     bundle_identity = _directory_identity(bundle_dir)
     downloaded = 0
+    downloaded_artifacts: list[str] = []
     artifacts = contract["artifacts"]
     if not isinstance(artifacts, list):
         raise RuntimeError("validated base layer bundle artifacts disappeared")
@@ -415,6 +416,7 @@ def _cached_base_layer_bundle(
         finally:
             temporary.unlink(missing_ok=True)
         downloaded += artifact_downloaded
+        downloaded_artifacts.append(file_name)
 
     expected_names = {str(artifact["file"]) for artifact in artifacts if isinstance(artifact, Mapping)}
     if {entry.name for entry in bundle_dir.iterdir()} != expected_names:
@@ -439,7 +441,7 @@ def _cached_base_layer_bundle(
         or local_contract["download_bytes"] != contract["download_bytes"]
     ):
         raise ValueError("cached base layer bundle differs from the assignment")
-    return bundle_dir, downloaded, manifest_sha256
+    return bundle_dir, downloaded, manifest_sha256, tuple(downloaded_artifacts)
 
 
 def _load_frozen_base(
@@ -681,6 +683,7 @@ def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
     artifact_started = time.perf_counter()
     bundle_dir: Path | None = None
     bundle_manifest_sha256: str | None = None
+    bundle_downloaded_artifacts: tuple[str, ...] = ()
     if session.base_profile == "layer-bundle":
         bundle_contract = _layer_bundle_assignment_contract(assignment, loaded)
         base_digest = str(bundle_contract["manifest_sha256"])
@@ -693,7 +696,12 @@ def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
             raise ValueError("persistent native session base identity changed")
         model_network_bytes = 0
     elif session.base_profile == "layer-bundle":
-        bundle_dir, model_network_bytes, bundle_manifest_sha256 = (
+        (
+            bundle_dir,
+            model_network_bytes,
+            bundle_manifest_sha256,
+            bundle_downloaded_artifacts,
+        ) = (
             _cached_base_layer_bundle(
                 opener=opener,
                 origin=origin,
@@ -769,7 +777,13 @@ def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
         if adapter_tensors is None:
             raise RuntimeError("native session adapter tensors were not loaded")
         if not adapter_loaded_during_build:
-            load_adapter_state(model, adapter_tensors)
+            try:
+                load_adapter_state(model, adapter_tensors)
+            except BaseException:
+                session.model = None
+                session.base_digest = None
+                session.adapter_digest = None
+                raise
         session.adapter_digest = adapter_digest
         session.adapter_load_count += 1
     expected_weight_identity = lora_weight_checkpoint_sha256(
@@ -825,6 +839,8 @@ def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
             "device_capacity": _device_capacity_bytes(),
         },
     }
+    if session.base_profile == "layer-bundle":
+        telemetry["model_artifacts"] = list(bundle_downloaded_artifacts)
     runtime_backend = (
         "python-native-cpu-layer-bundle-f32"
         if session.base_profile == "layer-bundle"

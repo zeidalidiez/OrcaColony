@@ -442,6 +442,10 @@ class CampaignCoordinator:
                     self._state["publish_base_layer_bundle"]
                 ),
             )
+        if next_round.has_base_layer_bundle != bool(
+            self._state["publish_base_layer_bundle"]
+        ):
+            raise ValueError("next campaign layer-bundle publication state differs")
         self._current = next_round
         self._state["current_round"] = next_relative.as_posix()
         self._state["state"] = "campaign_running"
