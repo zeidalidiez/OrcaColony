@@ -151,6 +151,84 @@ def test_adapter_state_validation_is_atomic() -> None:
     )
 
 
+def test_int8_frozen_linear_profile_reduces_resident_tensors_with_explicit_drift() -> None:
+    loaded = peft.load_lora_manifest(CONFIG, LORA_CONFIG)
+    tokens = loaded.campaign.training.batch_size * loaded.campaign.model.context_length
+    inputs = (torch.arange(tokens, dtype=torch.long) * 17 + 3).remainder(
+        loaded.campaign.training.active_vocabulary_size
+    ).reshape(
+        loaded.campaign.training.batch_size,
+        loaded.campaign.model.context_length,
+    )
+    targets = (inputs + 1).remainder(
+        loaded.campaign.training.active_vocabulary_size
+    )
+    fp32_model = peft.build_lora_model(loaded.campaign, loaded.config)
+    int8_model = peft.build_int8_lora_model(loaded.campaign, loaded.config)
+
+    def resident_tensor_bytes(model: torch.nn.Module) -> int:
+        seen: set[int] = set()
+        total = 0
+        for tensor in [*model.parameters(), *model.buffers()]:
+            pointer = tensor.untyped_storage().data_ptr()
+            if pointer not in seen:
+                seen.add(pointer)
+                total += tensor.untyped_storage().nbytes()
+        return total
+
+    quantized_linears = [
+        module
+        for module in int8_model.modules()
+        if isinstance(module, peft.Int8FrozenLinear)
+    ]
+    assert peft.INT8_FROZEN_LINEAR_PROFILE == (
+        "int8-per-output-symmetric-f32-dequant-v1"
+    )
+    assert len(quantized_linears) == 16
+    with pytest.raises(ValueError, match="requires FP32 activations"):
+        quantized_linears[0](
+            torch.zeros(1, quantized_linears[0].in_features, dtype=torch.float16)
+        )
+    autocast_input = torch.zeros(
+        1,
+        quantized_linears[0].in_features,
+        dtype=torch.float32,
+        requires_grad=True,
+    )
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        autocast_output = quantized_linears[0](autocast_input)
+    assert autocast_output.dtype == torch.float32
+    autocast_output.sum().backward()
+    assert autocast_input.grad is not None
+    assert autocast_input.grad.dtype == torch.float32
+    assert resident_tensor_bytes(int8_model) < resident_tensor_bytes(fp32_model) * 0.6
+    assert list(peft.adapter_named_parameters(int8_model)) == list(
+        peft.adapter_named_parameters(fp32_model)
+    )
+    assert all(
+        parameter.requires_grad == ("lora_" in name)
+        for name, parameter in int8_model.named_parameters()
+    )
+
+    fp32 = peft.compute_adapter_gradients(fp32_model, inputs, targets)
+    int8 = peft.compute_adapter_gradients(int8_model, inputs, targets)
+    reference = torch.cat(
+        [fp32.gradients[name].reshape(-1).double() for name in fp32.gradients]
+    )
+    candidate = torch.cat(
+        [int8.gradients[name].reshape(-1).double() for name in fp32.gradients]
+    )
+    relative_l2 = float(
+        torch.linalg.vector_norm(candidate - reference)
+        / torch.linalg.vector_norm(reference)
+    )
+    cosine = float(torch.nn.functional.cosine_similarity(reference, candidate, dim=0))
+    assert cosine > 0.9998
+    assert 0.015 < relative_l2 < 0.019
+    assert abs(int8.loss_sum - fp32.loss_sum) / abs(fp32.loss_sum) < 1e-4
+    assert relative_l2 > 1e-3  # Deliberately not the connected FP32 profile.
+
+
 def test_adapter_gradient_application_matches_an_independent_mean_loss_step() -> None:
     campaign = load_campaign(CONFIG)
     config = _lora_config()

@@ -156,6 +156,12 @@ The worker pins the coordinator origin, rejects cross-origin redirects, streams 
 
 The one-shot T2 baseline spent `1.013742800001637 s` revalidating its 366,190,504-byte cached base and `1.9494272000010824 s` rebuilding/loading the runtime before `1.653274500000407 s` of gradient compute. The reproducible [`p3-persistent-native-session-v1`](research/studies/p3-persistent-native-session-v1) proof reduced reused-assignment setup to `0.00004199999966658652 s`—a 99.9986% reduction—while retaining `2.1866353039878446e-7` checkpoint relative L2. The current worker is still complete FP32 CPU residency after load, not quantized placement or mapped/NVMe tensor offload.
 
+### Offline int8 frozen-linear profile
+
+`build_int8_lora_model(...)` exposes the explicit offline numerical profile `int8-per-output-symmetric-f32-dequant-v1`. It stores frozen linear weights as per-output-channel symmetric int8 buffers, reconstructs FP32 weights inside a custom forward/backward function, and leaves LoRA parameters FP32 and trainable. It is deliberately **not** registered as a connected worker backend and does not inherit the FP32 acceptance tolerance.
+
+The reproducible [`int8-frozen-linear` spike](spikes/int8-frozen-linear) reduced unique resident model-tensor bytes by 43.08% at T0, 50.18% at T1, and 69.23% at T2. T2 adapter-gradient cosine remained `0.9995400`, but relative L2 reached `0.03038196`—about 3,038 times the connected FP32 bound. The result is therefore partial: quantized training needs an explicit quantized oracle/trajectory in P4, while P3 proceeds to exact-FP32 mapped or layer-streamed placement. The current builder converts an already constructed FP32 model, so it proves steady tensor storage rather than lower peak startup residency.
+
 ## T1 scale proof
 
 `campaign/t1-smoke.json` raises the same dynamic browser runtime to the planned T1 shape: 6 layers, width 256, 4 heads, 8,192 tokens, context 256, and exactly 6,901,760 parameters. Build its synthetic parity fixture with:

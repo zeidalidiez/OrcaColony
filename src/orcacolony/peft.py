@@ -169,6 +169,75 @@ class LoRALinear(nn.Module):
         return self.base(inputs) + adapter_output * self.scaling
 
 
+INT8_FROZEN_LINEAR_PROFILE = "int8-per-output-symmetric-f32-dequant-v1"
+
+
+class _Int8FrozenLinearFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, inputs: Tensor, qweight: Tensor, scales: Tensor, bias: Tensor | None) -> Tensor:
+        ctx.save_for_backward(qweight, scales)
+        with torch.autocast(device_type=inputs.device.type, enabled=False):
+            weight = qweight.to(dtype=torch.float32) * scales[:, None].float()
+            return F.linear(inputs.float(), weight, bias)
+
+    @staticmethod
+    def backward(ctx, grad_output: Tensor) -> tuple[Tensor, None, None, None]:
+        qweight, scales = ctx.saved_tensors
+        with torch.autocast(device_type=grad_output.device.type, enabled=False):
+            weight = qweight.to(dtype=torch.float32) * scales[:, None].float()
+            return grad_output.float().matmul(weight), None, None, None
+
+
+class Int8FrozenLinear(nn.Module):
+    """Frozen per-output symmetric int8 weight with FP32 scales and bias."""
+
+    def __init__(self, source: nn.Linear) -> None:
+        super().__init__()
+        if any(parameter.requires_grad for parameter in source.parameters()):
+            raise ValueError("int8 frozen linear source must not be trainable")
+        weight = source.weight.detach().to(dtype=torch.float32)
+        scales = (
+            weight.abs().amax(dim=1).clamp_min(torch.finfo(torch.float32).tiny)
+            / 127.0
+        )
+        self.in_features = source.in_features
+        self.out_features = source.out_features
+        self.register_buffer(
+            "qweight",
+            torch.round(weight / scales[:, None]).clamp(-127, 127).to(torch.int8),
+        )
+        self.register_buffer("scales", scales)
+        self.register_buffer(
+            "bias",
+            None
+            if source.bias is None
+            else source.bias.detach().to(dtype=torch.float32).clone(),
+        )
+
+    def forward(self, inputs: Tensor) -> Tensor:
+        if inputs.dtype != torch.float32:
+            raise ValueError("int8 frozen-linear profile requires FP32 activations")
+        return _Int8FrozenLinearFunction.apply(
+            inputs, self.qweight, self.scales, self.bias
+        )
+
+
+def _quantize_frozen_linears(module: nn.Module) -> int:
+    count = 0
+    for child_name, child in list(module.named_children()):
+        if isinstance(child, LoRALinear):
+            if not isinstance(child.base, nn.Linear):
+                raise ValueError("LoRA base is not an FP32 linear layer")
+            child.base = Int8FrozenLinear(child.base)
+            count += 1
+        elif isinstance(child, nn.Linear):
+            setattr(module, child_name, Int8FrozenLinear(child))
+            count += 1
+        else:
+            count += _quantize_frozen_linears(child)
+    return count
+
+
 def _resolve_child(module: nn.Module, component: str) -> nn.Module:
     if component.isdigit() and isinstance(module, (nn.ModuleList, nn.Sequential)):
         index = int(component)
@@ -215,6 +284,25 @@ def build_lora_model(
     adapters = adapter_named_parameters(model)
     if len(adapters) != 2 * len(config.targets):
         raise ValueError("LoRA trainable tensor set does not match the target manifest")
+    return model
+
+
+def build_int8_lora_model(
+    campaign: CampaignConfig,
+    config: LoRAConfig,
+) -> VolunteerDecoder:
+    """Build the explicit offline int8-frozen-linear / FP32-adapter profile.
+
+    This profile intentionally has a distinct numerical trajectory and is not a
+    connected ``python-native-cpu-f32`` backend. The current builder first
+    authenticates and constructs the complete FP32 base, then converts frozen
+    linears; it reduces steady tensor storage, not peak startup residency.
+    """
+
+    model = build_lora_model(campaign, config)
+    if _quantize_frozen_linears(model) <= 0:
+        raise ValueError("int8 frozen-linear profile did not replace any layers")
+    adapter_named_parameters(model)
     return model
 
 

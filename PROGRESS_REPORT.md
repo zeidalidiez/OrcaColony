@@ -168,6 +168,9 @@ Completed within the first P3 measurement and native-baseline slice:
 - Added bounded persistent native sessions through `--assignments N`. One authenticated process now retains the validated base/model, reuses unchanged adapter state, and fetches and loads only a new checkpoint-specific adapter after campaign advancement. Adapter refresh validates and converts the complete tensor set before copying any parameter, so a malformed refresh cannot leave a mixed in-memory adapter. A two-step test completed four assignments with one model build and two adapter loads.
 - Proved the persistent session on the 91.5M-parameter T2 profile. The reused second assignment reduced base-cache validation from `1.013742800001637` seconds to `0.0000092999980552122` seconds and runtime initialization from `1.9494272000010824` seconds to `0.00012460000289138407` seconds while preserving zero model/adapter payload, `2.1866353039878446e-7` checkpoint relative L2, and the same held-out improvement.
 - Published `p3-persistent-native-session-v1`, pinned to implementation commit `da606a03f185e3af48c34209daacb1396c4350e0`. Its isolated reproduction measured `0.00004199999966658652` seconds of total warm setup, a `0.9999858259905214` reduction from the one-shot baseline, while recording unchanged FP32 resident memory, single-worker shard filling, and retry-fault-injection limits.
+- Ran and preserved the `int8-frozen-linear` comparison across T0/T1/T2. Per-row symmetric int8 frozen linears reduced unique resident model-tensor bytes by 43.08%, 50.18%, and 69.23%; T2 fell from `367,552,512` to `113,080,320` bytes.
+- The int8 verdict is partial rather than connected acceptance: T2 adapter-gradient relative L2 was `0.030381955632016452` despite `0.9995400063256481` cosine and `0.00002760711142521869` relative loss-sum error. That drift is roughly 3,038 times the current FP32 bound, so the quantized profile remains offline until P4 defines and validates its own oracle/trajectory.
+- Added the explicit offline `int8-per-output-symmetric-f32-dequant-v1` model builder with FP32-only activations and adapters. It converts an already constructed FP32 model, proving steady tensor storage but not lower peak startup RSS or larger-than-RAM loading.
 
 ### P4 — Qualify numerical and mixed execution profiles
 
@@ -209,11 +212,12 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Begin the measured quantized frozen-base RAM profile at T2. Keep adapter math and coordinator FP32 aggregation unchanged, report quantized storage and resident-memory behavior separately, and certify its gradients/checkpoint against the FP32 persistent-session baseline before considering mapped/NVMe offload.
+Begin the exact-FP32 mapped/layer-streamed placement spike at T2. Measure startup and steady RSS, storage reads, recomputation, and adapter-gradient identity without changing the optimization objective. Carry the int8 profile into P4 as an explicit distinct numerical trajectory rather than weakening the connected FP32 contract.
 
 ## Remaining major work
 
-- Native worker with quantized frozen-base RAM placement and explicit mapped/NVMe offload.
+- Native worker with exact-FP32 mapped/NVMe or layer-streamed offload.
+- Quantized-profile oracle, trajectory, and homogeneous-campaign proof in P4.
 - Profile certification and mixed-profile proof.
 - Rolling-submodel feasibility study.
 - Exact tiled-computation feasibility study.
@@ -255,3 +259,4 @@ Begin the measured quantized frozen-base RAM profile at T2. Keep adapter math an
 - Published the P3 resource-profile study and used its measured T2 setup/compute ratio to select persistent process/model reuse before quantization and mapped offload.
 - Added bounded persistent native sessions and proved T2 in-memory model/adapter reuse removes essentially all warm validation/initialization overhead without changing the canonical checkpoint.
 - Published the persistent-session study with failure-atomic refresh evidence and retained its throughput-only, one-worker, FP32-resident limitations.
+- Proved int8 frozen-linear storage reduction across T0/T1/T2, preserved the partial numerical result, and refused to admit its 1.7%–3.0% adapter-gradient drift under the FP32 worker identity.
