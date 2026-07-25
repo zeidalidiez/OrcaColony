@@ -1,0 +1,97 @@
+{
+  "format": "orcacolony_experiment_v1",
+  "study_id": "p2-connected-browser-lora-v1",
+  "experiment_id": "burn-cpu-wasm-connected-lora",
+  "title": "Connected Burn CPU/WASM adapter-only global step",
+  "status": "validated",
+  "subject": {
+    "kind": "coordinator-worker-profile",
+    "id": "burn-ndarray-connected-lora-fp32",
+    "revision": "git:cab9b6c49e4b9fad666a9f42396a28541ffc84ce"
+  },
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "cab9b6c49e4b9fad666a9f42396a28541ffc84ce",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/cab9b6c49e4b9fad666a9f42396a28541ffc84ce"
+    },
+    {
+      "id": "local-run-record",
+      "kind": "generated-json-sha256",
+      "revision": "8ce563209c916e838d1644a5470aeb37d57c0a9e36f2d949e056eb43e371fc89",
+      "uri": "generated:.artifacts/p2-connected-lora-browser-results.json"
+    }
+  ],
+  "method": {
+    "training_method": {
+      "id": "frozen-base-lora",
+      "label": "Frozen-base LoRA",
+      "description": "Differentiate and return only the eight rank-4 fused-QKV adapter tensors while executing the complete frozen T0 base."
+    },
+    "execution_topology": {
+      "id": "connected-two-browser-global-step",
+      "label": "Connected two-browser global step",
+      "description": "Two authenticated browser workers lease disjoint two-row assignments; the coordinator accepts each once, sums FP32 adapter gradients, normalizes and clips once, applies AdamW, and owns the canonical adapter checkpoint."
+    },
+    "memory_profiles": [
+      {
+        "id": "browser-cpu-resident",
+        "label": "Browser CPU-resident",
+        "description": "The complete T0 frozen base and small adapter reside in browser-addressable WASM memory."
+      }
+    ],
+    "numerical_profiles": [
+      {
+        "id": "burn-ndarray-f32-lora",
+        "label": "Burn NdArray FP32 LoRA",
+        "description": "Burn 0.21 Autodiff over NdArray f32 tensors with coordinator FP32 aggregation and canonical AdamW."
+      }
+    ]
+  },
+  "worker_profiles": [
+    {
+      "id": "headless-chrome-150-windows-cpu-two-workers",
+      "label": "Two logical Headless Chrome 150 Windows CPU workers",
+      "description": "Two owner-approved worker identities executed sequentially in the same local headless Chrome environment through the CPU/WASM backend."
+    }
+  ],
+  "resource_budget": {
+    "limits": [
+      {
+        "id": "browser-passes",
+        "label": "Browser backward passes",
+        "value": 2,
+        "unit": "passes"
+      },
+      {
+        "id": "wall-time-per-pass",
+        "label": "Maximum elapsed browser time per pass",
+        "value": 60,
+        "unit": "seconds"
+      }
+    ]
+  },
+  "reproduction": {
+    "command": [
+      "uv",
+      "run",
+      "python",
+      "-m",
+      "orcacolony.multiworker",
+      "--config",
+      "campaign/t0-smoke.json",
+      "--lora-config",
+      "campaign/t0-lora-smoke.json",
+      "--participants",
+      "campaign/t0-local-participants.json",
+      "--state",
+      ".artifacts/p2-connected-lora",
+      "--browser-root",
+      "spikes/burn-browser-gradient/www",
+      "--workers",
+      "2"
+    ],
+    "notes": "At cab9b6c49e4b9fad666a9f42396a28541ffc84ce, build the browser worker with ORCACOLONY_LORA_CONFIG=campaign/t0-lora-smoke.json, start from a fresh state directory, and open the documented browser-a and browser-b CPU/WASM worker URLs."
+  }
+}

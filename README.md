@@ -94,6 +94,22 @@ uv run python -m orcacolony.multiworker \
 
 The verified two-step browser run advanced the checkpoint to step 2 and dataset cursor 8 while preserving AdamW state. Its step-2 model reached cosine similarity `0.999999999999976` and relative L2 error `2.185048989144713e-7` against the resumed Python reference.
 
+Run the explicit frozen-base LoRA profile through the same connected global-step path with:
+
+```bash
+uv run python -m orcacolony.multiworker \
+  --config campaign/t0-smoke.json \
+  --lora-config campaign/t0-lora-smoke.json \
+  --participants campaign/t0-local-participants.json \
+  --state .artifacts/p2-connected-lora \
+  --browser-root spikes/burn-browser-gradient/www \
+  --workers 2
+```
+
+The coordinator serves the immutable dense base and current adapter separately, binds every assignment to both weight identities, the full optimizer-backed resume-state identity, and the exact eight-tensor trainable manifest, accepts no base gradients, and publishes only the next canonical adapter plus its optimizer state. Use the same `?cpu=browser-a#token=local-browser-a` and `?cpu=browser-b#token=local-browser-b` URLs for the CPU/WASM path. In the connected proof, both browser assignments were accepted, the adapter checkpoint survived coordinator restart, and its 8,192 values matched an independent centralized Python step with cosine `0.9999999999985897`, relative L2 `1.6795715402185043e-6`, and maximum absolute error `7.257913239300251e-7`.
+
+This establishes connected adapter-only coordination, not useful model adaptation or reduced frozen-base execution memory. Persistent LoRA campaign evaluation and release remain the next integration layer; the dense campaign path below is unchanged.
+
 ## Persistent multi-step campaign
 
 The campaign runner automatically promotes each completed global step, versions its checkpoint, opens the next round with the preserved optimizer and dataset cursor, and rebuilds a campaign-wide accepted-work ledger:

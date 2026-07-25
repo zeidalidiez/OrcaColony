@@ -1,0 +1,83 @@
+{
+  "format": "orcacolony_study_v1",
+  "study_id": "p2-connected-browser-lora-v1",
+  "title": "P2 connected browser LoRA global-step proof",
+  "hypothesis": "Two authenticated Burn CPU/WASM browser workers can complete disjoint frozen-base LoRA assignments whose exact adapter-only gradients are accepted, aggregated, optimized, checkpointed, and recovered by the coordinator within the declared numerical gates.",
+  "status": "validated",
+  "use_case": {
+    "claim": "Qualify the connected adapter-only coordinator path before promoting LoRA into persistent evaluated campaigns.",
+    "baseline": {
+      "id": "python-centralized-lora-step",
+      "label": "Independent centralized Python LoRA step",
+      "description": "One Python FP32 update over the same complete four-row T0 batch from the same frozen base and initial adapters."
+    },
+    "primary_metric": {
+      "id": "adapter-checkpoint-cosine-similarity",
+      "label": "Accepted adapter checkpoint cosine similarity",
+      "description": "Cosine similarity across all accepted adapter values relative to the independent centralized Python checkpoint.",
+      "direction": "maximize",
+      "success_threshold": 0.999,
+      "unit": "cosine"
+    },
+    "repeated_validation_suite": {
+      "id": "connected-browser-assignment-gradients",
+      "label": "Connected browser assignment gradients",
+      "description": "Run two disjoint authenticated CPU/WASM assignments and compare every submitted adapter gradient to its assignment-specific Python oracle.",
+      "revision": "git:cab9b6c49e4b9fad666a9f42396a28541ffc84ce:connected-lora-assignments"
+    },
+    "final_holdout_suite": {
+      "id": "accepted-adapter-checkpoint-and-restart",
+      "label": "Accepted adapter checkpoint and restart",
+      "description": "Compare the coordinator-owned adapter checkpoint to an independently generated Python step, restart the coordinator, and retrieve the identical adapter artifact.",
+      "revision": "git:cab9b6c49e4b9fad666a9f42396a28541ffc84ce:connected-lora-checkpoint"
+    },
+    "guardrails": [
+      {
+        "id": "complete-adapter-tensor-set",
+        "label": "Complete adapter tensor set",
+        "description": "Each result and the checkpoint must contain exactly 8 declared tensors and 8,192 values without base gradients."
+      },
+      {
+        "id": "at-most-once-acceptance",
+        "label": "At-most-once acceptance",
+        "description": "Both disjoint assignment identities must appear exactly once in the accepted-work ledger."
+      },
+      {
+        "id": "checkpoint-relative-l2",
+        "label": "Checkpoint relative L2",
+        "description": "Relative L2 error against the independent Python adapter checkpoint must not exceed 0.01."
+      },
+      {
+        "id": "restartable-adapter-state",
+        "label": "Restartable adapter state",
+        "description": "Coordinator restart must recover step, optimizer, cursor, loss history, attribution, the identical adapter artifact, and the same complete resume-state identity."
+      },
+      {
+        "id": "dense-regression-suite",
+        "label": "Dense coordinator regression suite",
+        "description": "The established dense coordinator and browser contracts must remain green."
+      }
+    ]
+  },
+  "independent_variables": [
+    {
+      "id": "execution-topology",
+      "label": "Connected adapter-only browser coordination",
+      "description": "Replace isolated fixture execution with authenticated leased assignments and coordinator-owned aggregation, optimization, and persistence."
+    }
+  ],
+  "controlled_variables": [
+    {
+      "id": "base-adapter-data-optimizer",
+      "label": "Base, initial adapters, batch, and optimizer",
+      "description": "Hold the T0 base, rank-4 QKV adapter manifest, initial adapter identity, complete four-row batch, FP32 accumulation, clipping, and AdamW configuration fixed."
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "burn-cpu-wasm-connected-lora",
+      "role": "candidate",
+      "manifest": "experiments/burn-cpu-wasm-connected-lora.json"
+    }
+  ]
+}

@@ -1,0 +1,144 @@
+{
+  "format": "orcacolony_experiment_evidence_v1",
+  "study_id": "p2-connected-browser-lora-v1",
+  "experiment_id": "burn-cpu-wasm-connected-lora",
+  "outcome": "validated",
+  "completed_at": "2026-07-25T03:46:45Z",
+  "summary": "Two authenticated Burn CPU/WASM workers returned the exact eight-tensor adapter trainable set, were accepted once, produced a restartable canonical adapter checkpoint with separate weight and full-state identities, and matched an independent centralized Python step with cosine similarity 0.9999999999985897.",
+  "measurements": [
+    {
+      "id": "worker-a-gradient-relative-l2",
+      "label": "Worker A gradient relative L2",
+      "value": 4.80808764225882e-7,
+      "unit": "ratio"
+    },
+    {
+      "id": "worker-b-gradient-relative-l2",
+      "label": "Worker B gradient relative L2",
+      "value": 4.599249278948762e-7,
+      "unit": "ratio"
+    },
+    {
+      "id": "worker-a-elapsed",
+      "label": "Worker A browser elapsed time",
+      "value": 0.785,
+      "unit": "seconds"
+    },
+    {
+      "id": "worker-b-elapsed",
+      "label": "Worker B browser elapsed time",
+      "value": 0.551,
+      "unit": "seconds"
+    },
+    {
+      "id": "checkpoint-relative-l2",
+      "label": "Accepted checkpoint relative L2",
+      "value": 1.6795715402185043e-6,
+      "unit": "ratio"
+    },
+    {
+      "id": "checkpoint-max-absolute-error",
+      "label": "Accepted checkpoint maximum absolute error",
+      "value": 7.257913239300251e-7,
+      "unit": "adapter-weight"
+    },
+    {
+      "id": "accepted-adapter-values",
+      "label": "Accepted adapter values",
+      "value": 8192,
+      "unit": "values"
+    }
+  ],
+  "evaluation": {
+    "primary_metric": {
+      "id": "adapter-checkpoint-cosine-similarity",
+      "value": 0.9999999999985897
+    },
+    "guardrails": [
+      {
+        "id": "complete-adapter-tensor-set",
+        "passed": true,
+        "detail": "Both browser results and the checkpoint contained exactly 8 declared adapter tensors and 8,192 values; base gradients were not accepted."
+      },
+      {
+        "id": "at-most-once-acceptance",
+        "passed": true,
+        "detail": "The accepted-work ledger retained exactly one entry for browser-a and one for browser-b over disjoint ranges."
+      },
+      {
+        "id": "checkpoint-relative-l2",
+        "passed": true,
+        "detail": "Relative L2 against the independently generated centralized Python adapter checkpoint was 1.6795715402185043e-6."
+      },
+      {
+        "id": "restartable-adapter-state",
+        "passed": true,
+        "detail": "After coordinator restart, status remained step_complete at optimizer step 1, the adapter endpoint returned SHA-256 ebae0d5fa8886ced1261e294465ee3be0c890b3c6271b82ad65a38ac6f947dc2, and the complete resume-state identity remained 9e621151601e7b28e51dc666f66b23ecaa58157b6cbdaef6977d7902bd2da29a."
+      },
+      {
+        "id": "dense-regression-suite",
+        "passed": true,
+        "detail": "All repository tests passed, including the existing dense coordinator, restart, HTTP, and browser-contract regressions."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "connected-adapter-global-step",
+      "label": "Connected adapter-only global step established",
+      "description": "The previously isolated browser LoRA path now completes authenticated leased assignments and contributes to a coordinator-owned canonical adapter checkpoint.",
+      "kind": "positive"
+    },
+    {
+      "id": "separate-weight-resume-identities",
+      "label": "Worker weights and full resume state remain distinct",
+      "description": "Assignments identify the immutable base, current adapter, combined worker-facing weight checkpoint, complete optimizer-backed resume state, and exact trainable set independently; workers are not coupled to coordinator-only optimizer moments.",
+      "kind": "positive"
+    },
+    {
+      "id": "split-batch-rounding",
+      "label": "Split-batch FP32 rounding remains measurable",
+      "description": "Summing two independently executed two-row browser gradients yielded a checkpoint relative L2 of 1.6795715402185043e-6 versus one four-row Python pass, while remaining far inside the declared gate.",
+      "kind": "neutral"
+    }
+  ],
+  "limitations": [
+    "Both logical workers ran sequentially in one local headless Chrome instance and do not characterize heterogeneous community hardware or network behavior.",
+    "The complete frozen T0 base still resides in browser-accessible memory; LoRA reduces trainable state and upload size but does not prove base-model offload.",
+    "The synthetic one-step T0 fixture establishes numerical and persistence correctness, not useful adaptation quality.",
+    "Persistent multi-step LoRA campaign evaluation and release are not part of this experiment.",
+    "The experiment uses owner-approved local participants and does not qualify public untrusted compute."
+  ],
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "cab9b6c49e4b9fad666a9f42396a28541ffc84ce",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/cab9b6c49e4b9fad666a9f42396a28541ffc84ce"
+    },
+    {
+      "id": "local-run-record",
+      "kind": "generated-json-sha256",
+      "revision": "8ce563209c916e838d1644a5470aeb37d57c0a9e36f2d949e056eb43e371fc89",
+      "uri": "generated:.artifacts/p2-connected-lora-browser-results.json"
+    },
+    {
+      "id": "accepted-adapter",
+      "kind": "safetensors-sha256",
+      "revision": "ebae0d5fa8886ced1261e294465ee3be0c890b3c6271b82ad65a38ac6f947dc2",
+      "uri": "generated:.artifacts/p2-connected-lora/checkpoint/adapter.safetensors"
+    },
+    {
+      "id": "accepted-weight-checkpoint",
+      "kind": "worker-weight-checkpoint-sha256",
+      "revision": "1cc2b17936a747dcb6914786f3d32ecaceae263f4a9d0aa69e0bc81d7cbd248f",
+      "uri": "generated:.artifacts/p2-connected-lora/checkpoint/state.json"
+    },
+    {
+      "id": "accepted-resume-state",
+      "kind": "resume-state-sha256",
+      "revision": "9e621151601e7b28e51dc666f66b23ecaa58157b6cbdaef6977d7902bd2da29a",
+      "uri": "generated:.artifacts/p2-connected-lora/checkpoint/state.json"
+    }
+  ]
+}
