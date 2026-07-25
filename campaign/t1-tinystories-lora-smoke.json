@@ -1,0 +1,23 @@
+{
+  "format": "orcacolony_lora_manifest_v1",
+  "base": {
+    "campaign_file": "t1-tinystories-smoke.json",
+    "campaign_sha256": "c434fe12675af70d9960bb5a15d06a08d5e1dc4190b4ccb591eb10939119d53b",
+    "model_sha256": "6e76ac7cc4919d468b9027650301b0cf7fd49465ff75693486d51cfbb920e175"
+  },
+  "adapter": {
+    "rank": 4,
+    "alpha": 8.0,
+    "dropout": 0.0,
+    "seed": 20260725,
+    "initialization_std": 0.01,
+    "targets": [
+      "blocks.0.attention.qkv",
+      "blocks.1.attention.qkv",
+      "blocks.2.attention.qkv",
+      "blocks.3.attention.qkv",
+      "blocks.4.attention.qkv",
+      "blocks.5.attention.qkv"
+    ]
+  }
+}

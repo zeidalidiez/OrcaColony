@@ -1,0 +1,236 @@
+{
+  "format": "orcacolony_experiment_evidence_v1",
+  "study_id": "p3-native-resource-profile-v1",
+  "experiment_id": "browser-and-native-cached-base-profiles",
+  "outcome": "validated",
+  "completed_at": "2026-07-25T06:04:08Z",
+  "summary": "Validated worker resource observations exposed repeated browser base payloads, a digest-validated native cache eliminated 100% of warm base and adapter fetch payloads at T1 and 91.5M parameters, both native checkpoints stayed below 2.19e-7 relative L2, and both one-step profiles improved frozen TinyStories held-out loss. The 91.5M warm one-shot process spent 2.963 seconds revalidating and initializing versus 1.653 seconds computing, selecting persistent process/model reuse before quantization or mapped offload.",
+  "measurements": [
+    {
+      "id": "warm-base-payload-avoidance-ratio",
+      "label": "Warm base payload avoidance ratio",
+      "value": 1.0,
+      "unit": "ratio"
+    },
+    {
+      "id": "browser-gradient-compute",
+      "label": "Browser aggregate gradient compute",
+      "value": 0.8897999999970198,
+      "unit": "seconds"
+    },
+    {
+      "id": "browser-payload-bytes",
+      "label": "Browser worker API payload bytes",
+      "value": 10891792,
+      "unit": "bytes"
+    },
+    {
+      "id": "browser-peak-wasm-memory",
+      "label": "Browser peak WASM linear memory",
+      "value": 46661632,
+      "unit": "bytes"
+    },
+    {
+      "id": "browser-coordinator-storage",
+      "label": "Browser proof coordinator storage",
+      "value": 5955804,
+      "unit": "bytes"
+    },
+    {
+      "id": "browser-checkpoint-relative-l2",
+      "label": "Browser checkpoint relative L2",
+      "value": 0.0000016795715402185043,
+      "unit": "ratio"
+    },
+    {
+      "id": "t1-parameter-count",
+      "label": "T1 parameter count",
+      "value": 6901760,
+      "unit": "parameters"
+    },
+    {
+      "id": "t1-payload-bytes",
+      "label": "T1 worker API payload bytes",
+      "value": 27923329,
+      "unit": "bytes"
+    },
+    {
+      "id": "t1-peak-process-rss",
+      "label": "T1 peak native process RSS",
+      "value": 390336512,
+      "unit": "bytes"
+    },
+    {
+      "id": "t1-checkpoint-relative-l2",
+      "label": "T1 checkpoint relative L2",
+      "value": 0.00000012317732405376926,
+      "unit": "ratio"
+    },
+    {
+      "id": "t1-held-out-loss-improvement",
+      "label": "T1 held-out mean-loss improvement",
+      "value": 0.0006135702133178711,
+      "unit": "loss"
+    },
+    {
+      "id": "t1-warm-noncompute-seconds",
+      "label": "T1 warm cache validation and runtime initialization",
+      "value": 0.2626989000127651,
+      "unit": "seconds"
+    },
+    {
+      "id": "t2-parameter-count",
+      "label": "T2 parameter count",
+      "value": 91544064,
+      "unit": "parameters"
+    },
+    {
+      "id": "t2-base-payload-bytes",
+      "label": "T2 immutable base response payload",
+      "value": 366190504,
+      "unit": "bytes"
+    },
+    {
+      "id": "t2-total-payload-bytes",
+      "label": "T2 worker API payload bytes",
+      "value": 367978938,
+      "unit": "bytes"
+    },
+    {
+      "id": "t2-peak-process-rss",
+      "label": "T2 peak native process RSS",
+      "value": 1746419712,
+      "unit": "bytes"
+    },
+    {
+      "id": "t2-coordinator-storage",
+      "label": "T2 coordinator storage",
+      "value": 378093711,
+      "unit": "bytes"
+    },
+    {
+      "id": "t2-checkpoint-relative-l2",
+      "label": "T2 checkpoint relative L2",
+      "value": 0.00000021866353039878446,
+      "unit": "ratio"
+    },
+    {
+      "id": "t2-held-out-loss-improvement",
+      "label": "T2 held-out mean-loss improvement",
+      "value": 0.0033478736877441406,
+      "unit": "loss"
+    },
+    {
+      "id": "t2-warm-noncompute-seconds",
+      "label": "T2 warm cache validation and runtime initialization",
+      "value": 2.9631700000027195,
+      "unit": "seconds"
+    },
+    {
+      "id": "t2-warm-gradient-compute-seconds",
+      "label": "T2 warm gradient compute",
+      "value": 1.653274500000407,
+      "unit": "seconds"
+    },
+    {
+      "id": "t2-warm-noncompute-to-compute-ratio",
+      "label": "T2 warm noncompute-to-compute ratio",
+      "value": 1.7923036979049698,
+      "unit": "ratio"
+    },
+    {
+      "id": "t2-int8-upper-bound-rss-reduction",
+      "label": "T2 theoretical base-only FP32-to-int8 RSS reduction ceiling",
+      "value": 0.15726052340847604,
+      "unit": "ratio"
+    }
+  ],
+  "evaluation": {
+    "primary_metric": {
+      "id": "warm-base-payload-avoidance-ratio",
+      "value": 1.0
+    },
+    "guardrails": [
+      {
+        "id": "checkpoint-parity",
+        "passed": true,
+        "detail": "T1 and T2 checkpoint relative L2 values were 1.2317732405376926e-7 and 2.1866353039878446e-7, both below 1e-6."
+      },
+      {
+        "id": "held-out-loss-non-regression",
+        "passed": true,
+        "detail": "T1 held-out mean loss improved by 0.0006135702133178711 and T2 improved by 0.0033478736877441406 after one adapter step."
+      },
+      {
+        "id": "telemetry-complete-and-private",
+        "passed": true,
+        "detail": "All four native assignments produced validated reports; public aggregates exposed observed runtime memory but no device-capacity or JS-heap-limit fields."
+      },
+      {
+        "id": "connected-browser-proof",
+        "passed": true,
+        "detail": "Two real authenticated Burn CPU/WASM assignments populated compute, payload, worker-memory, and coordinator-storage cards and retained 1.6795715402185043e-6 checkpoint relative L2."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "warm-cache-eliminates-fetch",
+      "label": "Warm native cache removes immutable artifact fetches",
+      "description": "The second isolated native process reported zero model and adapter payload bytes at both T1 and T2 while still revalidating the digest-named cached tensors.",
+      "kind": "positive"
+    },
+    {
+      "id": "resource-contract-scales",
+      "label": "Resource and numerical contracts scale to 91.5M parameters",
+      "description": "The unchanged authenticated assignment, telemetry, aggregation, evaluation, and checkpoint paths completed at T2 with 147,456 trainable adapter values and 2.19e-7 relative L2.",
+      "kind": "positive"
+    },
+    {
+      "id": "one-shot-startup-dominates-warm-compute",
+      "label": "One-shot native startup dominates warm compute",
+      "description": "At T2, full cache revalidation plus model initialization consumed 2.963 seconds, 1.79 times the 1.653-second warm gradient compute. Persistent process/model reuse is therefore the next throughput target.",
+      "kind": "negative"
+    },
+    {
+      "id": "quantization-savings-bounded-at-t2",
+      "label": "Base-only int8 has a bounded T2 memory ceiling",
+      "description": "The 366,190,504-byte FP32 base was 20.97% of observed 1,746,419,712-byte peak process RSS, so an idealized fourfold base compression could reduce this measured peak by at most 15.73% before runtime overheads.",
+      "kind": "neutral"
+    },
+    {
+      "id": "payload-not-wire-bytes",
+      "label": "Payload sizes are not packet-level transfer measurements",
+      "description": "Browser values measure response bodies delivered through Fetch and cannot distinguish browser HTTP-cache hits; coordinator result sizes are exact request bodies. The dashboard now labels this distinction explicitly.",
+      "kind": "neutral"
+    }
+  ],
+  "limitations": [
+    "All measurements came from one Windows host over loopback; they do not establish heterogeneous WAN throughput or remote participant reliability.",
+    "The T1 and T2 bases are deterministic randomly initialized research models. Positive one-step held-out movement is a guardrail result, not evidence of useful language-model adaptation quality.",
+    "Warm-cache proofs use separate one-shot native processes sharing one local cache, representing repeated work on one volunteer installation rather than cache sharing across different machines.",
+    "Peak process RSS is runtime-wide and includes Python/PyTorch overhead; it does not isolate tensor residency by layer.",
+    "The profile remains complete FP32 CPU residency after loading. It does not yet prove quantized frozen-base execution, mapped/NVMe offload, GPU placement, or a model larger than system RAM.",
+    "Browser payload sizes do not distinguish HTTP-cache hits from network responses and exclude packet/header overhead."
+  ],
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "673017df9caa4d91f6bff96a39f56a40690c71e9",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/673017df9caa4d91f6bff96a39f56a40690c71e9"
+    },
+    {
+      "id": "native-proof-summary",
+      "kind": "generated-json-sha256",
+      "revision": "695e5b78d9203026cfa732e060f6c86e73bf6b0dd606c1c72e2ae75df7dd5fe4",
+      "uri": "generated:.artifacts/p3-native-resource-profile-proof/proof-summary.json"
+    },
+    {
+      "id": "browser-dashboard",
+      "kind": "generated-json-sha256",
+      "revision": "5879783cc6e4b54a1be22ae07c6ee231329659ed80220191b9d81f13f4f70a62",
+      "uri": "generated:.artifacts/p3-browser-resource-profile-final-dashboard.json"
+    }
+  ]
+}

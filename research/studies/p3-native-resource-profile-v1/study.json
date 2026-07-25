@@ -1,0 +1,98 @@
+{
+  "format": "orcacolony_study_v1",
+  "study_id": "p3-native-resource-profile-v1",
+  "title": "Measured browser telemetry and cached-base native scaling",
+  "hypothesis": "Validated resource observations will expose repeated immutable-base payloads, and a content-addressed native cache will eliminate warm-assignment base and adapter fetches at both T1 and a 91.5M-parameter T2 profile without violating checkpoint parity or held-out-loss guardrails.",
+  "status": "validated",
+  "use_case": {
+    "claim": "Select the first native execution profile and its next optimization from measured runtime, payload, memory, storage, numerical, and TinyStories held-out behavior rather than architecture preference.",
+    "baseline": {
+      "id": "browser-repeated-artifact-fetch",
+      "label": "Connected CPU/WASM browser worker",
+      "description": "Two authenticated CPU/WASM assignments fetch the immutable base and current adapter through the worker API and report complete resource observations."
+    },
+    "primary_metric": {
+      "id": "warm-base-payload-avoidance-ratio",
+      "label": "Warm base payload avoidance ratio",
+      "description": "Fraction of the immutable base response payload avoided by the second native assignment using the same content-addressed local cache.",
+      "direction": "maximize",
+      "success_threshold": 1.0,
+      "unit": "ratio"
+    },
+    "repeated_validation_suite": {
+      "id": "t1-t2-native-cache-profiles",
+      "label": "T1 and 91.5M-parameter T2 cached-base profiles",
+      "description": "Run two authenticated native assignments with one shared cache at each scale, aggregate one canonical adapter step, and evaluate the resulting checkpoint on frozen TinyStories validation sequences.",
+      "revision": "99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af"
+    },
+    "final_holdout_suite": {
+      "id": "frozen-tinystories-validation",
+      "label": "Frozen TinyStories validation profile",
+      "description": "Compare initialization and step-1 held-out cross-entropy on the campaign-declared frozen validation prefix at each scale.",
+      "revision": "a8a8868b8a2a6aa14b53f9cb18d6e47a027e90532df7607a1297817bd692c706"
+    },
+    "guardrails": [
+      {
+        "id": "checkpoint-parity",
+        "label": "Canonical adapter checkpoint parity",
+        "description": "Each native profile must remain below 1e-6 relative L2 against the independent centralized adapter step."
+      },
+      {
+        "id": "held-out-loss-non-regression",
+        "label": "Held-out loss non-regression",
+        "description": "Step-1 held-out mean loss must not exceed initialization at either real-data profile."
+      },
+      {
+        "id": "telemetry-complete-and-private",
+        "label": "Complete privacy-filtered telemetry",
+        "description": "Both assignments at every profile must report validated observations while the public aggregate omits device capacity and JS heap limit."
+      },
+      {
+        "id": "connected-browser-proof",
+        "label": "Real connected Burn worker proof",
+        "description": "Two authenticated CPU/WASM assignments must populate runtime, payload, memory, and storage cards while preserving the established adapter checkpoint parity bound."
+      }
+    ]
+  },
+  "independent_variables": [
+    {
+      "id": "runtime-profile",
+      "label": "Worker runtime",
+      "description": "Burn CPU/WASM browser versus native Python/PyTorch CPU."
+    },
+    {
+      "id": "cache-state",
+      "label": "Artifact cache state",
+      "description": "Cold content-addressed cache versus a validated warm cache."
+    },
+    {
+      "id": "model-scale",
+      "label": "Model scale",
+      "description": "T1 at 6,901,760 parameters versus T2 at 91,544,064 parameters."
+    }
+  ],
+  "controlled_variables": [
+    {
+      "id": "training-contract",
+      "label": "Adapter-gradient contract",
+      "description": "Rank-4 alpha-8 frozen-base QKV LoRA, complete summed FP32 gradients, and one coordinator-owned AdamW update."
+    },
+    {
+      "id": "dataset",
+      "label": "Frozen TinyStories artifacts",
+      "description": "Both native scales use dataset manifest 99e5642b and tokenizer 7cb0fc24."
+    },
+    {
+      "id": "assignment-shape",
+      "label": "Two-way global step",
+      "description": "Two authenticated assignments each process one context-256 sequence and aggregate once."
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "browser-and-native-cached-base-profiles",
+      "role": "candidate",
+      "manifest": "experiments/browser-and-native-cached-base-profiles.json"
+    }
+  ]
+}

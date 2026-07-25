@@ -161,6 +161,10 @@ Completed within the first P3 measurement and native-baseline slice:
 - Selected a content-addressed cached-base native CPU profile as the first native baseline because the browser proof transferred the immutable 5,340,824-byte base once per assignment while computing each bounded gradient in well under one second. This is a measured baseline decision, not arbitrary commitment to CPU residency as the final placement architecture.
 - Added an authenticated same-origin native worker that streams base and adapter artifacts to digest-named safetensors cache entries, revalidates tensor identities, loads only declared LoRA state, computes complete adapter gradients, reports process peak RSS, and submits through the existing coordinator contract.
 - Proved two native assignments with one shared cache: the first fetched the 5,340,824-byte base and 33,520-byte adapter; the second fetched zero model and adapter bytes. Aggregate native gradient compute was `0.055746099998941645` seconds, process peak RSS was `316,760,064` bytes, and checkpoint relative L2 was `3.038902086339097e-7`.
+- Qualified the same native cache contract against frozen TinyStories at T1 (6,901,760 parameters) and T2 (91,544,064 parameters). Both warm second processes fetched zero base and adapter payload bytes, both one-step held-out losses improved, and checkpoint relative L2 stayed at `1.2317732405376926e-7` and `2.1866353039878446e-7` respectively.
+- Measured the T2 366,190,504-byte base, `1,746,419,712`-byte peak native process RSS, `378,093,711` bytes of coordinator storage, and `1.653274500000407` seconds of warm gradient compute. Warm cache revalidation plus runtime initialization took `2.9631700000027195` seconds, or 1.79 times compute.
+- Published `p3-native-resource-profile-v1`, pinned to implementation commit `673017df9caa4d91f6bff96a39f56a40690c71e9`, with the real connected Burn dashboard, an automated isolated-process T1/T2 proof, exact artifact hashes, numerical and held-out guardrails, privacy filtering, and explicit one-host/payload-not-wire/random-base limitations.
+- Selected a persistent native process/model session as the next throughput profile because one-shot warm setup dominates T2 compute. Quantized frozen-base placement remains the next memory profile; an idealized T2 FP32-to-int8 base conversion can reduce the observed process peak by no more than 15.73% before runtime overheads.
 
 ### P4 — Qualify numerical and mixed execution profiles
 
@@ -202,12 +206,12 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Qualify the cached-base native CPU profile on the real-data T1 campaign, including cold-cache and warm-cache runtime, transfer, process-RSS, and storage observations. Use that larger measured baseline to decide whether the next profile should add quantized frozen-base RAM placement or explicit mapped/NVMe offload.
+Add a persistent authenticated native session that validates and loads the immutable base once, refreshes only checkpoint-specific adapter state between assignments, and reports cold-versus-reused runtime and memory. Re-run T2 to verify that warm cache validation plus runtime initialization no longer exceeds gradient compute, then begin the measured quantized frozen-base RAM profile.
 
 ## Remaining major work
 
-- Real-data T1 qualification for the native cached-base CPU profile.
-- Native worker with quantized RAM placement and explicit mapped/NVMe offload.
+- Persistent native process/model reuse across assignments and campaign steps.
+- Native worker with quantized frozen-base RAM placement and explicit mapped/NVMe offload.
 - Profile certification and mixed-profile proof.
 - Rolling-submodel feasibility study.
 - Exact tiled-computation feasibility study.
@@ -244,4 +248,6 @@ Qualify the cached-base native CPU profile on the real-data T1 campaign, includi
 - Remediated checkpoint traversal and optimizer-corruption findings from an independent exact-tree review, preserved dense-state migration, and completed the LoRA HTTP/browser artifact and receipt contract.
 - Added validated runtime, transfer, memory, and storage observations to worker assignments, accepted receipts, restart state, campaign aggregation, and the public dashboard.
 - Proved the measurement protocol with two real authenticated Burn CPU/WASM assignments and used the repeated immutable-base transfer finding to select the first native baseline.
-- Added and exercised a streaming, content-addressed cached-base native CPU LoRA worker; a warm second assignment eliminated base and adapter network transfer while retaining tighter-than-required adapter parity.
+- Added and exercised a streaming, content-addressed cached-base native CPU LoRA worker; a warm second assignment eliminated base and adapter fetch payloads while retaining tighter-than-required adapter parity.
+- Qualified cached-base native execution on frozen TinyStories at 6.9M and 91.5M parameters, with positive one-step held-out movement and sub-`2.19e-7` checkpoint relative L2.
+- Published the P3 resource-profile study and used its measured T2 setup/compute ratio to select persistent process/model reuse before quantization and mapped offload.

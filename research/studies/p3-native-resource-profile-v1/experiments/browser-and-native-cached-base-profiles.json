@@ -1,0 +1,134 @@
+{
+  "format": "orcacolony_experiment_v1",
+  "study_id": "p3-native-resource-profile-v1",
+  "experiment_id": "browser-and-native-cached-base-profiles",
+  "title": "Connected browser telemetry and warm native cache scaling",
+  "status": "validated",
+  "subject": {
+    "kind": "worker-profile-comparison",
+    "id": "p3-resource-observations-and-native-cache",
+    "revision": "673017df9caa4d91f6bff96a39f56a40690c71e9"
+  },
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "673017df9caa4d91f6bff96a39f56a40690c71e9",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/673017df9caa4d91f6bff96a39f56a40690c71e9"
+    },
+    {
+      "id": "t1-campaign",
+      "kind": "campaign-json-sha256",
+      "revision": "c434fe12675af70d9960bb5a15d06a08d5e1dc4190b4ccb591eb10939119d53b",
+      "uri": "repo:campaign/t1-tinystories-smoke.json"
+    },
+    {
+      "id": "t1-lora-profile",
+      "kind": "lora-manifest-sha256",
+      "revision": "9b3ce7270a797cd5a2591270f5cc2b20bfadca0dbbcb4a63fad0a6a52338daa0",
+      "uri": "repo:campaign/t1-tinystories-lora-smoke.json"
+    },
+    {
+      "id": "t2-campaign",
+      "kind": "campaign-json-sha256",
+      "revision": "17fefd83263d3e55b6c7f7409abadd9c8e9c6efb12bbb86a8f9bab551fdd43e3",
+      "uri": "repo:campaign/t2-tinystories-memory-smoke.json"
+    },
+    {
+      "id": "t2-lora-profile",
+      "kind": "lora-manifest-sha256",
+      "revision": "b20c93faff1e7abef0fe9075d555958c1889f7410f9dda782c2fa950331d437c",
+      "uri": "repo:campaign/t2-tinystories-memory-lora-smoke.json"
+    },
+    {
+      "id": "native-proof-summary",
+      "kind": "generated-json-sha256",
+      "revision": "695e5b78d9203026cfa732e060f6c86e73bf6b0dd606c1c72e2ae75df7dd5fe4",
+      "uri": "generated:.artifacts/p3-native-resource-profile-proof/proof-summary.json"
+    },
+    {
+      "id": "browser-dashboard",
+      "kind": "generated-json-sha256",
+      "revision": "5879783cc6e4b54a1be22ae07c6ee231329659ed80220191b9d81f13f4f70a62",
+      "uri": "generated:.artifacts/p3-browser-resource-profile-final-dashboard.json"
+    }
+  ],
+  "method": {
+    "training_method": {
+      "id": "frozen-base-qkv-lora",
+      "label": "Frozen-base QKV LoRA",
+      "description": "Complete summed FP32 gradients for rank-4 QKV adapters with one canonical coordinator AdamW update."
+    },
+    "execution_topology": {
+      "id": "authenticated-two-assignment-data-parallel",
+      "label": "Authenticated two-assignment data parallel",
+      "description": "Two disjoint checkpoint-bound assignments execute independently and aggregate once at the coordinator."
+    },
+    "memory_profiles": [
+      {
+        "id": "browser-wasm-resident",
+        "label": "Browser WASM resident",
+        "description": "Burn NdArray CPU/WASM with the fetched base and adapter resident in the browser runtime."
+      },
+      {
+        "id": "native-cached-fp32-resident",
+        "label": "Native cached FP32 resident",
+        "description": "Digest-validated safetensors persist on local storage; each one-shot native process loads the complete FP32 base into system RAM."
+      }
+    ],
+    "numerical_profiles": [
+      {
+        "id": "fp32-summed-adapter-gradients",
+        "label": "FP32 summed adapter gradients",
+        "description": "Workers return every declared adapter tensor before coordinator normalization and clipping."
+      }
+    ]
+  },
+  "worker_profiles": [
+    {
+      "id": "burn-ndarray-f32",
+      "label": "Burn CPU/WASM browser",
+      "description": "Headless Chromium 150 running Burn 0.21 NdArray through WASM."
+    },
+    {
+      "id": "python-native-cpu-f32",
+      "label": "Native Python/PyTorch CPU",
+      "description": "One-shot isolated native processes using the authenticated worker CLI and a shared content-addressed disk cache."
+    }
+  ],
+  "resource_budget": {
+    "limits": [
+      {
+        "id": "global-steps-per-profile",
+        "label": "Global optimizer steps per profile",
+        "value": 1,
+        "unit": "steps"
+      },
+      {
+        "id": "accepted-assignments",
+        "label": "Total accepted assignments",
+        "value": 6,
+        "unit": "assignments"
+      },
+      {
+        "id": "maximum-model-parameters",
+        "label": "Maximum model parameter count",
+        "value": 91544064,
+        "unit": "parameters"
+      },
+      {
+        "id": "wall-time",
+        "label": "Maximum native reproduction wall time",
+        "value": 900,
+        "unit": "seconds"
+      }
+    ]
+  },
+  "reproduction": {
+    "command": [
+      "uv run python -m orcacolony.artifacts --output .artifacts/p3-native-resource-dataset",
+      "uv run python research/studies/p3-native-resource-profile-v1/scripts/run-proof.py --dataset-artifacts .artifacts/p3-native-resource-dataset --output .artifacts/p3-native-resource-profile-proof"
+    ],
+    "notes": "The automated script reproduces the T1 and T2 native profiles with isolated worker processes and deletes ephemeral worker-token files. The connected browser measurement additionally requires two local authenticated CPU/WASM page runs; payload byte counts describe worker API response bodies and do not distinguish browser HTTP-cache hits or packet-level wire bytes."
+  }
+}

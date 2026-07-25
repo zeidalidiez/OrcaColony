@@ -47,6 +47,7 @@ The output path must not already exist. Remove or choose another ignored `.artif
 - `p2-browser-lora-parity-v1` compares CPU/WASM and WebGPU against the same Python adapter-gradient oracle. It records the WebGPU cold-run cost as a negative finding and does not claim coordinator integration or offload.
 - `p2-connected-browser-lora-v1` validates two authenticated CPU/WASM adapter assignments, coordinator-owned aggregation and AdamW, separate worker-weight and full resume-state identities, restart recovery, and accepted-checkpoint parity against the independent Python step. It does not claim heterogeneous-network performance, frozen-base offload, public untrusted participation, or useful adaptation quality.
 - `p2-persistent-lora-release-v1` validates two persistent adapter steps, coordinator reload after step 1, per-step held-out evaluation, a positive fixed-use-case gate, lowest-loss checkpoint selection, and a deterministic release with separate base, adapter, worker-weight, and complete resume-state identities. Its evaluated workers are local Python oracles; the connected browser study remains the real Burn worker evidence.
+- `p3-native-resource-profile-v1` validates privacy-filtered runtime/payload/memory/storage observations with real connected Burn CPU/WASM workers, then qualifies digest-validated cached-base native CPU workers on frozen TinyStories at 6.9M and 91.5M parameters. Warm assignments avoid all base and adapter fetch payloads while retaining numerical and held-out-loss guardrails. It records one-shot cache validation/runtime initialization as the dominant warm T2 cost and does not claim packet-level network measurement, quantized placement, mapped/NVMe offload, or useful model quality.
 
 Reproduce the persistent release study's source evidence with:
 
@@ -66,7 +67,17 @@ uv run python -m orcacolony.release \
 (cd .artifacts/p2-lora-evaluated-release-proof/release && sha256sum -c SHA256SUMS)
 ```
 
-Every committed study, linked experiment, and conventionally named evidence file is rebuilt by the repository test suite. To render any P2 result directly, substitute that study's three manifest paths in the command above and choose a fresh ignored output directory.
+Reproduce the native T1/T2 resource-profile evidence with isolated worker processes:
+
+```bash
+uv run python -m orcacolony.artifacts \
+  --output .artifacts/p3-native-resource-dataset
+uv run python research/studies/p3-native-resource-profile-v1/scripts/run-proof.py \
+  --dataset-artifacts .artifacts/p3-native-resource-dataset \
+  --output .artifacts/p3-native-resource-profile-proof
+```
+
+Every committed study, linked experiment, and conventionally named evidence file is rebuilt by the repository test suite. To render any result directly, substitute that study's three manifest paths in the command above and choose a fresh ignored output directory.
 
 ## Interpretation
 
