@@ -28,6 +28,21 @@ from torch.nn import functional as F
 from .artifacts import PackedDataset
 from .coordinator import _tensor_metrics
 from .participants import ParticipantRegistry, load_participants
+from .peft import (
+    LoadedLoRAManifest,
+    _safe_checkpoint_artifact_path,
+    adapter_named_parameters,
+    apply_adapter_gradient_step,
+    build_lora_model,
+    compute_adapter_gradients,
+    create_adapter_optimizer,
+    load_adapter_state,
+    load_lora_checkpoint,
+    load_lora_manifest,
+    lora_weight_checkpoint_sha256,
+    run_lora_training,
+    save_lora_checkpoint,
+)
 from .reference import (
     CampaignConfig,
     _create_optimizer,
@@ -37,6 +52,7 @@ from .reference import (
     build_model,
     fixture_batch,
     run_training,
+    tensor_sha256,
     validate_dataset_artifacts,
 )
 
@@ -64,6 +80,9 @@ class WorkReceipt:
     step_complete: bool
     step: int
     model_sha256: str | None
+    adapter_sha256: str | None
+    weight_checkpoint_sha256: str | None
+    checkpoint_sha256: str | None
     gradient_metrics: Mapping[str, float | int | str]
     checkpoint_metrics: Mapping[str, float | int | str]
 
@@ -81,6 +100,30 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_bytes(payload)
     os.replace(temporary, path)
+
+
+def _copy_checkpoint_artifacts(
+    source_root: str | Path,
+    destination_root: str | Path,
+    filenames: tuple[object, ...],
+) -> None:
+    copies = [
+        (
+            _safe_checkpoint_artifact_path(
+                source_root,
+                filename,
+                "resume checkpoint source artifact",
+            ),
+            _safe_checkpoint_artifact_path(
+                destination_root,
+                filename,
+                "base checkpoint destination artifact",
+            ),
+        )
+        for filename in filenames
+    ]
+    for source, destination in copies:
+        shutil.copy2(source, destination)
 
 
 def _revision(payload: Mapping[str, object]) -> str:
@@ -112,10 +155,12 @@ class GlobalStepCoordinator:
         state_dir: Path,
         state: dict[str, object],
         dataset: PackedDataset | None = None,
+        lora: LoadedLoRAManifest | None = None,
     ) -> None:
         self.campaign = campaign
         self.state_dir = state_dir
         self.initial_model_path = state_dir / "model.safetensors"
+        self.initial_adapter_path = state_dir / "adapter.safetensors"
         self.base_checkpoint_dir = state_dir / "base-checkpoint"
         self.oracle_dir = state_dir / "oracle-gradients"
         self.results_dir = state_dir / "results"
@@ -123,6 +168,7 @@ class GlobalStepCoordinator:
         self.checkpoint_dir = state_dir / "checkpoint"
         self._state = state
         self.dataset = dataset
+        self.lora = lora
         self.participants = ParticipantRegistry.from_payload(
             state["participants"],  # type: ignore[arg-type]
             campaign_id=str(campaign.campaign["id"]),
@@ -139,6 +185,7 @@ class GlobalStepCoordinator:
         lease_seconds: int = 60,
         resume_from: str | Path | None = None,
         dataset: PackedDataset | None = None,
+        lora: LoadedLoRAManifest | None = None,
     ) -> GlobalStepCoordinator:
         if worker_count < 2:
             raise ValueError("multi-worker proof requires at least two workers")
@@ -148,6 +195,8 @@ class GlobalStepCoordinator:
             raise ValueError("lease duration must be positive")
         if participants.campaign_id != campaign.campaign["id"]:
             raise ValueError("participant registry campaign mismatch")
+        if lora is not None and lora.campaign != campaign:
+            raise ValueError("LoRA manifest campaign does not match coordinator campaign")
         validate_dataset_artifacts(campaign, dataset)
 
         state_dir = Path(state_dir)
@@ -160,72 +209,195 @@ class GlobalStepCoordinator:
         base_step = 0
         dataset_cursor = 0
         loss_history: list[float] = []
-        if resume_from is None:
-            initial_model = build_model(campaign)
+        if lora is not None:
+            if resume_from is None:
+                initial_checkpoint = run_lora_training(
+                    lora,
+                    state_dir / "base-checkpoint",
+                    target_steps=0,
+                    dataset=dataset,
+                )
+                (
+                    initial_model,
+                    _,
+                    base_step,
+                    dataset_cursor,
+                    loss_history,
+                ) = load_lora_checkpoint(lora, initial_checkpoint.checkpoint_dir)
+                resume_state_sha256 = initial_checkpoint.checkpoint_sha256
+                source_weight_checkpoint_sha256 = (
+                    initial_checkpoint.weight_checkpoint_sha256
+                )
+            else:
+                source_checkpoint = Path(resume_from)
+                (
+                    initial_model,
+                    _,
+                    base_step,
+                    dataset_cursor,
+                    loss_history,
+                ) = load_lora_checkpoint(lora, source_checkpoint)
+                source_state_path = _safe_checkpoint_artifact_path(
+                    source_checkpoint,
+                    "state.json",
+                    "resume checkpoint state file",
+                )
+                source_state = json.loads(
+                    source_state_path.read_text(encoding="utf-8")
+                )
+                resume_state_sha256 = str(source_state["checkpoint_sha256"])
+                source_weight_checkpoint_sha256 = str(
+                    source_state["weight_checkpoint_sha256"]
+                )
+                base_checkpoint_dir = state_dir / "base-checkpoint"
+                base_checkpoint_dir.mkdir()
+                _copy_checkpoint_artifacts(
+                    source_checkpoint,
+                    base_checkpoint_dir,
+                    (
+                        source_state["adapter"]["file"],
+                        source_state["optimizer"]["file"],
+                        "state.json",
+                    ),
+                )
+            dense_base = build_model(campaign)
             save_safetensors_file(
                 {
                     name: tensor.detach().cpu().contiguous()
-                    for name, tensor in sorted(initial_model.state_dict().items())
+                    for name, tensor in sorted(dense_base.state_dict().items())
                 },
                 str(state_dir / "model.safetensors"),
             )
+            initial_adapters = {
+                name: parameter.detach().cpu().contiguous()
+                for name, parameter in adapter_named_parameters(initial_model).items()
+            }
+            save_safetensors_file(
+                initial_adapters,
+                str(state_dir / "adapter.safetensors"),
+            )
+            initial_adapter_sha256 = tensor_sha256(initial_adapters)
+            checkpoint_sha256 = lora_weight_checkpoint_sha256(
+                lora,
+                initial_adapter_sha256,
+            )
+            if checkpoint_sha256 != source_weight_checkpoint_sha256:
+                raise ValueError("LoRA source weight checkpoint identity mismatch")
+            run_lora_training(
+                lora,
+                state_dir / "reference-step-1",
+                target_steps=base_step + 1,
+                resume_from=state_dir / "base-checkpoint",
+                dataset=dataset,
+            )
         else:
-            source_checkpoint = Path(resume_from)
-            (
-                initial_model,
-                _,
-                base_step,
-                dataset_cursor,
-                loss_history,
-            ) = _load_checkpoint(campaign, source_checkpoint)
-            base_checkpoint_dir = state_dir / "base-checkpoint"
-            base_checkpoint_dir.mkdir()
-            source_state = json.loads(
-                (source_checkpoint / "state.json").read_text(encoding="utf-8")
+            initial_adapter_sha256 = None
+            resume_state_sha256 = None
+            if resume_from is None:
+                initial_model = build_model(campaign)
+                save_safetensors_file(
+                    {
+                        name: tensor.detach().cpu().contiguous()
+                        for name, tensor in sorted(initial_model.state_dict().items())
+                    },
+                    str(state_dir / "model.safetensors"),
+                )
+            else:
+                source_checkpoint = Path(resume_from)
+                (
+                    initial_model,
+                    _,
+                    base_step,
+                    dataset_cursor,
+                    loss_history,
+                ) = _load_checkpoint(campaign, source_checkpoint)
+                base_checkpoint_dir = state_dir / "base-checkpoint"
+                base_checkpoint_dir.mkdir()
+                source_state_path = _safe_checkpoint_artifact_path(
+                    source_checkpoint,
+                    "state.json",
+                    "resume checkpoint state file",
+                )
+                source_state = json.loads(
+                    source_state_path.read_text(encoding="utf-8")
+                )
+                _copy_checkpoint_artifacts(
+                    source_checkpoint,
+                    base_checkpoint_dir,
+                    (
+                        source_state["model"]["file"],
+                        source_state["optimizer"]["file"],
+                        "state.json",
+                    ),
+                )
+                copied_model_path = _safe_checkpoint_artifact_path(
+                    base_checkpoint_dir,
+                    source_state["model"]["file"],
+                    "base checkpoint model artifact",
+                )
+                shutil.copy2(copied_model_path, state_dir / "model.safetensors")
+            checkpoint_sha256 = _sha256_file(state_dir / "model.safetensors")
+            run_training(
+                campaign,
+                state_dir / "reference-step-1",
+                target_steps=base_step + 1,
+                resume_from=(
+                    state_dir / "base-checkpoint" if resume_from is not None else None
+                ),
+                dataset=dataset,
             )
-            for filename in (
-                source_state["model"]["file"],
-                source_state["optimizer"]["file"],
-                "state.json",
-            ):
-                shutil.copy2(source_checkpoint / filename, base_checkpoint_dir / filename)
-            shutil.copy2(
-                base_checkpoint_dir / source_state["model"]["file"],
-                state_dir / "model.safetensors",
-            )
-        checkpoint_sha256 = _sha256_file(state_dir / "model.safetensors")
-        run_training(
-            campaign,
-            state_dir / "reference-step-1",
-            target_steps=base_step + 1,
-            resume_from=(state_dir / "base-checkpoint" if resume_from is not None else None),
-            dataset=dataset,
-        )
 
         inputs, targets = fixture_batch(campaign, dataset_cursor, dataset)
         rows_per_assignment = campaign.training.batch_size // worker_count
         assignments: list[dict[str, object]] = []
+        adapter_contract: dict[str, object] | None = None
+        if lora is not None:
+            adapter_contract = {
+                "format": lora.config.format,
+                "rank": lora.config.rank,
+                "alpha": lora.config.alpha,
+                "dropout": lora.config.dropout,
+                "targets": list(lora.config.targets),
+                "tensor_order": list(initial_adapters),
+                "tensor_count": len(initial_adapters),
+                "value_count": sum(tensor.numel() for tensor in initial_adapters.values()),
+            }
         for index in range(worker_count):
             start = index * rows_per_assignment
             end = start + rows_per_assignment
             assignment_inputs = inputs[start:end].contiguous()
             assignment_targets = targets[start:end].contiguous()
-            model = build_model(campaign)
-            model.load_state_dict(initial_model.state_dict())
-            loss_sum = F.cross_entropy(
-                model(assignment_inputs).reshape(-1, campaign.model.vocabulary_size),
-                assignment_targets.reshape(-1),
-                reduction="sum",
-            )
-            loss_sum.backward()
-            gradients = {
-                name: parameter.grad.detach().cpu().contiguous()
-                for name, parameter in sorted(model.named_parameters())
-                if parameter.grad is not None
-            }
+            if lora is not None:
+                model = build_lora_model(campaign, lora.config)
+                load_adapter_state(model, initial_adapters)
+                submitted = compute_adapter_gradients(
+                    model,
+                    assignment_inputs,
+                    assignment_targets,
+                )
+                loss_sum_value = submitted.loss_sum
+                gradients = dict(submitted.gradients)
+            else:
+                model = build_model(campaign)
+                model.load_state_dict(initial_model.state_dict())
+                loss_sum = F.cross_entropy(
+                    model(assignment_inputs).reshape(-1, campaign.model.vocabulary_size),
+                    assignment_targets.reshape(-1),
+                    reduction="sum",
+                )
+                loss_sum.backward()
+                loss_sum_value = float(loss_sum.detach())
+                gradients = {
+                    name: parameter.grad.detach().cpu().contiguous()
+                    for name, parameter in sorted(model.named_parameters())
+                    if parameter.grad is not None
+                }
             basis = {
                 "campaign_id": campaign.campaign["id"],
                 "checkpoint_sha256": checkpoint_sha256,
+                "training_method": (
+                    "frozen-base-lora" if lora is not None else "dense"
+                ),
                 "dataset_revision": (
                     dataset.revision if dataset is not None else "synthetic-fixture-v1"
                 ),
@@ -245,6 +417,16 @@ class GlobalStepCoordinator:
                 "target_shape": list(assignment_targets.shape),
                 "loss_weight_sum": assignment_targets.numel(),
             }
+            if lora is not None:
+                basis.update(
+                    {
+                        "lora_manifest_sha256": lora.manifest_sha256,
+                        "base_model_sha256": lora.config.base_model_sha256,
+                        "adapter_sha256": initial_adapter_sha256,
+                        "weight_checkpoint_sha256": checkpoint_sha256,
+                        "resume_state_sha256": resume_state_sha256,
+                    }
+                )
             assignment_id = hashlib.sha256(
                 json.dumps(basis, sort_keys=True, separators=(",", ":")).encode("utf-8")
             ).hexdigest()
@@ -258,7 +440,13 @@ class GlobalStepCoordinator:
                     "assignment_id": assignment_id,
                     **basis,
                     "parameter_count": campaign.model.parameters,
-                    "expected_loss_sum": float(loss_sum.detach()),
+                    "trainable_parameter_count": (
+                        adapter_contract["value_count"]
+                        if adapter_contract is not None
+                        else campaign.model.parameters
+                    ),
+                    "adapter": adapter_contract,
+                    "expected_loss_sum": loss_sum_value,
                     "oracle_file": oracle_file,
                     "state": "open",
                     "attempt": 0,
@@ -277,6 +465,17 @@ class GlobalStepCoordinator:
             "format": "orcacolony_global_step_v1",
             "campaign_id": campaign.campaign["id"],
             "campaign_revision": _revision(_campaign_payload(campaign)),
+            "training_method": (
+                "frozen-base-lora" if lora is not None else "dense"
+            ),
+            "lora_manifest_sha256": (
+                lora.manifest_sha256 if lora is not None else None
+            ),
+            "base_model_sha256": (
+                lora.config.base_model_sha256 if lora is not None else checkpoint_sha256
+            ),
+            "initial_adapter_sha256": initial_adapter_sha256,
+            "resume_state_sha256": resume_state_sha256,
             "participants": participants.as_payload(),
             "participants_revision": participants.revision,
             "checkpoint_sha256": checkpoint_sha256,
@@ -290,14 +489,17 @@ class GlobalStepCoordinator:
             "base_step": base_step,
             "dataset_cursor": dataset_cursor,
             "loss_history": loss_history,
-            "has_base_checkpoint": resume_from is not None,
-            "result_protocol_revision": 2,
+            "has_base_checkpoint": lora is not None or resume_from is not None,
+            "result_protocol_revision": 3 if lora is not None else 2,
             "assignments": assignments,
             "model_sha256": None,
+            "adapter_sha256": None,
+            "result_weight_checkpoint_sha256": None,
+            "result_checkpoint_sha256": None,
             "checkpoint_metrics": None,
         }
         _atomic_json(state_dir / "global-state.json", state)
-        coordinator = cls(campaign, state_dir, state, dataset)
+        coordinator = cls(campaign, state_dir, state, dataset, lora=lora)
         coordinator._write_campaign_lock()
         coordinator._write_accepted_ledger()
         return coordinator
@@ -309,6 +511,7 @@ class GlobalStepCoordinator:
         state_dir: str | Path,
         participants: ParticipantRegistry,
         dataset: PackedDataset | None = None,
+        lora: LoadedLoRAManifest | None = None,
     ) -> GlobalStepCoordinator:
         validate_dataset_artifacts(campaign, dataset)
         state_dir = Path(state_dir)
@@ -317,6 +520,17 @@ class GlobalStepCoordinator:
             raise ValueError("unsupported global-step state format")
         if state.get("campaign_id") != campaign.campaign["id"]:
             raise ValueError("global-step campaign does not match configuration")
+        training_method = state.get("training_method", "dense")
+        expected_training_method = (
+            "frozen-base-lora" if lora is not None else "dense"
+        )
+        if training_method != expected_training_method:
+            raise ValueError("global-step training method does not match configuration")
+        if lora is not None:
+            if lora.campaign != campaign:
+                raise ValueError("LoRA manifest campaign does not match coordinator campaign")
+            if state.get("lora_manifest_sha256") != lora.manifest_sha256:
+                raise ValueError("global-step LoRA manifest digest mismatch")
         expected_dataset_revision = (
             dataset.revision if dataset is not None else "synthetic-fixture-v1"
         )
@@ -324,25 +538,37 @@ class GlobalStepCoordinator:
             raise ValueError("global-step dataset revision mismatch")
         campaign_revision = _revision(_campaign_payload(campaign))
         migrated = "participants_revision" not in state
-        if migrated:
+        profile_migrated = "training_method" not in state
+        if migrated or profile_migrated:
             state.setdefault("base_step", 0)
             state.setdefault("dataset_cursor", 0)
             state.setdefault("loss_history", [])
             state.setdefault("has_base_checkpoint", False)
-            state["campaign_revision"] = campaign_revision
-            state["participants"] = participants.as_payload()
-            state["participants_revision"] = participants.revision
-            for assignment in state["assignments"]:
-                worker_id = assignment.get("leased_by")
-                if worker_id is None:
-                    assignment["contributor_id"] = None
-                    continue
-                participant = participants.participant_for_worker(str(worker_id))
-                if participant is None:
-                    raise ValueError(
-                        f"existing worker is not allowlisted: {worker_id}"
-                    )
-                assignment["contributor_id"] = participant.contributor_id
+            state.setdefault("training_method", "dense")
+            state.setdefault("lora_manifest_sha256", None)
+            state.setdefault("base_model_sha256", state["checkpoint_sha256"])
+            state.setdefault("initial_adapter_sha256", None)
+            state.setdefault("resume_state_sha256", None)
+            state.setdefault("adapter_sha256", None)
+            state.setdefault("result_weight_checkpoint_sha256", state.get("model_sha256"))
+            state.setdefault("result_checkpoint_sha256", state.get("model_sha256"))
+            if migrated:
+                state["campaign_revision"] = campaign_revision
+                state["participants"] = participants.as_payload()
+                state["participants_revision"] = participants.revision
+                for assignment in state["assignments"]:
+                    worker_id = assignment.get("leased_by")
+                    if worker_id is None:
+                        assignment["contributor_id"] = None
+                        continue
+                    participant = participants.participant_for_worker(str(worker_id))
+                    if participant is None:
+                        raise ValueError(
+                            f"existing worker is not allowlisted: {worker_id}"
+                        )
+                    assignment["contributor_id"] = participant.contributor_id
+            elif state.get("participants_revision") != participants.revision:
+                raise ValueError("participant revision mismatch")
             _atomic_json(state_dir / "global-state.json", state)
         elif state.get("participants_revision") != participants.revision:
             raise ValueError("participant revision mismatch")
@@ -354,9 +580,42 @@ class GlobalStepCoordinator:
         )
         if protocol_migrated:
             state["result_protocol_revision"] = 2
-        if _sha256_file(state_dir / "model.safetensors") != state["checkpoint_sha256"]:
-            raise ValueError("global-step checkpoint digest mismatch")
-        coordinator = cls(campaign, state_dir, state, dataset)
+        if lora is None:
+            if (
+                _sha256_file(state_dir / "model.safetensors")
+                != state["checkpoint_sha256"]
+            ):
+                raise ValueError("global-step checkpoint digest mismatch")
+        else:
+            base_sha256 = tensor_sha256(
+                load_safetensors_file(str(state_dir / "model.safetensors"))
+            )
+            if base_sha256 != lora.config.base_model_sha256:
+                raise ValueError("global-step LoRA base model digest mismatch")
+            adapter_sha256 = tensor_sha256(
+                load_safetensors_file(str(state_dir / "adapter.safetensors"))
+            )
+            if adapter_sha256 != state["initial_adapter_sha256"]:
+                raise ValueError("global-step initial adapter digest mismatch")
+            if (
+                lora_weight_checkpoint_sha256(lora, adapter_sha256)
+                != state["checkpoint_sha256"]
+            ):
+                raise ValueError("global-step LoRA checkpoint digest mismatch")
+            load_lora_checkpoint(lora, state_dir / "base-checkpoint")
+            base_checkpoint_state = json.loads(
+                (state_dir / "base-checkpoint" / "state.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            if (
+                base_checkpoint_state["weight_checkpoint_sha256"]
+                != state["checkpoint_sha256"]
+                or base_checkpoint_state["checkpoint_sha256"]
+                != state.get("resume_state_sha256")
+            ):
+                raise ValueError("global-step LoRA resume-state identity mismatch")
+        coordinator = cls(campaign, state_dir, state, dataset, lora=lora)
         state_changed = protocol_migrated
         for assignment in coordinator.assignments:
             if "dataset_revision" not in assignment:
@@ -380,7 +639,7 @@ class GlobalStepCoordinator:
         if state_changed:
             coordinator._write_state()
         lock_path = state_dir / "campaign-lock.json"
-        if migrated or protocol_migrated:
+        if migrated or profile_migrated or protocol_migrated:
             coordinator._write_campaign_lock()
         elif not lock_path.exists() or json.loads(lock_path.read_text(encoding="utf-8")) != coordinator._campaign_lock_payload():
             raise ValueError("campaign lock mismatch")
@@ -393,18 +652,33 @@ class GlobalStepCoordinator:
             checkpoint_state = json.loads(
                 (coordinator.checkpoint_dir / "state.json").read_text(encoding="utf-8")
             )
-            if checkpoint_state["model"]["sha256"] != state["model_sha256"]:
-                raise ValueError("completed global-step checkpoint identity mismatch")
-            model_path = coordinator.checkpoint_dir / checkpoint_state["model"]["file"]
-            optimizer_path = (
-                coordinator.checkpoint_dir / checkpoint_state["optimizer"]["file"]
-            )
-            if (
-                _sha256_file(model_path) != checkpoint_state["model"]["sha256"]
-                or _sha256_file(optimizer_path)
-                != checkpoint_state["optimizer"]["sha256"]
-            ):
-                raise ValueError("completed global-step checkpoint digest mismatch")
+            if lora is not None:
+                load_lora_checkpoint(lora, coordinator.checkpoint_dir)
+                if (
+                    checkpoint_state["base_model_sha256"] != state["model_sha256"]
+                    or checkpoint_state["adapter"]["tensor_sha256"]
+                    != state["adapter_sha256"]
+                    or checkpoint_state["weight_checkpoint_sha256"]
+                    != state["result_weight_checkpoint_sha256"]
+                    or checkpoint_state["checkpoint_sha256"]
+                    != state["result_checkpoint_sha256"]
+                ):
+                    raise ValueError("completed LoRA global-step identity mismatch")
+            else:
+                if checkpoint_state["model"]["sha256"] != state["model_sha256"]:
+                    raise ValueError("completed global-step checkpoint identity mismatch")
+                model_path = (
+                    coordinator.checkpoint_dir / checkpoint_state["model"]["file"]
+                )
+                optimizer_path = (
+                    coordinator.checkpoint_dir / checkpoint_state["optimizer"]["file"]
+                )
+                if (
+                    _sha256_file(model_path) != checkpoint_state["model"]["sha256"]
+                    or _sha256_file(optimizer_path)
+                    != checkpoint_state["optimizer"]["sha256"]
+                ):
+                    raise ValueError("completed global-step checkpoint digest mismatch")
         coordinator._write_accepted_ledger()
         return coordinator
 
@@ -422,11 +696,22 @@ class GlobalStepCoordinator:
             "campaign_revision": self._state["campaign_revision"],
             "participants_revision": self._state["participants_revision"],
             "checkpoint_sha256": self._state["checkpoint_sha256"],
+            "training_method": self._state.get("training_method", "dense"),
+            "lora_manifest_sha256": self._state.get("lora_manifest_sha256"),
+            "base_model_sha256": self._state.get(
+                "base_model_sha256", self._state["checkpoint_sha256"]
+            ),
+            "adapter_sha256": self._state.get("initial_adapter_sha256"),
+            "resume_state_sha256": self._state.get("resume_state_sha256"),
             "dataset_revision": self._state.get(
                 "dataset_revision", "synthetic-fixture-v1"
             ),
             "global_step": self._state["base_step"],
-            "assignment_protocol_revision": 1,
+            "assignment_protocol_revision": (
+                2
+                if self._state.get("training_method") == "frozen-base-lora"
+                else 1
+            ),
             "result_protocol_revision": self._state.get(
                 "result_protocol_revision", 1
             ),
@@ -470,6 +755,7 @@ class GlobalStepCoordinator:
                     "loss_weight_sum": assignment["loss_weight_sum"],
                     "runtime_backend": assignment["runtime_backend"],
                     "dataset_revision": assignment["dataset_revision"],
+                    "training_method": assignment.get("training_method", "dense"),
                 }
             )
         _atomic_json(
@@ -497,11 +783,13 @@ class GlobalStepCoordinator:
 
     def _public_assignment(self, assignment: Mapping[str, object]) -> dict[str, object]:
         assignment_id = str(assignment["assignment_id"])
-        return {
-            "format": "orcacolony_assignment_v1",
+        is_lora = assignment.get("training_method") == "frozen-base-lora"
+        payload: dict[str, object] = {
+            "format": "orcacolony_assignment_v2" if is_lora else "orcacolony_assignment_v1",
             "campaign_id": assignment["campaign_id"],
             "assignment_id": assignment_id,
             "checkpoint_sha256": assignment["checkpoint_sha256"],
+            "training_method": assignment.get("training_method", "dense"),
             "dataset_revision": assignment["dataset_revision"],
             "model": assignment["model"],
             "global_step": assignment["global_step"],
@@ -512,6 +800,9 @@ class GlobalStepCoordinator:
             "target_shape": assignment["target_shape"],
             "loss_weight_sum": assignment["loss_weight_sum"],
             "parameter_count": assignment["parameter_count"],
+            "trainable_parameter_count": assignment.get(
+                "trainable_parameter_count", assignment["parameter_count"]
+            ),
             "expected_loss_sum": assignment["expected_loss_sum"],
             "attempt": assignment["attempt"],
             "lease_token": assignment["lease_token"],
@@ -524,6 +815,21 @@ class GlobalStepCoordinator:
             ),
             "runtime_backends": sorted(RUNTIME_BACKENDS),
         }
+        if is_lora:
+            payload.update(
+                {
+                    "lora_manifest_sha256": assignment["lora_manifest_sha256"],
+                    "base_model_sha256": assignment["base_model_sha256"],
+                    "adapter_sha256": assignment["adapter_sha256"],
+                    "weight_checkpoint_sha256": assignment[
+                        "weight_checkpoint_sha256"
+                    ],
+                    "resume_state_sha256": assignment["resume_state_sha256"],
+                    "adapter": assignment["adapter"],
+                    "adapter_url": "/api/v1/artifacts/adapter.safetensors",
+                }
+            )
+        return payload
 
     def lease(
         self,
@@ -645,6 +951,9 @@ class GlobalStepCoordinator:
             return self._receipt(assignment)
 
     def _finalize_locked(self) -> None:
+        if self.lora is not None:
+            self._finalize_lora_locked()
+            return
         if self._state.get("has_base_checkpoint", False):
             (
                 model,
@@ -705,6 +1014,8 @@ class GlobalStepCoordinator:
                 "state": "step_complete",
                 "step": next_step,
                 "model_sha256": checkpoint.model_sha256,
+                "adapter_sha256": None,
+                "result_checkpoint_sha256": checkpoint.model_sha256,
                 "checkpoint_metrics": checkpoint_metrics,
                 "loss_sum": total_loss_sum,
                 "loss_weight_sum": total_loss_weight,
@@ -718,6 +1029,115 @@ class GlobalStepCoordinator:
                 "state": "step_complete",
                 "step": next_step,
                 "model_sha256": checkpoint.model_sha256,
+                "adapter_sha256": None,
+                "checkpoint_sha256": checkpoint.model_sha256,
+                "checkpoint_metrics": checkpoint_metrics,
+                "assignments": [
+                    {
+                        "assignment_id": assignment["assignment_id"],
+                        "attempt": assignment["attempt"],
+                        "data_range": assignment["data_range"],
+                        "gradient_metrics": assignment["gradient_metrics"],
+                        "runtime_backend": assignment["runtime_backend"],
+                    }
+                    for assignment in self.assignments
+                ],
+            },
+        )
+
+    def _finalize_lora_locked(self) -> None:
+        if self.lora is None:
+            raise RuntimeError("LoRA finalization requires a loaded manifest")
+        if self._state.get("has_base_checkpoint", False):
+            (
+                model,
+                optimizer,
+                base_step,
+                dataset_cursor,
+                loss_history,
+            ) = load_lora_checkpoint(self.lora, self.base_checkpoint_dir)
+        else:
+            model = build_lora_model(self.campaign, self.lora.config)
+            load_adapter_state(
+                model,
+                load_safetensors_file(str(self.initial_adapter_path)),
+            )
+            optimizer = create_adapter_optimizer(model, self.campaign.training)
+            base_step = 0
+            dataset_cursor = 0
+            loss_history = []
+
+        aggregate = {
+            name: torch.zeros_like(parameter, dtype=torch.float32)
+            for name, parameter in adapter_named_parameters(model).items()
+        }
+        total_loss_sum = 0.0
+        total_loss_weight = 0
+        for assignment in sorted(
+            self.assignments,
+            key=lambda value: value["data_range"][0],
+        ):
+            gradients = load_safetensors_file(
+                str(self.results_dir / str(assignment["result_file"]))
+            )
+            if set(gradients) != set(aggregate):
+                raise ValueError("accepted LoRA result tensor set changed before finalization")
+            for name in aggregate:
+                aggregate[name].add_(gradients[name])
+            total_loss_sum += float(assignment["accepted_loss_sum"])
+            total_loss_weight += int(assignment["loss_weight_sum"])
+
+        apply_adapter_gradient_step(
+            model,
+            optimizer,
+            aggregate,
+            total_loss_weight,
+            self.campaign.training.max_gradient_norm,
+        )
+        next_step = base_step + 1
+        next_cursor = (
+            dataset_cursor + self.campaign.training.batch_size
+        ) % self.campaign.training.dataset_sequences
+        checkpoint = save_lora_checkpoint(
+            self.lora,
+            model,
+            optimizer,
+            self.checkpoint_dir,
+            step=next_step,
+            dataset_cursor=next_cursor,
+            loss_history=[*loss_history, total_loss_sum / total_loss_weight],
+        )
+        checkpoint_metrics = _tensor_metrics(
+            load_safetensors_file(str(self.reference_dir / "adapter.safetensors")),
+            load_safetensors_file(str(self.checkpoint_dir / "adapter.safetensors")),
+        )
+        self._state.update(
+            {
+                "state": "step_complete",
+                "step": next_step,
+                "model_sha256": checkpoint.base_model_sha256,
+                "adapter_sha256": checkpoint.adapter_sha256,
+                "result_weight_checkpoint_sha256": (
+                    checkpoint.weight_checkpoint_sha256
+                ),
+                "result_checkpoint_sha256": checkpoint.checkpoint_sha256,
+                "checkpoint_metrics": checkpoint_metrics,
+                "loss_sum": total_loss_sum,
+                "loss_weight_sum": total_loss_weight,
+            }
+        )
+        self._write_state()
+        _atomic_json(
+            self.state_dir / "global-receipt.json",
+            {
+                "format": "orcacolony_global_step_receipt_v2",
+                "training_method": "frozen-base-lora",
+                "state": "step_complete",
+                "step": next_step,
+                "model_sha256": checkpoint.base_model_sha256,
+                "adapter_sha256": checkpoint.adapter_sha256,
+                "weight_checkpoint_sha256": checkpoint.weight_checkpoint_sha256,
+                "checkpoint_sha256": checkpoint.checkpoint_sha256,
                 "checkpoint_metrics": checkpoint_metrics,
                 "assignments": [
                     {
@@ -742,6 +1162,28 @@ class GlobalStepCoordinator:
             model_sha256=(
                 str(self._state["model_sha256"]) if step_complete else None
             ),
+            adapter_sha256=(
+                str(self._state["adapter_sha256"])
+                if step_complete and self._state.get("adapter_sha256") is not None
+                else None
+            ),
+            weight_checkpoint_sha256=(
+                str(self._state["result_weight_checkpoint_sha256"])
+                if step_complete
+                and self._state.get("result_weight_checkpoint_sha256") is not None
+                else (
+                    str(self._state["result_checkpoint_sha256"])
+                    if step_complete
+                    and self._state.get("training_method", "dense") == "dense"
+                    else None
+                )
+            ),
+            checkpoint_sha256=(
+                str(self._state["result_checkpoint_sha256"])
+                if step_complete
+                and self._state.get("result_checkpoint_sha256") is not None
+                else None
+            ),
             gradient_metrics=assignment["gradient_metrics"],  # type: ignore[arg-type]
             checkpoint_metrics=(
                 self._state["checkpoint_metrics"] if step_complete else {}
@@ -753,8 +1195,19 @@ class GlobalStepCoordinator:
             "state": self._state["state"],
             "campaign_id": self._state["campaign_id"],
             "checkpoint_sha256": self._state["checkpoint_sha256"],
+            "training_method": self._state.get("training_method", "dense"),
+            "base_model_sha256": self._state.get("base_model_sha256"),
+            "initial_adapter_sha256": self._state.get("initial_adapter_sha256"),
             "step": self._state["step"],
             "model_sha256": self._state["model_sha256"],
+            "adapter_sha256": self._state.get("adapter_sha256"),
+            "resume_state_sha256": self._state.get("resume_state_sha256"),
+            "result_weight_checkpoint_sha256": self._state.get(
+                "result_weight_checkpoint_sha256"
+            ),
+            "result_checkpoint_sha256": self._state.get(
+                "result_checkpoint_sha256"
+            ),
             "checkpoint_metrics": self._state["checkpoint_metrics"],
             "loss_sum": self._state.get("loss_sum"),
             "loss_weight_sum": self._state.get("loss_weight_sum"),
@@ -892,6 +1345,9 @@ class _GlobalStepHandler(SimpleHTTPRequestHandler):
         if path == "/api/v1/artifacts/model.safetensors":
             self._send_artifact(self.coordinator.initial_model_path)
             return
+        if path == "/api/v1/artifacts/adapter.safetensors":
+            self._send_artifact(self.coordinator.initial_adapter_path)
+            return
         if path.startswith("/api/v1/oracle/") and path.endswith(".safetensors"):
             assignment_id = path.removeprefix("/api/v1/oracle/").removesuffix(
                 ".safetensors"
@@ -905,6 +1361,9 @@ class _GlobalStepHandler(SimpleHTTPRequestHandler):
             return
         if path == "/api/v1/checkpoint/model.safetensors":
             self._send_artifact(self.coordinator.checkpoint_dir / "model.safetensors")
+            return
+        if path == "/api/v1/checkpoint/adapter.safetensors":
+            self._send_artifact(self.coordinator.checkpoint_dir / "adapter.safetensors")
             return
         super().do_GET()
 
@@ -942,10 +1401,17 @@ class _GlobalStepHandler(SimpleHTTPRequestHandler):
                 "step_complete": receipt.step_complete,
                 "step": receipt.step,
                 "model_sha256": receipt.model_sha256,
+                "adapter_sha256": receipt.adapter_sha256,
+                "weight_checkpoint_sha256": receipt.weight_checkpoint_sha256,
+                "checkpoint_sha256": receipt.checkpoint_sha256,
                 "gradient_metrics": receipt.gradient_metrics,
                 "checkpoint_metrics": receipt.checkpoint_metrics,
                 "checkpoint_url": (
-                    "/api/v1/checkpoint/model.safetensors"
+                    (
+                        "/api/v1/checkpoint/adapter.safetensors"
+                        if receipt.adapter_sha256 is not None
+                        else "/api/v1/checkpoint/model.safetensors"
+                    )
                     if receipt.step_complete
                     else None
                 ),
@@ -1043,6 +1509,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Run the OrcaColony M2 multi-worker global-step proof"
     )
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--lora-config", type=Path)
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--participants", type=Path, required=True)
     parser.add_argument("--dataset-artifacts", type=Path)
@@ -1060,7 +1527,12 @@ def main() -> None:
     from .reference import load_campaign
 
     args = _build_parser().parse_args()
-    campaign = load_campaign(args.config)
+    lora = (
+        load_lora_manifest(args.config, args.lora_config)
+        if args.lora_config is not None
+        else None
+    )
+    campaign = lora.campaign if lora is not None else load_campaign(args.config)
     participants = load_participants(
         args.participants,
         campaign_id=str(campaign.campaign["id"]),
@@ -1077,6 +1549,7 @@ def main() -> None:
             args.state,
             participants=participants,
             dataset=dataset,
+            lora=lora,
         )
     else:
         coordinator = GlobalStepCoordinator.create(
@@ -1087,6 +1560,7 @@ def main() -> None:
             lease_seconds=args.lease_seconds,
             resume_from=args.resume_from,
             dataset=dataset,
+            lora=lora,
         )
     server = create_http_server(
         coordinator,
@@ -1100,6 +1574,7 @@ def main() -> None:
             {
                 "campaign_id": campaign.campaign["id"],
                 "state": coordinator.status()["state"],
+                "training_method": coordinator.status()["training_method"],
                 "url_template": (
                     f"http://{args.host}:{server.server_port}/"
                     "?worker=<worker-id>#token=<worker-token>"

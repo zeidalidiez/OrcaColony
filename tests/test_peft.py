@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 import torch
-from safetensors.torch import load_file
+from safetensors.torch import load_file, save_file
 from torch.nn import functional as F
 
 from orcacolony import peft
@@ -18,7 +18,10 @@ from orcacolony.peft import (
     compute_adapter_gradients,
     create_adapter_optimizer,
     export_lora_fixture,
+    load_lora_checkpoint,
     load_lora_manifest,
+    run_lora_training,
+    save_lora_checkpoint,
 )
 from orcacolony.reference import (
     build_model,
@@ -56,6 +59,27 @@ def _base_parameter_snapshot(model: torch.nn.Module) -> dict[str, torch.Tensor]:
         for name, parameter in model.named_parameters()
         if name not in adapter_names
     }
+
+
+def _saved_checkpoint(tmp_path: Path):
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    checkpoint = tmp_path / "checkpoint"
+    run_lora_training(loaded, checkpoint, target_steps=1)
+    return loaded, checkpoint
+
+
+def _rewrite_optimizer(
+    checkpoint: Path,
+    tensors: dict[str, torch.Tensor],
+) -> None:
+    optimizer_path = checkpoint / "optimizer.safetensors"
+    save_file(tensors, str(optimizer_path))
+    state_path = checkpoint / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["optimizer"]["sha256"] = hashlib.sha256(
+        optimizer_path.read_bytes()
+    ).hexdigest()
+    state_path.write_text(json.dumps(state), encoding="utf-8")
 
 
 def test_lora_fixture_freezes_the_base_and_exports_complete_gradients() -> None:
@@ -246,3 +270,239 @@ def test_lora_manifest_rejects_boolean_dropout(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="dropout must be a finite number"):
         load_lora_manifest(campaign_copy, manifest_copy)
+
+
+@pytest.mark.parametrize(
+    "artifact,filename",
+    [
+        ("adapter", "../adapter.safetensors"),
+        ("adapter", "nested/adapter.safetensors"),
+        ("adapter", r"nested\adapter.safetensors"),
+        ("optimizer", "../optimizer.safetensors"),
+        ("optimizer", "nested/optimizer.safetensors"),
+        ("optimizer", r"C:\outside\optimizer.safetensors"),
+    ],
+)
+def test_lora_checkpoint_rejects_non_basename_artifact_paths(
+    tmp_path: Path,
+    artifact: str,
+    filename: str,
+) -> None:
+    loaded, checkpoint = _saved_checkpoint(tmp_path)
+    state_path = checkpoint / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state[artifact]["file"] = filename
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="safe plain basename"):
+        load_lora_checkpoint(loaded, checkpoint)
+
+
+@pytest.mark.parametrize("defect", ["name", "dtype", "shape", "nonfinite"])
+def test_lora_checkpoint_rejects_malformed_optimizer_moments(
+    tmp_path: Path,
+    defect: str,
+) -> None:
+    loaded, checkpoint = _saved_checkpoint(tmp_path)
+    optimizer = dict(load_file(str(checkpoint / "optimizer.safetensors")))
+    name = sorted(optimizer)[0]
+    tensor = optimizer.pop(name)
+    if defect == "name":
+        optimizer[f"unexpected.{name}"] = tensor
+    elif defect == "dtype":
+        optimizer[name] = tensor.to(torch.float64)
+    elif defect == "shape":
+        optimizer[name] = tensor.reshape(-1)[:-1]
+    else:
+        tensor = tensor.clone()
+        tensor.reshape(-1)[0] = torch.nan
+        optimizer[name] = tensor
+    _rewrite_optimizer(checkpoint, optimizer)
+
+    with pytest.raises(
+        ValueError,
+        match="tensor set|float32|shape differs|non-finite",
+    ):
+        load_lora_checkpoint(loaded, checkpoint)
+
+
+@pytest.mark.parametrize("optimizer_step", [-1, 1.5, True, 2])
+def test_lora_checkpoint_rejects_invalid_or_mismatched_optimizer_step(
+    tmp_path: Path,
+    optimizer_step: object,
+) -> None:
+    loaded, checkpoint = _saved_checkpoint(tmp_path)
+    state_path = checkpoint / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["optimizer_step"] = optimizer_step
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="optimizer step"):
+        load_lora_checkpoint(loaded, checkpoint)
+
+
+def _stepped_lora_optimizer():
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    model = build_lora_model(loaded.campaign, loaded.config)
+    optimizer = create_adapter_optimizer(model, loaded.campaign.training)
+    inputs, targets = fixture_batch(loaded.campaign)
+    gradients = compute_adapter_gradients(model, inputs, targets)
+    apply_adapter_gradient_step(
+        model,
+        optimizer,
+        gradients.gradients,
+        gradients.loss_weight_sum,
+        loaded.campaign.training.max_gradient_norm,
+    )
+    return loaded, model, optimizer
+
+
+def test_lora_checkpoint_save_rejects_inconsistent_parameter_steps(
+    tmp_path: Path,
+) -> None:
+    loaded, model, optimizer = _stepped_lora_optimizer()
+    parameters = list(adapter_named_parameters(model).values())
+    optimizer.state[parameters[-1]]["step"] = torch.tensor(2.0)
+
+    with pytest.raises(ValueError, match="optimizer steps do not agree"):
+        save_lora_checkpoint(
+            loaded,
+            model,
+            optimizer,
+            tmp_path / "invalid",
+            step=1,
+            dataset_cursor=4,
+            loss_history=[1.0],
+        )
+
+
+def test_lora_checkpoint_save_rejects_nonfinite_optimizer_moments(
+    tmp_path: Path,
+) -> None:
+    loaded, model, optimizer = _stepped_lora_optimizer()
+    first = next(iter(adapter_named_parameters(model).values()))
+    optimizer.state[first]["exp_avg"].reshape(-1)[0] = torch.inf
+
+    with pytest.raises(ValueError, match="non-finite"):
+        save_lora_checkpoint(
+            loaded,
+            model,
+            optimizer,
+            tmp_path / "invalid",
+            step=1,
+            dataset_cursor=4,
+            loss_history=[1.0],
+        )
+
+
+def test_lora_resume_identity_binds_valid_optimizer_moments(tmp_path: Path) -> None:
+    loaded, checkpoint = _saved_checkpoint(tmp_path)
+    state = json.loads((checkpoint / "state.json").read_text(encoding="utf-8"))
+    original_identity = state["checkpoint_sha256"]
+    optimizer = dict(load_file(str(checkpoint / "optimizer.safetensors")))
+    name = sorted(optimizer)[0]
+    optimizer[name] = optimizer[name].clone()
+    optimizer[name].reshape(-1)[0] += 1e-6
+    _rewrite_optimizer(checkpoint, optimizer)
+
+    with pytest.raises(ValueError, match="checkpoint identity"):
+        load_lora_checkpoint(loaded, checkpoint)
+
+    rewritten = json.loads((checkpoint / "state.json").read_text(encoding="utf-8"))
+    assert rewritten["checkpoint_sha256"] == original_identity
+
+
+@pytest.mark.parametrize(
+    ("dataset_cursor", "loss_history", "message"),
+    [
+        (-1, [1.0], "dataset cursor"),
+        (5, [1.0], "dataset cursor"),
+        (4, [], "loss history"),
+        (4, [float("nan")], "finite"),
+        (4, [True], "finite number"),
+    ],
+)
+def test_lora_checkpoint_save_rejects_invalid_trajectory_metadata(
+    tmp_path: Path,
+    dataset_cursor: int,
+    loss_history: list[object],
+    message: str,
+) -> None:
+    loaded, model, optimizer = _stepped_lora_optimizer()
+
+    with pytest.raises(ValueError, match=message):
+        save_lora_checkpoint(
+            loaded,
+            model,
+            optimizer,
+            tmp_path / "invalid",
+            step=1,
+            dataset_cursor=dataset_cursor,
+            loss_history=loss_history,  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("dataset_cursor", -1, "dataset cursor"),
+        ("dataset_cursor", 5, "dataset cursor"),
+        ("loss_history", [], "loss history"),
+        ("loss_history", [float("nan")], "finite"),
+        ("loss_history", [True], "finite number"),
+    ],
+)
+def test_lora_checkpoint_load_rejects_invalid_trajectory_metadata(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    loaded, checkpoint = _saved_checkpoint(tmp_path)
+    state_path = checkpoint / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state[field] = value
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        load_lora_checkpoint(loaded, checkpoint)
+
+
+def test_lora_resume_matches_an_uninterrupted_second_step_exactly(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    direct = run_lora_training(loaded, tmp_path / "direct", target_steps=2)
+    first = run_lora_training(loaded, tmp_path / "first", target_steps=1)
+    resumed = run_lora_training(
+        loaded,
+        tmp_path / "resumed",
+        target_steps=2,
+        resume_from=first.checkpoint_dir,
+    )
+
+    direct_adapter = load_file(str(direct.checkpoint_dir / "adapter.safetensors"))
+    resumed_adapter = load_file(str(resumed.checkpoint_dir / "adapter.safetensors"))
+    direct_optimizer = load_file(str(direct.checkpoint_dir / "optimizer.safetensors"))
+    resumed_optimizer = load_file(str(resumed.checkpoint_dir / "optimizer.safetensors"))
+    assert direct_adapter.keys() == resumed_adapter.keys()
+    assert direct_optimizer.keys() == resumed_optimizer.keys()
+    assert all(
+        torch.equal(direct_adapter[name], resumed_adapter[name])
+        for name in direct_adapter
+    )
+    assert all(
+        torch.equal(direct_optimizer[name], resumed_optimizer[name])
+        for name in direct_optimizer
+    )
+    direct_state = json.loads(
+        (direct.checkpoint_dir / "state.json").read_text(encoding="utf-8")
+    )
+    resumed_state = json.loads(
+        (resumed.checkpoint_dir / "state.json").read_text(encoding="utf-8")
+    )
+    assert direct_state["step"] == resumed_state["step"] == 2
+    assert direct_state["optimizer_step"] == resumed_state["optimizer_step"] == 2
+    assert direct_state["dataset_cursor"] == resumed_state["dataset_cursor"] == 8
+    assert direct_state["loss_history"] == resumed_state["loss_history"]
+    assert direct_state["checkpoint_sha256"] == resumed_state["checkpoint_sha256"]

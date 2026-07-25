@@ -13,10 +13,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import torch
+from safetensors.torch import load_file as load_safetensors_file
 from safetensors.torch import save_file as save_safetensors_file
 from torch import Tensor, nn
 from torch.nn import functional as F
 
+from .artifacts import PackedDataset
 from .reference import (
     CampaignConfig,
     TrainingConfig,
@@ -25,6 +27,7 @@ from .reference import (
     fixture_batch,
     load_campaign,
     tensor_sha256,
+    validate_dataset_artifacts,
 )
 
 
@@ -112,6 +115,17 @@ class LoRAFixtureExportResult:
     output_dir: Path
     gradient_sha256: str
     updated_adapter_sha256: str
+
+
+@dataclass(frozen=True)
+class LoRATrainingResult:
+    checkpoint_dir: Path
+    steps_completed: int
+    loss_history: tuple[float, ...]
+    base_model_sha256: str
+    adapter_sha256: str
+    weight_checkpoint_sha256: str
+    checkpoint_sha256: str
 
 
 class LoRALinear(nn.Module):
@@ -387,6 +401,107 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _safe_checkpoint_artifact_path(
+    root: str | Path,
+    filename: object,
+    label: str,
+) -> Path:
+    if (
+        not isinstance(filename, str)
+        or not filename
+        or filename in {".", ".."}
+        or "/" in filename
+        or "\\" in filename
+        or Path(filename).is_absolute()
+        or bool(Path(filename).drive)
+        or Path(filename).name != filename
+    ):
+        raise ValueError(f"{label} must be a safe plain basename")
+    resolved_root = Path(root).resolve()
+    resolved_path = (resolved_root / filename).resolve()
+    if resolved_path.parent != resolved_root:
+        raise ValueError(f"{label} must resolve under the checkpoint root")
+    return resolved_path
+
+
+def _nonnegative_integral_step(value: object, label: str) -> int:
+    if isinstance(value, Tensor):
+        if value.numel() != 1:
+            raise ValueError(f"{label} must be a non-negative integral optimizer step")
+        value = value.detach().cpu().item()
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) < 0
+        or not float(value).is_integer()
+    ):
+        raise ValueError(f"{label} must be a non-negative integral optimizer step")
+    return int(value)
+
+
+def _validated_optimizer_tensors(
+    adapters: Mapping[str, nn.Parameter],
+    optimizer: torch.optim.AdamW,
+    checkpoint_step: object,
+) -> tuple[dict[str, Tensor], int]:
+    declared_step = _nonnegative_integral_step(
+        checkpoint_step,
+        "LoRA checkpoint optimizer step",
+    )
+    parameter_states = optimizer.state
+    expected_parameters = set(adapters.values())
+    actual_parameters = set(parameter_states)
+    if not actual_parameters and declared_step == 0:
+        return (
+            {
+                f"{prefix}{name}": torch.zeros_like(parameter).detach().cpu().contiguous()
+                for name, parameter in adapters.items()
+                for prefix in ("exp_avg.", "exp_avg_sq.")
+            },
+            0,
+        )
+    if actual_parameters != expected_parameters:
+        raise ValueError("LoRA optimizer state does not exactly match the adapters")
+
+    optimizer_tensors: dict[str, Tensor] = {}
+    parameter_steps: list[int] = []
+    for name, parameter in adapters.items():
+        parameter_state = parameter_states[parameter]
+        if set(parameter_state) != {"step", "exp_avg", "exp_avg_sq"}:
+            raise ValueError(f"LoRA optimizer state fields differ for adapter: {name}")
+        parameter_steps.append(
+            _nonnegative_integral_step(
+                parameter_state["step"],
+                f"LoRA optimizer parameter step for {name}",
+            )
+        )
+        for state_name in ("exp_avg", "exp_avg_sq"):
+            tensor = parameter_state[state_name]
+            if not isinstance(tensor, Tensor):
+                raise ValueError(f"LoRA optimizer {state_name} must be a tensor: {name}")
+            if tensor.dtype != torch.float32:
+                raise ValueError(f"LoRA optimizer {state_name} must be float32: {name}")
+            if tensor.shape != parameter.shape:
+                raise ValueError(
+                    f"LoRA optimizer {state_name} shape differs for {name}: "
+                    f"expected={tuple(parameter.shape)}, actual={tuple(tensor.shape)}"
+                )
+            if not bool(torch.isfinite(tensor).all()):
+                raise ValueError(
+                    f"LoRA optimizer {state_name} contains non-finite values: {name}"
+                )
+            optimizer_tensors[f"{state_name}.{name}"] = (
+                tensor.detach().cpu().contiguous()
+            )
+    if len(set(parameter_steps)) != 1:
+        raise ValueError("LoRA optimizer steps do not agree across adapter parameters")
+    optimizer_step = parameter_steps[0]
+    if optimizer_step != declared_step:
+        raise ValueError("LoRA optimizer step does not match the checkpoint training step")
+    return optimizer_tensors, optimizer_step
+
+
 def load_lora_manifest(
     campaign_path: str | Path,
     manifest_path: str | Path,
@@ -489,6 +604,454 @@ def _base_parameter_state(model: nn.Module) -> dict[str, Tensor]:
         for name, parameter in sorted(model.named_parameters())
         if name not in adapter_names
     }
+
+
+def lora_weight_checkpoint_sha256(
+    loaded: LoadedLoRAManifest,
+    adapter_sha256: str,
+) -> str:
+    if _SHA256_PATTERN.fullmatch(adapter_sha256) is None:
+        raise ValueError("adapter_sha256 must be a lowercase SHA-256 digest")
+    return _sha256_bytes(
+        _canonical_json(
+            {
+                "format": "orcacolony_lora_checkpoint_identity_v1",
+                "lora_manifest_sha256": loaded.manifest_sha256,
+                "base_model_sha256": loaded.config.base_model_sha256,
+                "adapter_sha256": adapter_sha256,
+            }
+        )
+    )
+
+
+def _validated_lora_trajectory(
+    loaded: LoadedLoRAManifest,
+    step: int,
+    dataset_cursor: object,
+    loss_history: object,
+) -> tuple[int, list[float]]:
+    if isinstance(dataset_cursor, bool) or not isinstance(dataset_cursor, int):
+        raise ValueError("LoRA checkpoint dataset cursor must be an integer")
+    expected_cursor = (
+        step * loaded.campaign.training.batch_size
+    ) % loaded.campaign.training.dataset_sequences
+    if dataset_cursor != expected_cursor:
+        raise ValueError(
+            "LoRA checkpoint dataset cursor does not match the training step: "
+            f"expected={expected_cursor}, actual={dataset_cursor}"
+        )
+    if not isinstance(loss_history, list):
+        raise ValueError("LoRA checkpoint loss history must be a JSON array")
+    if len(loss_history) != step:
+        raise ValueError(
+            "LoRA checkpoint loss history length does not match the training step"
+        )
+    normalized_history: list[float] = []
+    for index, loss in enumerate(loss_history):
+        if isinstance(loss, bool) or not isinstance(loss, (int, float)):
+            raise ValueError(
+                "LoRA checkpoint loss history values must be finite numbers: "
+                f"index={index}"
+            )
+        normalized_loss = float(loss)
+        if not math.isfinite(normalized_loss):
+            raise ValueError(
+                "LoRA checkpoint loss history values must be finite: "
+                f"index={index}"
+            )
+        normalized_history.append(normalized_loss)
+    return dataset_cursor, normalized_history
+
+
+def lora_resume_state_sha256(
+    loaded: LoadedLoRAManifest,
+    *,
+    weight_checkpoint_sha256: str,
+    adapter_file_sha256: str,
+    optimizer_file_sha256: str,
+    step: int,
+    optimizer_step: int,
+    dataset_cursor: int,
+    dataset_revision: str,
+    loss_history: list[float],
+) -> str:
+    for label, digest in (
+        ("weight checkpoint", weight_checkpoint_sha256),
+        ("adapter file", adapter_file_sha256),
+        ("optimizer file", optimizer_file_sha256),
+    ):
+        if _SHA256_PATTERN.fullmatch(digest) is None:
+            raise ValueError(f"LoRA {label} digest must be lowercase SHA-256")
+    payload = {
+        "format": "orcacolony_lora_resume_state_identity_v1",
+        "campaign_id": loaded.campaign.campaign["id"],
+        "campaign_sha256": loaded.campaign_sha256,
+        "lora_manifest_sha256": loaded.manifest_sha256,
+        "base_model_sha256": loaded.config.base_model_sha256,
+        "weight_checkpoint_sha256": weight_checkpoint_sha256,
+        "adapter_file_sha256": adapter_file_sha256,
+        "optimizer_file_sha256": optimizer_file_sha256,
+        "step": step,
+        "optimizer_step": optimizer_step,
+        "dataset_cursor": dataset_cursor,
+        "dataset_revision": dataset_revision,
+        "loss_history": loss_history,
+    }
+    return _sha256_bytes(_canonical_json(payload))
+
+
+def load_adapter_state(
+    model: nn.Module,
+    tensors: Mapping[str, Tensor],
+) -> None:
+    adapters = adapter_named_parameters(model)
+    if sorted(tensors) != list(adapters):
+        missing = sorted(set(adapters) - set(tensors))
+        unexpected = sorted(set(tensors) - set(adapters))
+        raise ValueError(
+            "adapter checkpoint names differ: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+    with torch.no_grad():
+        for name, parameter in adapters.items():
+            tensor = tensors[name]
+            if tensor.dtype != torch.float32:
+                raise ValueError(f"adapter checkpoint must be float32: {name}")
+            if tensor.shape != parameter.shape:
+                raise ValueError(
+                    f"adapter checkpoint shape differs for {name}: "
+                    f"expected={tuple(parameter.shape)}, actual={tuple(tensor.shape)}"
+                )
+            if not bool(torch.isfinite(tensor).all()):
+                raise ValueError(f"adapter checkpoint contains non-finite values: {name}")
+            parameter.copy_(tensor.to(parameter.device, parameter.dtype))
+
+
+def save_lora_checkpoint(
+    loaded: LoadedLoRAManifest,
+    model: nn.Module,
+    optimizer: torch.optim.AdamW,
+    output_dir: str | Path,
+    *,
+    step: int,
+    dataset_cursor: int,
+    loss_history: list[float],
+) -> LoRATrainingResult:
+    adapters = adapter_named_parameters(model)
+    optimizer_parameters = {
+        id(parameter)
+        for group in optimizer.param_groups
+        for parameter in group["params"]
+    }
+    if optimizer_parameters != {id(parameter) for parameter in adapters.values()}:
+        raise ValueError("LoRA checkpoint optimizer does not exactly own the adapters")
+    checkpoint_step = _nonnegative_integral_step(
+        step,
+        "LoRA checkpoint training step",
+    )
+    optimizer_tensors, optimizer_step = _validated_optimizer_tensors(
+        adapters,
+        optimizer,
+        checkpoint_step,
+    )
+    normalized_cursor, normalized_history = _validated_lora_trajectory(
+        loaded,
+        checkpoint_step,
+        dataset_cursor,
+        loss_history,
+    )
+
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    adapter_path = output / "adapter.safetensors"
+    optimizer_path = output / "optimizer.safetensors"
+    state_path = output / "state.json"
+    adapter_tmp = output / "adapter.safetensors.tmp"
+    optimizer_tmp = output / "optimizer.safetensors.tmp"
+    state_tmp = output / "state.json.tmp"
+
+    adapter_tensors = _adapter_state(model)
+    adapter_sha256 = tensor_sha256(adapter_tensors)
+    save_safetensors_file(adapter_tensors, str(adapter_tmp))
+    os.replace(adapter_tmp, adapter_path)
+
+    save_safetensors_file(optimizer_tensors, str(optimizer_tmp))
+    os.replace(optimizer_tmp, optimizer_path)
+
+    weight_checkpoint_sha256 = lora_weight_checkpoint_sha256(loaded, adapter_sha256)
+    adapter_file_sha256 = _sha256_file(adapter_path)
+    optimizer_file_sha256 = _sha256_file(optimizer_path)
+    dataset_revision = (
+        loaded.campaign.dataset["manifest_sha256"]
+        if loaded.campaign.dataset is not None
+        else "synthetic-fixture-v1"
+    )
+    checkpoint_sha256 = lora_resume_state_sha256(
+        loaded,
+        weight_checkpoint_sha256=weight_checkpoint_sha256,
+        adapter_file_sha256=adapter_file_sha256,
+        optimizer_file_sha256=optimizer_file_sha256,
+        step=checkpoint_step,
+        optimizer_step=optimizer_step,
+        dataset_cursor=normalized_cursor,
+        dataset_revision=dataset_revision,
+        loss_history=normalized_history,
+    )
+    state = {
+        "format": "orcacolony_lora_checkpoint_v1",
+        "campaign_id": loaded.campaign.campaign["id"],
+        "campaign_sha256": loaded.campaign_sha256,
+        "lora_manifest_sha256": loaded.manifest_sha256,
+        "base_model_sha256": loaded.config.base_model_sha256,
+        "weight_checkpoint_sha256": weight_checkpoint_sha256,
+        "checkpoint_sha256": checkpoint_sha256,
+        "step": checkpoint_step,
+        "optimizer_step": optimizer_step,
+        "dataset_cursor": normalized_cursor,
+        "dataset_revision": dataset_revision,
+        "loss_history": normalized_history,
+        "adapter": {
+            "file": adapter_path.name,
+            "file_sha256": adapter_file_sha256,
+            "tensor_sha256": adapter_sha256,
+            "tensor_order": list(adapters),
+        },
+        "optimizer": {
+            "file": optimizer_path.name,
+            "sha256": optimizer_file_sha256,
+        },
+    }
+    state_tmp.write_text(
+        json.dumps(state, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(state_tmp, state_path)
+    return LoRATrainingResult(
+        checkpoint_dir=output,
+        steps_completed=checkpoint_step,
+        loss_history=tuple(normalized_history),
+        base_model_sha256=loaded.config.base_model_sha256,
+        adapter_sha256=adapter_sha256,
+        weight_checkpoint_sha256=weight_checkpoint_sha256,
+        checkpoint_sha256=checkpoint_sha256,
+    )
+
+
+def load_lora_checkpoint(
+    loaded: LoadedLoRAManifest,
+    checkpoint_dir: str | Path,
+) -> tuple[VolunteerDecoder, torch.optim.AdamW, int, int, list[float]]:
+    checkpoint = Path(checkpoint_dir).resolve()
+    state_path = _safe_checkpoint_artifact_path(
+        checkpoint,
+        "state.json",
+        "LoRA checkpoint state file",
+    )
+    state = _require_mapping(
+        json.loads(
+            state_path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+        ),
+        "LoRA checkpoint state",
+    )
+    _require_exact_fields(
+        state,
+        {
+            "format",
+            "campaign_id",
+            "campaign_sha256",
+            "lora_manifest_sha256",
+            "base_model_sha256",
+            "weight_checkpoint_sha256",
+            "checkpoint_sha256",
+            "step",
+            "optimizer_step",
+            "dataset_cursor",
+            "dataset_revision",
+            "loss_history",
+            "adapter",
+            "optimizer",
+        },
+        "LoRA checkpoint state",
+    )
+    if state.get("format") != "orcacolony_lora_checkpoint_v1":
+        raise ValueError("unsupported LoRA checkpoint format")
+    if state.get("campaign_id") != loaded.campaign.campaign["id"]:
+        raise ValueError("LoRA checkpoint campaign does not match configuration")
+    if state.get("campaign_sha256") != loaded.campaign_sha256:
+        raise ValueError("LoRA checkpoint campaign digest mismatch")
+    if state.get("lora_manifest_sha256") != loaded.manifest_sha256:
+        raise ValueError("LoRA checkpoint manifest digest mismatch")
+    if state.get("base_model_sha256") != loaded.config.base_model_sha256:
+        raise ValueError("LoRA checkpoint base model digest mismatch")
+    expected_dataset_revision = (
+        loaded.campaign.dataset["manifest_sha256"]
+        if loaded.campaign.dataset is not None
+        else "synthetic-fixture-v1"
+    )
+    if state.get("dataset_revision") != expected_dataset_revision:
+        raise ValueError("LoRA checkpoint dataset revision mismatch")
+
+    checkpoint_step = _nonnegative_integral_step(
+        state.get("step"),
+        "LoRA checkpoint training step",
+    )
+    optimizer_step = _nonnegative_integral_step(
+        state.get("optimizer_step"),
+        "LoRA checkpoint optimizer step",
+    )
+    if optimizer_step != checkpoint_step:
+        raise ValueError("LoRA checkpoint optimizer step does not match training step")
+    dataset_cursor, loss_history = _validated_lora_trajectory(
+        loaded,
+        checkpoint_step,
+        state.get("dataset_cursor"),
+        state.get("loss_history"),
+    )
+
+    adapter_state = _require_mapping(state.get("adapter"), "LoRA checkpoint adapter")
+    optimizer_state = _require_mapping(
+        state.get("optimizer"),
+        "LoRA checkpoint optimizer",
+    )
+    _require_exact_fields(
+        adapter_state,
+        {"file", "file_sha256", "tensor_sha256", "tensor_order"},
+        "LoRA checkpoint adapter",
+    )
+    _require_exact_fields(
+        optimizer_state,
+        {"file", "sha256"},
+        "LoRA checkpoint optimizer",
+    )
+    adapter_path = _safe_checkpoint_artifact_path(
+        checkpoint,
+        adapter_state.get("file"),
+        "LoRA adapter checkpoint file",
+    )
+    optimizer_path = _safe_checkpoint_artifact_path(
+        checkpoint,
+        optimizer_state.get("file"),
+        "LoRA optimizer checkpoint file",
+    )
+    if _sha256_file(adapter_path) != adapter_state.get("file_sha256"):
+        raise ValueError("LoRA adapter checkpoint file digest mismatch")
+    if _sha256_file(optimizer_path) != optimizer_state.get("sha256"):
+        raise ValueError("LoRA optimizer checkpoint digest mismatch")
+    adapter_tensors = load_safetensors_file(str(adapter_path))
+    adapter_sha256 = tensor_sha256(adapter_tensors)
+    if adapter_sha256 != adapter_state.get("tensor_sha256"):
+        raise ValueError("LoRA adapter tensor digest mismatch")
+    weight_checkpoint_sha256 = lora_weight_checkpoint_sha256(loaded, adapter_sha256)
+    if weight_checkpoint_sha256 != state.get("weight_checkpoint_sha256"):
+        raise ValueError("LoRA weight checkpoint identity mismatch")
+
+    model = build_lora_model(loaded.campaign, loaded.config)
+    if adapter_state.get("tensor_order") != list(adapter_named_parameters(model)):
+        raise ValueError("LoRA adapter tensor order does not match the manifest")
+    load_adapter_state(model, adapter_tensors)
+    adapters = adapter_named_parameters(model)
+    optimizer = create_adapter_optimizer(model, loaded.campaign.training)
+    optimizer_tensors = load_safetensors_file(str(optimizer_path))
+    expected_optimizer_names = {
+        prefix + name
+        for name in adapters
+        for prefix in ("exp_avg.", "exp_avg_sq.")
+    }
+    if set(optimizer_tensors) != expected_optimizer_names:
+        raise ValueError("LoRA optimizer tensor set does not match the adapters")
+    for name, parameter in adapters.items():
+        parameter_state: dict[str, Tensor] = {
+            "step": torch.tensor(float(optimizer_step), dtype=torch.float32),
+        }
+        for state_name in ("exp_avg", "exp_avg_sq"):
+            tensor = optimizer_tensors[f"{state_name}.{name}"]
+            if tensor.dtype != torch.float32:
+                raise ValueError(f"LoRA optimizer {state_name} must be float32: {name}")
+            if tensor.shape != parameter.shape:
+                raise ValueError(
+                    f"LoRA optimizer {state_name} shape differs for {name}: "
+                    f"expected={tuple(parameter.shape)}, actual={tuple(tensor.shape)}"
+                )
+            if not bool(torch.isfinite(tensor).all()):
+                raise ValueError(
+                    f"LoRA optimizer {state_name} contains non-finite values: {name}"
+                )
+            parameter_state[state_name] = tensor.to(parameter.device).clone()
+        optimizer.state[parameter] = parameter_state
+    checkpoint_sha256 = lora_resume_state_sha256(
+        loaded,
+        weight_checkpoint_sha256=weight_checkpoint_sha256,
+        adapter_file_sha256=str(adapter_state.get("file_sha256")),
+        optimizer_file_sha256=str(optimizer_state.get("sha256")),
+        step=checkpoint_step,
+        optimizer_step=optimizer_step,
+        dataset_cursor=dataset_cursor,
+        dataset_revision=expected_dataset_revision,
+        loss_history=loss_history,
+    )
+    if checkpoint_sha256 != state.get("checkpoint_sha256"):
+        raise ValueError("LoRA checkpoint identity mismatch")
+    return (
+        model,
+        optimizer,
+        checkpoint_step,
+        dataset_cursor,
+        loss_history,
+    )
+
+
+def run_lora_training(
+    loaded: LoadedLoRAManifest,
+    output_dir: str | Path,
+    *,
+    target_steps: int,
+    resume_from: str | Path | None = None,
+    dataset: PackedDataset | None = None,
+) -> LoRATrainingResult:
+    validate_dataset_artifacts(loaded.campaign, dataset)
+    if resume_from is None:
+        model = build_lora_model(loaded.campaign, loaded.config)
+        optimizer = create_adapter_optimizer(model, loaded.campaign.training)
+        step = 0
+        dataset_cursor = 0
+        loss_history: list[float] = []
+    else:
+        model, optimizer, step, dataset_cursor, loss_history = load_lora_checkpoint(
+            loaded,
+            resume_from,
+        )
+    if target_steps < step or (target_steps == step and resume_from is not None):
+        raise ValueError("target_steps must be greater than the LoRA checkpoint step")
+
+    while step < target_steps:
+        inputs, targets = fixture_batch(
+            loaded.campaign,
+            dataset_cursor,
+            dataset,
+        )
+        submitted = compute_adapter_gradients(model, inputs, targets)
+        apply_adapter_gradient_step(
+            model,
+            optimizer,
+            submitted.gradients,
+            submitted.loss_weight_sum,
+            loaded.campaign.training.max_gradient_norm,
+        )
+        loss_history.append(submitted.loss_sum / submitted.loss_weight_sum)
+        dataset_cursor = (
+            dataset_cursor + loaded.campaign.training.batch_size
+        ) % loaded.campaign.training.dataset_sequences
+        step += 1
+    return save_lora_checkpoint(
+        loaded,
+        model,
+        optimizer,
+        output_dir,
+        step=step,
+        dataset_cursor=dataset_cursor,
+        loss_history=loss_history,
+    )
 
 
 def export_lora_fixture(

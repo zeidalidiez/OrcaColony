@@ -355,10 +355,9 @@ async function run() {
     if (connected && pinnedCampaign && manifest.campaign_id !== pinnedCampaign) {
       throw new Error("assignment campaign does not match this static worker release");
     }
-    const peftMode = manifest.format === "orcacolony_lora_fixture_v1";
-    if (connected && peftMode) {
-      throw new Error("LoRA parity mode is local-only until the coordinator contract is implemented");
-    }
+    const peftMode =
+      manifest.format === "orcacolony_lora_fixture_v1" ||
+      manifest.training_method === "frozen-base-lora";
     const modelUrl = connected
       ? coordinatorUrl(manifest.model_url)
       : peftMode
@@ -368,7 +367,11 @@ async function run() {
       ? coordinatorUrl(manifest.oracle_gradient_url)
       : "./fixture/gradients.safetensors";
     const adapterPromise = peftMode
-      ? fetchOk("./fixture/adapter.safetensors")
+      ? fetchOk(
+          connected
+            ? coordinatorUrl(manifest.adapter_url)
+            : "./fixture/adapter.safetensors",
+        )
       : Promise.resolve(null);
     const [model, expectedGradients, , adapter] = await Promise.all([
       fetchOk(modelUrl),
@@ -442,7 +445,7 @@ async function run() {
       worker_id: workerId,
       batch_shape: manifest.input_shape,
       model_parameter_count: peftMode
-        ? manifest.base.parameter_count
+        ? (manifest.base?.parameter_count ?? manifest.parameter_count)
         : manifest.parameter_count,
       trainable_parameter_count: peftMode
         ? manifest.adapter.value_count

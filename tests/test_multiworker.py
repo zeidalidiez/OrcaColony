@@ -7,7 +7,10 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 import pytest
+from safetensors.torch import load as load_safetensors
+from safetensors.torch import load_file as load_safetensors_file
 
+from orcacolony import multiworker
 from orcacolony.multiworker import (
     GlobalStepCoordinator,
     LeasedGradient,
@@ -15,10 +18,12 @@ from orcacolony.multiworker import (
     normalize_http_origin,
 )
 from orcacolony.participants import ParticipantRegistry
+from orcacolony.peft import load_lora_manifest
 from orcacolony.reference import load_campaign
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
+LORA_CONFIG = Path(__file__).parents[1] / "campaign" / "t0-lora-smoke.json"
 
 
 def participants_for(campaign_id: object) -> ParticipantRegistry:
@@ -294,3 +299,307 @@ def test_next_global_step_resumes_model_optimizer_and_dataset_cursor(
     assert checkpoint_state["step"] == 2
     assert checkpoint_state["dataset_cursor"] == 8
     assert len(checkpoint_state["loss_history"]) == 2
+
+
+def test_lora_workers_aggregate_only_adapters_and_reload_the_checkpoint(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+
+    expected_names = [
+        name
+        for layer in range(loaded.campaign.model.layers)
+        for name in (
+            f"blocks.{layer}.attention.qkv.lora_a",
+            f"blocks.{layer}.attention.qkv.lora_b",
+        )
+    ]
+    for worker_id in ("worker-a", "worker-b"):
+        assignment = coordinator.lease(
+            worker_id,
+            worker_token="test-token",
+            now=100,
+        )
+        assert assignment["format"] == "orcacolony_assignment_v2"
+        assert assignment["training_method"] == "frozen-base-lora"
+        assert assignment["base_model_sha256"] == loaded.config.base_model_sha256
+        assert assignment["weight_checkpoint_sha256"] == assignment["checkpoint_sha256"]
+        assert assignment["resume_state_sha256"] != assignment["checkpoint_sha256"]
+        assert assignment["adapter"]["tensor_order"] == expected_names
+        assert assignment["adapter"]["value_count"] == 8_192
+        assert assignment["adapter_url"] == "/api/v1/artifacts/adapter.safetensors"
+        receipt = coordinator.accept(submission_for(coordinator, assignment), now=101)
+
+    assert receipt.step_complete is True
+    assert receipt.model_sha256 == loaded.config.base_model_sha256
+    assert receipt.adapter_sha256 is not None
+    assert receipt.weight_checkpoint_sha256 is not None
+    assert receipt.checkpoint_sha256 is not None
+    assert receipt.weight_checkpoint_sha256 != receipt.checkpoint_sha256
+    assert receipt.checkpoint_metrics["relative_l2_error"] < 1e-6
+
+    checkpoint_state = json.loads(
+        (coordinator.checkpoint_dir / "state.json").read_text(encoding="utf-8")
+    )
+    assert checkpoint_state["format"] == "orcacolony_lora_checkpoint_v1"
+    assert checkpoint_state["base_model_sha256"] == loaded.config.base_model_sha256
+    assert checkpoint_state["adapter"]["tensor_sha256"] == receipt.adapter_sha256
+    assert checkpoint_state["weight_checkpoint_sha256"] == receipt.weight_checkpoint_sha256
+    assert checkpoint_state["checkpoint_sha256"] == receipt.checkpoint_sha256
+    assert sorted(
+        load_safetensors_file(str(coordinator.checkpoint_dir / "adapter.safetensors"))
+    ) == expected_names
+    assert all(
+        name.startswith(("exp_avg.", "exp_avg_sq."))
+        and name.split(".", 1)[1] in expected_names
+        for name in load_safetensors_file(
+            str(coordinator.checkpoint_dir / "optimizer.safetensors")
+        )
+    )
+
+    recovered = GlobalStepCoordinator.load(
+        loaded.campaign,
+        state_dir,
+        participants=participants,
+        lora=loaded,
+    )
+    assert recovered.status()["state"] == "step_complete"
+    assert recovered.status()["adapter_sha256"] == receipt.adapter_sha256
+    assert recovered.status()["result_checkpoint_sha256"] == receipt.checkpoint_sha256
+
+
+def test_next_lora_step_resumes_adapter_optimizer_and_dataset_cursor(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    first = GlobalStepCoordinator.create(
+        loaded.campaign,
+        tmp_path / "step-1",
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    for worker_id in ("worker-a", "worker-b"):
+        assignment = first.lease(worker_id, worker_token="test-token", now=100)
+        first.accept(submission_for(first, assignment), now=101)
+
+    second = GlobalStepCoordinator.create(
+        loaded.campaign,
+        tmp_path / "step-2",
+        worker_count=2,
+        participants=participants,
+        resume_from=first.checkpoint_dir,
+        lora=loaded,
+    )
+    assert second.status()["step"] == 1
+    assert second.status()["initial_adapter_sha256"] == first.status()["adapter_sha256"]
+    for worker_id in ("worker-a", "worker-b"):
+        assignment = second.lease(worker_id, worker_token="test-token", now=200)
+        receipt = second.accept(submission_for(second, assignment), now=201)
+
+    assert receipt.step == 2
+    assert receipt.checkpoint_metrics["relative_l2_error"] < 1e-6
+    checkpoint_state = json.loads(
+        (second.checkpoint_dir / "state.json").read_text(encoding="utf-8")
+    )
+    assert checkpoint_state["step"] == 2
+    assert checkpoint_state["optimizer_step"] == 2
+    assert checkpoint_state["dataset_cursor"] == 8
+    assert len(checkpoint_state["loss_history"]) == 2
+
+
+def test_lora_resume_revalidates_artifact_paths_before_copying(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    first = GlobalStepCoordinator.create(
+        loaded.campaign,
+        tmp_path / "step-1",
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    for worker_id in ("worker-a", "worker-b"):
+        assignment = first.lease(worker_id, worker_token="test-token", now=100)
+        first.accept(submission_for(first, assignment), now=101)
+
+    real_load = multiworker.load_lora_checkpoint
+
+    def mutate_after_load(lora, checkpoint):
+        result = real_load(lora, checkpoint)
+        state_path = Path(checkpoint) / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["optimizer"]["file"] = "../optimizer.safetensors"
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(multiworker, "load_lora_checkpoint", mutate_after_load)
+    with pytest.raises(ValueError, match="safe plain basename"):
+        GlobalStepCoordinator.create(
+            loaded.campaign,
+            tmp_path / "step-2",
+            worker_count=2,
+            participants=participants,
+            resume_from=first.checkpoint_dir,
+            lora=loaded,
+        )
+
+
+def test_lora_http_contract_serves_assignments_artifacts_and_result_checkpoint(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        tmp_path / "coordinator",
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    browser_root = tmp_path / "browser"
+    browser_root.mkdir()
+    (browser_root / "index.html").write_text("OrcaColony", encoding="utf-8")
+    server = create_http_server(coordinator, browser_root, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+
+    receipts = []
+    try:
+        for worker_id in ("browser-a", "browser-b"):
+            assignment_request = Request(
+                f"{base_url}/api/v1/assignment?{urlencode({'worker_id': worker_id})}",
+                headers={"X-Orca-Worker-Token": "test-token"},
+            )
+            with urlopen(assignment_request) as response:
+                assignment = json.load(response)
+            assert assignment["model_url"] == "/api/v1/artifacts/model.safetensors"
+            assert assignment["adapter_url"] == "/api/v1/artifacts/adapter.safetensors"
+            with urlopen(f"{base_url}{assignment['model_url']}") as response:
+                initial_base = load_safetensors(response.read())
+            with urlopen(f"{base_url}{assignment['adapter_url']}") as response:
+                initial_adapter = load_safetensors(response.read())
+            assert multiworker.tensor_sha256(initial_base) == assignment["base_model_sha256"]
+            assert multiworker.tensor_sha256(initial_adapter) == assignment["adapter_sha256"]
+
+            result_request = Request(
+                f"{base_url}{assignment['result_url']}",
+                data=coordinator.oracle_gradient_path(
+                    assignment["assignment_id"]
+                ).read_bytes(),
+                method="POST",
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "X-Orca-Lease-Token": assignment["lease_token"],
+                    "X-Orca-Checkpoint-Sha256": assignment["checkpoint_sha256"],
+                    "X-Orca-Loss-Sum": str(assignment["expected_loss_sum"]),
+                    "X-Orca-Loss-Weight-Sum": str(assignment["loss_weight_sum"]),
+                    "X-Orca-Runtime-Backend": "python-oracle-f32",
+                },
+            )
+            with urlopen(result_request) as response:
+                receipts.append(json.load(response))
+
+        completed = receipts[-1]
+        with urlopen(f"{base_url}{completed['checkpoint_url']}") as response:
+            completed_adapter = load_safetensors(response.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+    assert receipts[0]["step_complete"] is False
+    assert receipts[0]["adapter_sha256"] is None
+    assert receipts[0]["checkpoint_sha256"] is None
+    assert receipts[0]["checkpoint_url"] is None
+    assert completed["step_complete"] is True
+    assert completed["model_sha256"] == loaded.config.base_model_sha256
+    assert completed["adapter_sha256"] == multiworker.tensor_sha256(completed_adapter)
+    assert completed[
+        "weight_checkpoint_sha256"
+    ] == multiworker.lora_weight_checkpoint_sha256(
+        loaded,
+        completed["adapter_sha256"],
+    )
+    checkpoint_state = json.loads(
+        (coordinator.checkpoint_dir / "state.json").read_text(encoding="utf-8")
+    )
+    assert completed["checkpoint_sha256"] == checkpoint_state["checkpoint_sha256"]
+    assert completed["checkpoint_sha256"] != completed["weight_checkpoint_sha256"]
+    assert completed["checkpoint_url"] == "/api/v1/checkpoint/adapter.safetensors"
+
+
+def test_dense_restart_migrates_the_pre_lora_state_and_campaign_lock(
+    tmp_path: Path,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    participants = participants_for(campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    GlobalStepCoordinator.create(
+        campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+    )
+
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    for field in (
+        "training_method",
+        "lora_manifest_sha256",
+        "base_model_sha256",
+        "initial_adapter_sha256",
+        "resume_state_sha256",
+        "adapter_sha256",
+        "result_weight_checkpoint_sha256",
+        "result_checkpoint_sha256",
+    ):
+        state.pop(field)
+    for assignment in state["assignments"]:
+        for field in (
+            "training_method",
+            "lora_manifest_sha256",
+            "base_model_sha256",
+            "adapter_sha256",
+            "adapter",
+        ):
+            assignment.pop(field, None)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    lock_path = state_dir / "campaign-lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    for field in (
+        "training_method",
+        "lora_manifest_sha256",
+        "base_model_sha256",
+        "adapter_sha256",
+        "resume_state_sha256",
+    ):
+        lock.pop(field)
+    lock_path.write_text(json.dumps(lock), encoding="utf-8")
+
+    recovered = GlobalStepCoordinator.load(
+        campaign,
+        state_dir,
+        participants=participants,
+    )
+    assert recovered.status()["training_method"] == "dense"
+    migrated_state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert migrated_state["base_model_sha256"] == migrated_state["checkpoint_sha256"]
+    assert migrated_state["result_checkpoint_sha256"] is None
+    migrated_lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    assert migrated_lock["training_method"] == "dense"
+    assert migrated_lock["adapter_sha256"] is None

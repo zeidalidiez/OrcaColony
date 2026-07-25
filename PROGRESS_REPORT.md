@@ -128,6 +128,11 @@ Completed within the first P2 numerical slice:
 - Rebuilt and reran the original dense CPU/WASM path after the LoRA change; all 52 gradients retained their prior relative L2 result `2.788216012272494e-7`.
 - Published the two-experiment `p2-browser-lora-parity-v1` study pinned to browser implementation commit `7aab3ccf536234a45bf0e21753e044d70af66fcd`; both result bundles and every checksum verified.
 - Preserved the 21.650-second WebGPU cold-run cost as a negative finding rather than hiding it behind the passing numerical gate.
+- Added explicit frozen-base LoRA mode to the restartable global-step coordinator. Assignments now bind the immutable base, initial adapter, worker-facing weight identity, full resume-state identity, exact eight-tensor trainable manifest, and LoRA manifest revision while dense assignments retain their existing protocol.
+- Added adapter-only aggregation, one coordinator-owned AdamW state, separate adapter checkpoints, and strict base/adapter/optimizer reload validation. Two-worker updates matched independent centralized adapter checkpoints below `1e-6` relative L2 across both a first step and a resumed second step; only the eight adapter tensors receive optimizer state.
+- Closed independent-review findings with basename-confined checkpoint artifacts, exact finite FP32 optimizer-moment validation, consistent integral optimizer-step checks, and negative traversal/corruption tests. The full resume-state identity now binds the exact adapter and optimizer artifacts, training and optimizer steps, dataset cursor and revision, and finite loss history; malformed trajectory metadata is rejected before save and on load. Dense pre-LoRA coordinator state and lock files migrate explicitly instead of failing after the protocol extension.
+- Completed the connected HTTP/browser contract for adapter assignments: the coordinator serves the frozen base and current adapter independently, accepts only adapter gradients, publishes separate adapter-weight and resume-state identities, and serves the resulting adapter checkpoint.
+- Proved the real authenticated two-browser CPU/WASM path. Both disjoint assignments returned exactly 8 tensors and 8,192 values and were accepted once; their gradient relative L2 errors were `4.80808764225882e-7` and `4.599249278948762e-7`. The canonical adapter survived coordinator restart and matched an independent centralized Python step with cosine `0.9999999999985897`, relative L2 `1.6795715402185043e-6`, and maximum absolute error `7.257913239300251e-7`.
 
 ### P3 — Qualify local memory tiers
 
@@ -183,11 +188,11 @@ The native worker is the first target for explicit offload. Browser support rema
 
 ## Immediate next bounded target
 
-Extend the coordinator with an explicit adapter campaign mode: exact base-plus-adapter checkpoint identity, adapter-only assignment/result validation and aggregation, coordinator-owned adapter optimizer state, restart/retry, evaluation, and release. Keep the current dense mode unchanged and prove the first connected CPU/WASM adapter assignment against an independent Python step. A useful public base remains later P2 work.
+Publish the connected CPU/WASM LoRA evidence pinned to the reviewed implementation commit, then carry adapter mode through persistent campaign evaluation and release. Keep dense mode unchanged; a useful public base remains later P2 work.
 
 ## Remaining major work
 
-- PEFT numerical and campaign vertical slice.
+- Persistent adapter-campaign evaluation and release after publishing the completed connected-browser proof.
 - Native worker with explicit RAM and storage offload.
 - Profile certification and mixed-profile proof.
 - Rolling-submodel feasibility study.
@@ -221,3 +226,5 @@ Extend the coordinator with an explicit adapter campaign mode: exact base-plus-a
 - Published and rebuilt the validated `p2-lora-numerical-v1` research record while retaining explicit limits on what the proof establishes.
 - Proved frozen-base LoRA adapter-gradient parity in real CPU/WASM and WebGPU browser runs while retaining the original dense browser result.
 - Published and checksum-verified the CPU/WASM and WebGPU browser parity experiments, including the slower WebGPU cold-run finding and explicit coordinator/offload limitations.
+- Added the explicit adapter-only global-step coordinator contract, coordinator-owned adapter checkpoint and optimizer persistence, strict reload identities, and a two-step resume proof against independent centralized LoRA updates.
+- Remediated checkpoint traversal and optimizer-corruption findings from an independent exact-tree review, preserved dense-state migration, and completed the LoRA HTTP/browser artifact and receipt contract.
