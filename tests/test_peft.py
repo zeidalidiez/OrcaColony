@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
+import pytest
 import torch
+from safetensors.torch import load_file
 from torch.nn import functional as F
 
+from orcacolony import peft
 from orcacolony.peft import (
     LoRAConfig,
     adapter_named_parameters,
@@ -12,6 +17,8 @@ from orcacolony.peft import (
     build_lora_model,
     compute_adapter_gradients,
     create_adapter_optimizer,
+    export_lora_fixture,
+    load_lora_manifest,
 )
 from orcacolony.reference import (
     build_model,
@@ -22,6 +29,7 @@ from orcacolony.reference import (
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
+LORA_CONFIG = Path(__file__).parents[1] / "campaign" / "t0-lora-smoke.json"
 
 
 def _lora_config() -> LoRAConfig:
@@ -135,3 +143,95 @@ def test_adapter_gradient_application_matches_an_independent_mean_loss_step() ->
         assert torch.equal(parameter, coordinator_base_before[name])
     for name, parameter in _base_parameter_snapshot(reference).items():
         assert torch.equal(parameter, reference_base_before[name])
+
+
+def test_lora_fixture_export_is_deterministic_and_self_describing(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+
+    first = export_lora_fixture(loaded, tmp_path / "first")
+    second = export_lora_fixture(loaded, tmp_path / "second")
+
+    expected_files = (
+        "base.safetensors",
+        "adapter.safetensors",
+        "batch.safetensors",
+        "gradients.safetensors",
+        "updated-adapter.safetensors",
+        "fixture.json",
+        "SHA256SUMS",
+    )
+    for filename in expected_files:
+        assert (first.output_dir / filename).read_bytes() == (
+            second.output_dir / filename
+        ).read_bytes()
+    checksum_bytes = (first.output_dir / "SHA256SUMS").read_bytes()
+    assert b"\r" not in checksum_bytes
+    for line in checksum_bytes.decode("utf-8").splitlines():
+        expected_sha256, filename = line.split("  ", maxsplit=1)
+        assert hashlib.sha256(
+            (first.output_dir / filename).read_bytes()
+        ).hexdigest() == expected_sha256
+    manifest = json.loads(
+        (first.output_dir / "fixture.json").read_text(encoding="utf-8")
+    )
+    assert manifest["format"] == "orcacolony_lora_fixture_v1"
+    assert manifest["base"]["model_sha256"] == loaded.config.base_model_sha256
+    assert manifest["adapter"]["tensor_count"] == 8
+    assert manifest["adapter"]["value_count"] == 8_192
+    assert manifest["gradient_contract"] == {
+        "accumulation_dtype": "float32",
+        "loss_reduction": "sum",
+        "normalization_owner": "coordinator",
+        "tensor_set": "complete_adapter_manifest",
+    }
+    assert manifest["one_step_update"]["matches_mean_loss_reference"] is True
+
+    base = load_file(str(first.output_dir / "base.safetensors"))
+    adapter = load_file(str(first.output_dir / "adapter.safetensors"))
+    gradients = load_file(str(first.output_dir / "gradients.safetensors"))
+    updated = load_file(str(first.output_dir / "updated-adapter.safetensors"))
+    assert all("lora_" not in name for name in base)
+    assert sorted(adapter) == manifest["adapter"]["tensor_order"]
+    assert sorted(gradients) == sorted(adapter)
+    assert sorted(updated) == sorted(adapter)
+    assert any(not torch.equal(adapter[name], updated[name]) for name in adapter)
+
+
+def test_lora_fixture_cli_exports_the_exact_manifest(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    output = tmp_path / "cli-fixture"
+
+    peft.main(
+        [
+            "export-fixture",
+            "--campaign",
+            str(CONFIG),
+            "--lora",
+            str(LORA_CONFIG),
+            "--output",
+            str(output),
+        ]
+    )
+
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["format"] == "orcacolony_lora_fixture_export_v1"
+    assert summary["output_dir"] == str(output)
+    assert summary["gradient_sha256"] == json.loads(
+        (output / "fixture.json").read_text(encoding="utf-8")
+    )["gradient"]["sha256"]
+
+
+def test_lora_manifest_rejects_boolean_dropout(tmp_path: Path) -> None:
+    campaign_copy = tmp_path / CONFIG.name
+    campaign_copy.write_bytes(CONFIG.read_bytes())
+    manifest_payload = json.loads(LORA_CONFIG.read_text(encoding="utf-8"))
+    manifest_payload["adapter"]["dropout"] = False
+    manifest_copy = tmp_path / LORA_CONFIG.name
+    manifest_copy.write_text(json.dumps(manifest_payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="dropout must be a finite number"):
+        load_lora_manifest(campaign_copy, manifest_copy)

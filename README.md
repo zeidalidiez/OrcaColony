@@ -31,6 +31,22 @@ uv run python -m orcacolony.research record \
 
 The command fails closed on malformed or unlinked inputs and atomically produces canonical source manifests, `result.json`, a readable `RESULT.md`, and `SHA256SUMS`. Validated and promoted outcomes must pass the study's fixed use-case metric and every guardrail; rejected and inconclusive records retain their findings and limitations.
 
+## PEFT numerical proof
+
+The first P2 slice freezes the exact T0 base and applies rank-4 LoRA adapters to every combined attention QKV projection. Export its deterministic base, initial adapter, batch, complete summed-loss adapter gradients, and independently verified one-step adapter update with:
+
+```bash
+uv run python -m orcacolony.peft export-fixture \
+  --campaign campaign/t0-smoke.json \
+  --lora campaign/t0-lora-smoke.json \
+  --output .artifacts/t0-lora-fixture-v1
+
+cd .artifacts/t0-lora-fixture-v1
+sha256sum -c SHA256SUMS
+```
+
+The manifest pins the base campaign and model hashes, exact adapter targets and initialization, named trainable tensor order, summed-loss gradient contract, coordinator normalization and clipping rules, and updated-adapter hash. This is a Python numerical proof, not yet a browser/native PEFT campaign or evidence that T0 itself is a useful adaptation target.
+
 ## Browser feasibility proof
 
 The bounded Burn spike in [`spikes/burn-browser-gradient`](spikes/burn-browser-gradient) loads that exact fixture, performs browser forward/backward through either WebGPU or CPU/WASM, exports every gradient, and compares it with the Python oracle. Its measured results are recorded with the spike.

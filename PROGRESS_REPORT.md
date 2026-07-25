@@ -114,6 +114,10 @@ Completed within the first P2 numerical slice:
 - Preserved byte-for-byte equal initial logits because the LoRA B matrices initialize to zero.
 - Exported deterministic complete FP32 adapter gradients for summed loss; the fixture gradient SHA-256 is `7ce16dfd740fd5a249257de6ab442943577b86917f9ae77604c5097ce1a5b8e2`.
 - Proved that assigning the submitted unnormalized gradients, dividing by total loss weight, clipping once, and applying coordinator-owned AdamW produces the same adapter tensors as an independent mean-loss reference step while every base tensor remains unchanged.
+- Added a fail-closed `orcacolony_lora_manifest_v1` that pins the canonical campaign content, base-model digest, exact QKV targets, rank, alpha, dropout, seed, and initialization.
+- Added the real `python -m orcacolony.peft export-fixture` command. It atomically exports the dense base, initial adapters, deterministic batch, complete adapter gradients, updated adapters, a self-describing proof manifest, and portable `SHA256SUMS`.
+- Produced two byte-identical real fixture exports and verified every checksum through `sha256sum -c`.
+- Recorded the updated adapter SHA-256 as `93b8701db49573d20bdb59e50c9dd4a0d74eb5e4f5778005d4f21271f715d8c8`; the global norm before the one allowed clipping operation was `0.038248103111982346`.
 
 ### P3 — Qualify local memory tiers
 
@@ -169,7 +173,7 @@ The native worker is the first target for explicit offload. Browser support rema
 
 ## Immediate next bounded target
 
-Complete the next P2 vertical slice: commit the exact LoRA manifest, export base/adapter/batch/gradient artifacts through a real command, prove their hashes and one-step update artifact, and record the bounded experiment through the P1 research contract. Browser/native parity, campaign restart, and a useful public base remain later work.
+Pin this exact exporter revision into a P2 study, record the verified fixture as a reproducible research result, and then begin browser adapter-gradient parity against the same artifacts. Campaign restart and a useful public base remain later P2 work.
 
 ## Remaining major work
 
@@ -203,3 +207,4 @@ Complete the next P2 vertical slice: commit the exact LoRA manifest, export base
 - Added a tested command-line path that loads exact linked manifests and writes the complete research result bundle.
 - Completed P1 with a committed study fixture, two byte-identical real CLI bundles, successful checksum verification, and explicit proof limitations.
 - Added the first P2 numerical vertical: deterministic frozen-base LoRA gradients and an exact coordinator-compatible adapter update matching an independent reference.
+- Added the exact LoRA manifest and deterministic artifact exporter, fixed checksum output to use portable LF records, and proved two real byte-identical exports with all hashes valid.
