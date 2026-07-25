@@ -7,7 +7,7 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping, cast
 
 import torch
 from safetensors.torch import load_file as load_safetensors_file
@@ -183,15 +183,21 @@ class VolunteerDecoder(nn.Module):
         return F.linear(hidden, self.token_embedding.weight)
 
 
+def campaign_from_mapping(payload: Mapping[str, object]) -> CampaignConfig:
+    return CampaignConfig(
+        campaign=cast(Mapping[str, object], payload["campaign"]),
+        model=ModelConfig(**cast(Mapping[str, Any], payload["model"])),
+        training=TrainingConfig(**cast(Mapping[str, Any], payload["training"])),
+        dataset=cast(Mapping[str, object] | None, payload.get("dataset")),
+        evaluation=cast(Mapping[str, object] | None, payload.get("evaluation")),
+    )
+
+
 def load_campaign(path: str | Path) -> CampaignConfig:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    return CampaignConfig(
-        campaign=payload["campaign"],
-        model=ModelConfig(**payload["model"]),
-        training=TrainingConfig(**payload["training"]),
-        dataset=payload.get("dataset"),
-        evaluation=payload.get("evaluation"),
-    )
+    if not isinstance(payload, Mapping):
+        raise ValueError("campaign configuration must be a JSON object")
+    return campaign_from_mapping(payload)
 
 
 def configure_determinism(seed: int) -> None:

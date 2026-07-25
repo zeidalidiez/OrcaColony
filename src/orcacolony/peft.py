@@ -26,8 +26,8 @@ from .reference import (
     TrainingConfig,
     VolunteerDecoder,
     build_model,
+    campaign_from_mapping,
     fixture_batch,
-    load_campaign,
     tensor_sha256,
     validate_dataset_artifacts,
 )
@@ -1832,7 +1832,7 @@ def load_lora_manifest(
         initialization_std=adapter["initialization_std"],  # type: ignore[arg-type]
         targets=tuple(targets),  # type: ignore[arg-type]
     )
-    campaign = load_campaign(campaign_path)
+    campaign = campaign_from_mapping(campaign_mapping)
     if verify_base_model:
         build_lora_model(campaign, config)
     return LoadedLoRAManifest(

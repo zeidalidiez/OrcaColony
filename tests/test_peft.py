@@ -680,6 +680,42 @@ def test_layer_bundle_can_parse_lora_contract_without_resident_base_build(
     assert loaded.config.base_model_sha256 == _lora_config().base_model_sha256
 
 
+@pytest.mark.parametrize("verify_base_model", [False, True])
+def test_lora_manifest_parses_the_authenticated_campaign_bytes_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    verify_base_model: bool,
+) -> None:
+    campaign_path = tmp_path / CONFIG.name
+    manifest_path = tmp_path / LORA_CONFIG.name
+    campaign_text = CONFIG.read_text(encoding="utf-8")
+    campaign_path.write_text(campaign_text, encoding="utf-8")
+    manifest_path.write_bytes(LORA_CONFIG.read_bytes())
+    mutated_payload = json.loads(campaign_text)
+    mutated_payload["model"]["gelu_approximation"] = "none"
+    mutated_text = json.dumps(mutated_payload)
+    original_read_text = Path.read_text
+    campaign_reads = 0
+
+    def raced_read_text(path: Path, *args: object, **kwargs: object) -> str:
+        nonlocal campaign_reads
+        if path.resolve() == campaign_path.resolve():
+            campaign_reads += 1
+            if campaign_reads > 1:
+                return mutated_text
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", raced_read_text)
+    loaded = peft.load_lora_manifest(
+        campaign_path,
+        manifest_path,
+        verify_base_model=verify_base_model,
+    )
+
+    assert campaign_reads == 1
+    assert loaded.campaign.model.gelu_approximation == "tanh"
+
+
 def test_layer_bundle_rejects_unlisted_artifacts_and_manifest_rebinding(
     tmp_path: Path,
 ) -> None:
