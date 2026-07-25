@@ -20,6 +20,12 @@ from .multiworker import (
     create_http_server,
 )
 from .participants import ParticipantRegistry, load_participants
+from .peft import (
+    LoadedLoRAManifest,
+    evaluate_lora_checkpoint,
+    load_lora_manifest,
+    run_lora_training,
+)
 from .reference import CampaignConfig, evaluate_checkpoint, load_campaign, run_training
 
 
@@ -42,6 +48,7 @@ class CampaignCoordinator:
         state: dict[str, object],
         current: GlobalStepCoordinator,
         dataset: PackedDataset | None = None,
+        lora: LoadedLoRAManifest | None = None,
     ) -> None:
         self.campaign = campaign
         self.state_dir = state_dir
@@ -49,6 +56,7 @@ class CampaignCoordinator:
         self._state = state
         self._current = current
         self.dataset = dataset
+        self.lora = lora
         self._lock = threading.RLock()
         self.rounds_dir = state_dir / "rounds"
         self.checkpoints_dir = state_dir / "checkpoints"
@@ -63,11 +71,14 @@ class CampaignCoordinator:
         target_steps: int,
         lease_seconds: int = 120,
         dataset: PackedDataset | None = None,
+        lora: LoadedLoRAManifest | None = None,
     ) -> CampaignCoordinator:
         if target_steps < 1:
             raise ValueError("campaign target steps must be positive")
         if participants.campaign_id != campaign.campaign["id"]:
             raise ValueError("participant campaign does not match configuration")
+        if lora is not None and lora.campaign != campaign:
+            raise ValueError("LoRA manifest campaign does not match campaign run")
         state_dir = Path(state_dir)
         if state_dir.exists() and any(state_dir.iterdir()):
             raise ValueError(f"campaign state directory is not empty: {state_dir}")
@@ -84,6 +95,7 @@ class CampaignCoordinator:
             participants=participants,
             lease_seconds=lease_seconds,
             dataset=dataset,
+            lora=lora,
         )
         state: dict[str, object] = {
             "format": "orcacolony_campaign_state_v1",
@@ -104,22 +116,39 @@ class CampaignCoordinator:
             "evaluations": [],
             "last_evaluation": None,
             "baseline_checkpoint": None,
+            "training_method": "frozen-base-lora" if lora is not None else "dense",
+            "lora_manifest_sha256": lora.manifest_sha256 if lora is not None else None,
+            "base_model_sha256": (
+                lora.config.base_model_sha256 if lora is not None else None
+            ),
         }
-        coordinator = cls(campaign, state_dir, participants, state, current, dataset)
+        coordinator = cls(campaign, state_dir, participants, state, current, dataset, lora)
         if campaign.evaluation is not None:
             if dataset is None:
                 raise ValueError("campaign evaluation requires dataset artifacts")
             baseline_relative = Path("checkpoints") / "step-00000000"
-            baseline = run_training(
-                campaign,
-                state_dir / baseline_relative,
-                target_steps=0,
-                dataset=dataset,
-            )
-            if baseline.model_sha256 != current.status()["checkpoint_sha256"]:
+            if lora is not None:
+                baseline = run_lora_training(
+                    lora,
+                    state_dir / baseline_relative,
+                    target_steps=0,
+                    dataset=dataset,
+                )
+                baseline_identity = baseline.weight_checkpoint_sha256
+                baseline_checkpoint = baseline.checkpoint_dir
+            else:
+                dense_baseline = run_training(
+                    campaign,
+                    state_dir / baseline_relative,
+                    target_steps=0,
+                    dataset=dataset,
+                )
+                baseline_identity = dense_baseline.model_sha256
+                baseline_checkpoint = dense_baseline.checkpoint_dir
+            if baseline_identity != current.status()["checkpoint_sha256"]:
                 raise ValueError("baseline checkpoint does not match campaign initialization")
             state["baseline_checkpoint"] = baseline_relative.as_posix()
-            coordinator._evaluate_versioned_checkpoint(0, baseline.checkpoint_dir)
+            coordinator._evaluate_versioned_checkpoint(0, baseline_checkpoint)
         coordinator._write_state()
         coordinator._write_lock()
         coordinator._write_ledger()
@@ -133,6 +162,7 @@ class CampaignCoordinator:
         state_dir: str | Path,
         participants: ParticipantRegistry,
         dataset: PackedDataset | None = None,
+        lora: LoadedLoRAManifest | None = None,
     ) -> CampaignCoordinator:
         state_dir = Path(state_dir)
         state = json.loads(
@@ -146,6 +176,14 @@ class CampaignCoordinator:
             raise ValueError("campaign revision mismatch")
         if state.get("participants_revision") != participants.revision:
             raise ValueError("participant revision mismatch")
+        expected_training_method = "frozen-base-lora" if lora is not None else "dense"
+        if state.get("training_method", "dense") != expected_training_method:
+            raise ValueError("campaign training method mismatch")
+        if lora is not None and (
+            state.get("lora_manifest_sha256") != lora.manifest_sha256
+            or state.get("base_model_sha256") != lora.config.base_model_sha256
+        ):
+            raise ValueError("campaign LoRA identity mismatch")
         expected_dataset_revision = (
             dataset.revision if dataset is not None else "synthetic-fixture-v1"
         )
@@ -160,8 +198,9 @@ class CampaignCoordinator:
             current_path,
             participants=participants,
             dataset=dataset,
+            lora=lora,
         )
-        coordinator = cls(campaign, state_dir, participants, state, current, dataset)
+        coordinator = cls(campaign, state_dir, participants, state, current, dataset, lora)
         lock_path = state_dir / "campaign-lock.json"
         if (
             not lock_path.is_file()
@@ -178,6 +217,10 @@ class CampaignCoordinator:
     @property
     def initial_model_path(self) -> Path:
         return self._current.initial_model_path
+
+    @property
+    def initial_adapter_path(self) -> Path:
+        return self._current.initial_adapter_path
 
     @property
     def checkpoint_dir(self) -> Path:
@@ -221,7 +264,7 @@ class CampaignCoordinator:
         _atomic_json(self.state_dir / "campaign-state.json", self._state)
 
     def _lock_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "format": "orcacolony_campaign_run_lock_v1",
             "campaign_id": self._state["campaign_id"],
             "campaign_revision": self._state["campaign_revision"],
@@ -234,6 +277,16 @@ class CampaignCoordinator:
             "assignment_protocol_revision": 1,
             "result_protocol_revision": 2,
         }
+        if self.lora is not None:
+            payload.update(
+                {
+                    "training_method": "frozen-base-lora",
+                    "lora_manifest_sha256": self.lora.manifest_sha256,
+                    "base_model_sha256": self.lora.config.base_model_sha256,
+                    "result_protocol_revision": 3,
+                }
+            )
+        return payload
 
     def _write_lock(self) -> None:
         _atomic_json(self.state_dir / "campaign-lock.json", self._lock_payload())
@@ -269,10 +322,10 @@ class CampaignCoordinator:
             None,
         )
         if existing is None:
-            existing = evaluate_checkpoint(
-                self.campaign,
-                checkpoint,
-                self.dataset,
+            existing = (
+                evaluate_lora_checkpoint(self.lora, checkpoint, self.dataset)
+                if self.lora is not None
+                else evaluate_checkpoint(self.campaign, checkpoint, self.dataset)
             )
             evaluations.append(existing)
             evaluations.sort(key=lambda entry: int(entry["step"]))
@@ -332,6 +385,7 @@ class CampaignCoordinator:
                 next_path,
                 participants=self.participants,
                 dataset=self.dataset,
+                lora=self.lora,
             )
         else:
             next_round = GlobalStepCoordinator.create(
@@ -342,6 +396,7 @@ class CampaignCoordinator:
                 lease_seconds=int(self._state["lease_seconds"]),
                 resume_from=checkpoint,
                 dataset=self.dataset,
+                lora=self.lora,
             )
         self._current = next_round
         self._state["current_round"] = next_relative.as_posix()
@@ -494,6 +549,19 @@ class CampaignCoordinator:
                     anonymous_count += 1
 
             current_round = status["current_round"]
+            lora_mode = current_round["training_method"] == "frozen-base-lora"
+            adapter_sha256 = (
+                current_round["adapter_sha256"]
+                or current_round["initial_adapter_sha256"]
+            )
+            weight_checkpoint_sha256 = (
+                current_round["result_weight_checkpoint_sha256"]
+                or current_round["checkpoint_sha256"]
+            )
+            resume_state_sha256 = (
+                current_round["result_checkpoint_sha256"]
+                or current_round["resume_state_sha256"]
+            )
             assignment_states = [
                 assignment["state"] for assignment in current_round["assignments"]
             ]
@@ -533,6 +601,7 @@ class CampaignCoordinator:
                     "id": self._state["campaign_id"],
                     "objective": self.campaign.campaign["objective"],
                     "state": self._state["state"],
+                    "training_method": current_round["training_method"],
                 },
                 "model": {
                     **asdict(self.campaign.model),
@@ -556,10 +625,28 @@ class CampaignCoordinator:
                     "leased_assignments": assignment_states.count("leased"),
                 },
                 "checkpoint": {
-                    "sha256": current_round["model_sha256"]
-                    or current_round["checkpoint_sha256"],
+                    "sha256": (
+                        resume_state_sha256
+                        if lora_mode
+                        else current_round["model_sha256"]
+                        or current_round["checkpoint_sha256"]
+                    ),
+                    "base_model_sha256": (
+                        current_round["base_model_sha256"] if lora_mode else None
+                    ),
+                    "adapter_sha256": adapter_sha256 if lora_mode else None,
+                    "weight_checkpoint_sha256": (
+                        weight_checkpoint_sha256 if lora_mode else None
+                    ),
+                    "resume_state_sha256": (
+                        resume_state_sha256 if lora_mode else None
+                    ),
                     "download_url": (
-                        "/api/v1/checkpoint/model.safetensors"
+                        (
+                            "/api/v1/checkpoint/adapter.safetensors"
+                            if lora_mode
+                            else "/api/v1/checkpoint/model.safetensors"
+                        )
                         if int(self._state["completed_steps"]) > 0
                         else None
                     ),
@@ -581,6 +668,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Run a persistent multi-step OrcaColony campaign"
     )
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--lora-config", type=Path)
     parser.add_argument("--participants", type=Path, required=True)
     parser.add_argument("--dataset-artifacts", type=Path)
     parser.add_argument("--state", type=Path, required=True)
@@ -596,7 +684,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = _build_parser().parse_args()
-    campaign = load_campaign(args.config)
+    lora = (
+        load_lora_manifest(args.config, args.lora_config)
+        if args.lora_config is not None
+        else None
+    )
+    campaign = lora.campaign if lora is not None else load_campaign(args.config)
     participants = load_participants(
         args.participants,
         campaign_id=str(campaign.campaign["id"]),
@@ -612,6 +705,7 @@ def main() -> None:
             args.state,
             participants=participants,
             dataset=dataset,
+            lora=lora,
         )
         if coordinator.status()["target_steps"] != args.target_steps:
             raise ValueError("target steps do not match the campaign lock")
@@ -624,6 +718,7 @@ def main() -> None:
             target_steps=args.target_steps,
             lease_seconds=args.lease_seconds,
             dataset=dataset,
+            lora=lora,
         )
     server = create_http_server(
         coordinator,  # type: ignore[arg-type]

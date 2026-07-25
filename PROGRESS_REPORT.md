@@ -134,6 +134,7 @@ Completed within the first P2 numerical slice:
 - Completed the connected HTTP/browser contract for adapter assignments: the coordinator serves the frozen base and current adapter independently, accepts only adapter gradients, publishes separate adapter-weight and resume-state identities, and serves the resulting adapter checkpoint.
 - Proved the real authenticated two-browser CPU/WASM path. Both disjoint assignments returned exactly 8 tensors and 8,192 values and were accepted once; their gradient relative L2 errors were `4.80808764225882e-7` and `4.599249278948762e-7`. The canonical adapter survived coordinator restart and matched an independent centralized Python step with cosine `0.9999999999985897`, relative L2 `1.6795715402185043e-6`, and maximum absolute error `7.257913239300251e-7`.
 - Published `p2-connected-browser-lora-v1`, pinned to implementation commit `cab9b6c49e4b9fad666a9f42396a28541ffc84ce`, with the two accepted browser assignments, separate weight and full resume-state identities, restart evidence, independent Python comparison, exact artifact hashes, and explicit one-host/synthetic-fixture limitations.
+- Extended the persistent campaign runner through frozen-base LoRA initialization, versioned adapter checkpoints, per-checkpoint held-out evaluation, restart between global steps, retry recovery, explicit dashboard identities, and the `--lora-config` CLI path while preserving dense campaign behavior. A real two-step Burn CPU/WASM run accepted four browser assignments and 1,024 tokens across a coordinator restart; its final adapter SHA-256 was `91aea4b661edaab1c79dc78d3019d48c512ab02cfe56a92cc795a48bab0b982b`, its full resume-state identity was `cf4b3444f732f28daecf912263991ceaa6282c75bd07ae108d95b136aee1793d`, and final adapter parity remained within `7.3883157399442305e-6` relative L2 of the independent Python trajectory.
 
 ### P3 — Qualify local memory tiers
 
@@ -189,11 +190,11 @@ The native worker is the first target for explicit offload. Browser support rema
 
 ## Immediate next bounded target
 
-Carry adapter mode through a persistent multi-step campaign evaluation and release, exercising repeated restart/retry checkpoints against one fixed adaptation use case. Keep dense mode unchanged; a useful public base remains later P2 work.
+Make deterministic release bundles understand complete LoRA checkpoints: publish the frozen base and selected adapter separately, retain full restart state and explicit identities, select checkpoints by the fixed evaluation contract, and keep dense releases byte-stable in behavior.
 
 ## Remaining major work
 
-- Persistent adapter-campaign evaluation and release.
+- Deterministic adapter-campaign release bundles and a published multi-step evaluation study.
 - Native worker with explicit RAM and storage offload.
 - Profile certification and mixed-profile proof.
 - Rolling-submodel feasibility study.

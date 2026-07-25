@@ -1001,6 +1001,63 @@ def load_lora_checkpoint(
     )
 
 
+def evaluate_lora_checkpoint(
+    loaded: LoadedLoRAManifest,
+    checkpoint_dir: str | Path,
+    dataset: PackedDataset,
+) -> dict[str, object]:
+    validate_dataset_artifacts(loaded.campaign, dataset)
+    if loaded.campaign.evaluation is None:
+        raise ValueError("campaign does not define an evaluation profile")
+    checkpoint = Path(checkpoint_dir)
+    model, _, step, _, _ = load_lora_checkpoint(loaded, checkpoint)
+    sequence_count = int(loaded.campaign.evaluation["validation_sequences"])
+    batch_size = int(loaded.campaign.evaluation["batch_size"])
+    loss_sum = 0.0
+    loss_weight_sum = 0
+    model.eval()
+    with torch.no_grad():
+        cursor = 0
+        while cursor < sequence_count:
+            current_batch_size = min(batch_size, sequence_count - cursor)
+            inputs, targets = dataset.validation_batch(
+                cursor=cursor,
+                batch_size=current_batch_size,
+                sequence_limit=sequence_count,
+            )
+            logits = model(inputs)
+            batch_loss = F.cross_entropy(
+                logits.reshape(-1, loaded.campaign.model.vocabulary_size),
+                targets.reshape(-1),
+                reduction="sum",
+            )
+            loss_sum += float(batch_loss)
+            loss_weight_sum += targets.numel()
+            cursor += current_batch_size
+    checkpoint_state = _require_mapping(
+        json.loads((checkpoint / "state.json").read_text(encoding="utf-8")),
+        "LoRA checkpoint state",
+    )
+    mean_loss = loss_sum / loss_weight_sum
+    return {
+        "format": "orcacolony_evaluation_v1",
+        "campaign_id": loaded.campaign.campaign["id"],
+        "training_method": "frozen-base-lora",
+        "step": step,
+        "dataset_revision": dataset.revision,
+        "base_model_sha256": checkpoint_state["base_model_sha256"],
+        "adapter_sha256": checkpoint_state["adapter"]["tensor_sha256"],
+        "weight_checkpoint_sha256": checkpoint_state["weight_checkpoint_sha256"],
+        "resume_state_sha256": checkpoint_state["checkpoint_sha256"],
+        "checkpoint_sha256": checkpoint_state["checkpoint_sha256"],
+        "validation_sequences": sequence_count,
+        "loss_sum": loss_sum,
+        "loss_weight_sum": loss_weight_sum,
+        "mean_loss": mean_loss,
+        "perplexity": math.exp(mean_loss),
+    }
+
+
 def run_lora_training(
     loaded: LoadedLoRAManifest,
     output_dir: str | Path,

@@ -7,10 +7,12 @@ from orcacolony.artifacts import PackedDataset, build_dataset_artifacts
 from orcacolony.campaign_run import CampaignCoordinator
 from orcacolony.multiworker import LeasedGradient
 from orcacolony.participants import ParticipantRegistry
+from orcacolony.peft import load_lora_manifest
 from orcacolony.reference import load_campaign
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
+LORA_CONFIG = Path(__file__).parents[1] / "campaign" / "t0-lora-smoke.json"
 
 
 def participants_for(campaign_id: object) -> ParticipantRegistry:
@@ -172,3 +174,117 @@ def test_campaign_advances_two_global_steps_and_versions_every_checkpoint(
     )
     assert recovered.status()["state"] == "campaign_complete"
     assert recovered.status()["completed_steps"] == 2
+
+
+def test_lora_campaign_advances_evaluates_and_survives_between_step_restart(
+    tmp_path: Path,
+) -> None:
+    campaign_payload = json.loads(CONFIG.read_text(encoding="utf-8"))
+    corpus = (
+        "A patient rabbit planted a seed and watered it every morning.\n"
+        "<|endoftext|>\n"
+        "A young whale followed the moonlit waves safely home.\n"
+        "<|endoftext|>\n"
+    ) * 200
+    artifact_dir = tmp_path / "dataset"
+    manifest = build_dataset_artifacts(
+        train_bytes=corpus.encode("utf-8"),
+        validation_bytes=corpus[: len(corpus) // 2].encode("utf-8"),
+        output_dir=artifact_dir,
+        source={
+            "dataset": "test/lora-campaign-stories",
+            "revision": "test-lora-revision",
+            "license": "cdla-sharing-1.0",
+        },
+        vocab_size=300,
+        context_length=int(campaign_payload["model"]["context_length"]),
+    )
+    dataset = PackedDataset.load(artifact_dir)
+    campaign_payload["dataset"] = {
+        "format": manifest["format"],
+        "manifest_sha256": dataset.revision,
+        "tokenizer_sha256": manifest["tokenizer"]["sha256"],
+        "train_sha256": manifest["files"]["train.safetensors"],
+        "validation_sha256": manifest["files"]["validation.safetensors"],
+    }
+    campaign_payload["evaluation"] = {
+        "metric": "held_out_cross_entropy",
+        "checkpoint_selection": "lowest_mean_loss",
+        "validation_sequences": 4,
+        "batch_size": 2,
+    }
+    config = tmp_path / "campaign.json"
+    config_bytes = (
+        json.dumps(
+            campaign_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+    config.write_bytes(config_bytes)
+    lora_payload = json.loads(LORA_CONFIG.read_text(encoding="utf-8"))
+    lora_payload["base"]["campaign_file"] = config.name
+    lora_payload["base"]["campaign_sha256"] = hashlib.sha256(config_bytes).hexdigest()
+    lora_config = tmp_path / "lora.json"
+    lora_config.write_text(json.dumps(lora_payload), encoding="utf-8")
+    lora = load_lora_manifest(config, lora_config)
+    participants = participants_for(lora.campaign.campaign["id"])
+    state_dir = tmp_path / "campaign"
+    coordinator = CampaignCoordinator.create(
+        lora.campaign,
+        state_dir,
+        participants=participants,
+        worker_count=2,
+        target_steps=2,
+        dataset=dataset,
+        lora=lora,
+    )
+
+    assert coordinator.initial_adapter_path.is_file()
+    assert json.loads(
+        (state_dir / "checkpoints" / "step-00000000" / "state.json").read_text(
+            encoding="utf-8"
+        )
+    )["format"] == "orcacolony_lora_checkpoint_v1"
+
+    for expected_step in (1, 2):
+        for worker_id in ("worker-a", "worker-b"):
+            assignment = coordinator.lease(
+                worker_id,
+                worker_token="test-token",
+                now=expected_step * 100,
+            )
+            assert assignment["training_method"] == "frozen-base-lora"
+            coordinator.accept(
+                submission_for(coordinator, assignment),
+                now=expected_step * 100 + 1,
+            )
+        if expected_step == 1:
+            coordinator = CampaignCoordinator.load(
+                lora.campaign,
+                state_dir,
+                participants=participants,
+                dataset=dataset,
+                lora=lora,
+            )
+
+    status = coordinator.status()
+    assert status["state"] == "campaign_complete"
+    assert status["completed_steps"] == 2
+    evaluations = json.loads(
+        (state_dir / "evaluations.json").read_text(encoding="utf-8")
+    )["entries"]
+    assert [entry["step"] for entry in evaluations] == [0, 1, 2]
+    assert all(entry["adapter_sha256"] for entry in evaluations)
+    assert all(entry["weight_checkpoint_sha256"] for entry in evaluations)
+    assert all(entry["resume_state_sha256"] for entry in evaluations)
+    dashboard = coordinator.dashboard()
+    assert dashboard["campaign"]["training_method"] == "frozen-base-lora"
+    assert dashboard["checkpoint"]["download_url"] == (
+        "/api/v1/checkpoint/adapter.safetensors"
+    )
+    assert dashboard["checkpoint"]["adapter_sha256"] == evaluations[-1][
+        "adapter_sha256"
+    ]
