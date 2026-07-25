@@ -1,0 +1,66 @@
+{
+  "format": "orcacolony_experiment_evidence_v1",
+  "study_id": "p1-research-contract-smoke-v1",
+  "experiment_id": "deterministic-result-bundle",
+  "outcome": "validated",
+  "completed_at": "2026-07-25T01:12:09Z",
+  "summary": "The linked contracts passed the complete repository suite, repeated builds were byte-identical, and the real CLI produced a checksum-verifiable result bundle without changing the v0.1 runtime.",
+  "measurements": [
+    {
+      "id": "repository-tests",
+      "label": "Passing repository tests",
+      "value": 25,
+      "unit": "tests"
+    },
+    {
+      "id": "bundle-files",
+      "label": "Generated result-bundle files",
+      "value": 6,
+      "unit": "files"
+    },
+    {
+      "id": "source-manifests",
+      "label": "Canonically preserved source manifests",
+      "value": 3,
+      "unit": "manifests"
+    }
+  ],
+  "evaluation": {
+    "primary_metric": {
+      "id": "bundle-verification-rate",
+      "value": 1.0
+    },
+    "guardrails": [
+      {
+        "id": "stable-v0.1-isolation",
+        "passed": true,
+        "detail": "All pre-existing tests passed and no campaign, optimizer, participant, or release module changed."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "deterministic-publication-record",
+      "label": "Deterministic publication record",
+      "description": "The same manifests generate byte-identical JSON, Markdown, and checksum files while preserving exact source revisions.",
+      "kind": "positive"
+    },
+    {
+      "id": "contract-scope-only",
+      "label": "Contract scope only",
+      "description": "The proof validates research-record plumbing; it provides no evidence yet about PEFT, offload, partial-model, or tiled-training effectiveness.",
+      "kind": "neutral"
+    }
+  ],
+  "limitations": [
+    "The fixture proves local research-record generation only; remote publication and multi-campaign study comparison remain future integration work."
+  ],
+  "artifacts": [
+    {
+      "id": "implementation-commit",
+      "kind": "git-commit",
+      "revision": "ef6654095e95a86cdc54e399345425ede06caf4e",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/ef6654095e95a86cdc54e399345425ede06caf4e"
+    }
+  ]
+}

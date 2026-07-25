@@ -1,0 +1,68 @@
+{
+  "format": "orcacolony_study_v1",
+  "study_id": "p1-research-contract-smoke-v1",
+  "title": "P1 research-record contract smoke study",
+  "hypothesis": "Fail-closed linked manifests can produce a deterministic, self-verifying research result bundle that preserves the hypothesis, fixed use-case gate, exact revisions, findings, and limitations.",
+  "status": "validated",
+  "use_case": {
+    "claim": "Produce a reproducible publication record for one bounded OrcaColony research experiment.",
+    "baseline": {
+      "id": "ad-hoc-notes-baseline",
+      "label": "Ad hoc research notes",
+      "description": "Unlinked prose and terminal output without a validated machine-readable result contract."
+    },
+    "primary_metric": {
+      "id": "bundle-verification-rate",
+      "label": "Result-bundle verification rate",
+      "description": "Fraction of repeated builds with byte-identical files and valid recorded checksums.",
+      "direction": "maximize",
+      "success_threshold": 1.0,
+      "unit": "ratio"
+    },
+    "repeated_validation_suite": {
+      "id": "research-contract-tests",
+      "label": "Research contract focused tests",
+      "description": "Focused manifest, evidence, deterministic-output, and CLI tests.",
+      "revision": "git:ef6654095e95a86cdc54e399345425ede06caf4e:tests/test_research.py"
+    },
+    "final_holdout_suite": {
+      "id": "real-cli-bundle-proof",
+      "label": "Real CLI result-bundle proof",
+      "description": "A clean command-line run over the committed fixture followed by checksum verification.",
+      "revision": "git:ef6654095e95a86cdc54e399345425ede06caf4e:src/orcacolony/research.py"
+    },
+    "guardrails": [
+      {
+        "id": "stable-v0.1-isolation",
+        "label": "Stable v0.1 isolation",
+        "description": "The research-record slice must not change the proven campaign, optimizer, trust, or release paths."
+      }
+    ]
+  },
+  "independent_variables": [
+    {
+      "id": "recording-contract",
+      "label": "Research recording contract",
+      "description": "Replace ad hoc notes with linked, validated, deterministic study artifacts."
+    }
+  ],
+  "controlled_variables": [
+    {
+      "id": "fixture-inputs",
+      "label": "Fixture inputs",
+      "description": "Keep study, experiment, and evidence payloads fixed across repeated bundle builds."
+    },
+    {
+      "id": "v0.1-runtime",
+      "label": "Existing v0.1 runtime",
+      "description": "Do not alter any campaign execution or numerical contract while adding research records."
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "deterministic-result-bundle",
+      "role": "candidate",
+      "manifest": "experiments/deterministic-result-bundle.json"
+    }
+  ]
+}

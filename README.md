@@ -17,6 +17,20 @@ uv run python -m orcacolony.reference train --config campaign/t0-smoke.json --ou
 
 The fixture command exports the model, deterministic token batch, summed gradients, and exact hashes needed by the browser parity spike. The training command writes a JSON summary and a resumable safetensors checkpoint under `.artifacts/m0`.
 
+## Reproducible research records
+
+[`research/README.md`](research/README.md) defines the linked study, experiment, evidence, and result-bundle flow used for post-v0.1 research. Run the committed contract proof with:
+
+```bash
+uv run python -m orcacolony.research record \
+  --study research/studies/p1-research-contract-smoke-v1/study.json \
+  --experiment research/studies/p1-research-contract-smoke-v1/experiments/deterministic-result-bundle.json \
+  --evidence research/studies/p1-research-contract-smoke-v1/evidence/deterministic-result-bundle.json \
+  --output .artifacts/p1-research-contract-result
+```
+
+The command fails closed on malformed or unlinked inputs and atomically produces canonical source manifests, `result.json`, a readable `RESULT.md`, and `SHA256SUMS`. Validated and promoted outcomes must pass the study's fixed use-case metric and every guardrail; rejected and inconclusive records retain their findings and limitations.
+
 ## Browser feasibility proof
 
 The bounded Burn spike in [`spikes/burn-browser-gradient`](spikes/burn-browser-gradient) loads that exact fixture, performs browser forward/backward through either WebGPU or CPU/WASM, exports every gradient, and compares it with the Python oracle. Its measured results are recorded with the spike.

@@ -1,0 +1,94 @@
+{
+  "format": "orcacolony_experiment_v1",
+  "study_id": "p1-research-contract-smoke-v1",
+  "experiment_id": "deterministic-result-bundle",
+  "title": "Deterministic research result bundle",
+  "status": "validated",
+  "subject": {
+    "kind": "research-contract",
+    "id": "p1-result-recording",
+    "revision": "git:ef6654095e95a86cdc54e399345425ede06caf4e"
+  },
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "ef6654095e95a86cdc54e399345425ede06caf4e",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/ef6654095e95a86cdc54e399345425ede06caf4e"
+    },
+    {
+      "id": "focused-tests",
+      "kind": "source-file",
+      "revision": "git:ef6654095e95a86cdc54e399345425ede06caf4e:tests/test_research.py",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/blob/ef6654095e95a86cdc54e399345425ede06caf4e/tests/test_research.py"
+    }
+  ],
+  "method": {
+    "training_method": {
+      "id": "research-recording-only",
+      "label": "Research recording only",
+      "description": "This contract smoke test records system evidence and does not claim to train a model."
+    },
+    "execution_topology": {
+      "id": "local-deterministic-bundle",
+      "label": "Local deterministic bundle generation",
+      "description": "One process validates linked inputs and atomically writes a content-verifiable result directory."
+    },
+    "memory_profiles": [
+      {
+        "id": "ordinary-local-filesystem",
+        "label": "Ordinary local filesystem",
+        "description": "The fixture uses only small JSON and Markdown files on the host filesystem."
+      }
+    ],
+    "numerical_profiles": [
+      {
+        "id": "canonical-json-sha256",
+        "label": "Canonical JSON and SHA-256",
+        "description": "Inputs and results use sorted compact UTF-8 JSON with SHA-256 content identities."
+      }
+    ]
+  },
+  "worker_profiles": [
+    {
+      "id": "python311-local-operator",
+      "label": "Python 3.11 local operator",
+      "description": "Any operator able to install the locked OrcaColony development environment and run the CLI."
+    }
+  ],
+  "resource_budget": {
+    "limits": [
+      {
+        "id": "wall-time",
+        "label": "Maximum result-generation wall time",
+        "value": 60,
+        "unit": "seconds"
+      },
+      {
+        "id": "output-size",
+        "label": "Maximum generated bundle size",
+        "value": 1000000,
+        "unit": "bytes"
+      }
+    ]
+  },
+  "reproduction": {
+    "command": [
+      "uv",
+      "run",
+      "python",
+      "-m",
+      "orcacolony.research",
+      "record",
+      "--study",
+      "research/studies/p1-research-contract-smoke-v1/study.json",
+      "--experiment",
+      "research/studies/p1-research-contract-smoke-v1/experiments/deterministic-result-bundle.json",
+      "--evidence",
+      "research/studies/p1-research-contract-smoke-v1/evidence/deterministic-result-bundle.json",
+      "--output",
+      ".artifacts/p1-research-contract-result"
+    ],
+    "notes": "Run from the repository root at the exact implementation revision after creating a fresh output path."
+  }
+}

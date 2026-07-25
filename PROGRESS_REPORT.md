@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-07-24
 
-**Current phase:** P1 — implementing the reproducible research-study contract on top of the proven v0.1 baseline
+**Current phase:** P2 — proving PEFT adapter-gradient semantics on top of the completed research-record contract and v0.1 baseline
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -77,7 +77,7 @@ The current architecture uses replicated full-model data parallelism: every dire
 
 ### P1 — Add the research study and experiment contract
 
-**Status:** In progress
+**Status:** Complete
 
 - Machine-readable study manifest tying comparable campaigns to one hypothesis and use case.
 - Experiment status: proposed, active, validated, rejected, inconclusive, or promoted.
@@ -93,10 +93,11 @@ Completed within P1:
 - Added deterministic, atomic experiment-result bundles containing canonical source manifests, source hashes, a machine-readable decision, a human-readable `RESULT.md`, and `SHA256SUMS`.
 - Enforced that validated or promoted evidence passes the declared primary metric and every guardrail while preserving rejected and inconclusive findings as publishable outcomes.
 - Added the real `python -m orcacolony.research record` command with duplicate-key rejection and exact study-to-experiment path binding.
+- Committed a self-contained contract study pinned to the exact CLI implementation revision and proved its real result bundle and checksums through the command line.
 
 ### P2 — Prove PEFT with complete adapter-gradient semantics
 
-**Status:** Planned
+**Status:** Next bounded implementation target
 
 - Freeze an exact base checkpoint.
 - Define one LoRA configuration and exact trainable-tensor manifest.
@@ -158,11 +159,10 @@ The native worker is the first target for explicit offload. Browser support rema
 
 ## Immediate next bounded target
 
-Complete P1 with a self-contained study/experiment/evidence fixture pinned to the exact CLI implementation revision, run the real `orcacolony.research record` command, verify the generated bundle, and document reproduction. Broader research UI and plugin abstractions remain out of scope.
+Start P2 with the smallest numerical vertical slice: add an exact LoRA configuration to the deterministic Python fixture, freeze every base tensor, export the complete named adapter-gradient set for summed masked loss, and prove one coordinator-compatible adapter update against an independent reference. Native/browser offload and a useful public base remain later P2/P3 work.
 
 ## Remaining major work
 
-- Research study/experiment schemas and result-recording workflow.
 - PEFT numerical and campaign vertical slice.
 - Native worker with explicit RAM and storage offload.
 - Profile certification and mixed-profile proof.
@@ -191,3 +191,4 @@ Complete P1 with a self-contained study/experiment/evidence fixture pinned to th
 - Added the first runnable P1 code: a fail-closed study-manifest validator with open, display-ready research descriptors and safe experiment references.
 - Added linked experiment and evidence validation plus deterministic JSON/Markdown result bundles that retain negative findings and limitations.
 - Added a tested command-line path that loads exact linked manifests and writes the complete research result bundle.
+- Completed P1 with a committed study fixture, two byte-identical real CLI bundles, successful checksum verification, and explicit proof limitations.
