@@ -567,6 +567,17 @@ def export_lora_fixture(
         fixture: dict[str, object] = {
             "format": "orcacolony_lora_fixture_v1",
             "campaign_id": campaign.campaign["id"],
+            "input_shape": list(inputs.shape),
+            "input_ids": inputs.reshape(-1).tolist(),
+            "target_ids": targets.reshape(-1).tolist(),
+            "model": {
+                "vocab_size": campaign.model.vocabulary_size,
+                "context_length": campaign.model.context_length,
+                "d_model": campaign.model.width,
+                "num_heads": campaign.model.heads,
+                "num_layers": campaign.model.layers,
+                "d_ff": campaign.model.mlp_width,
+            },
             "source": {
                 "campaign_file": loaded.campaign_path.name,
                 "campaign_sha256": loaded.campaign_sha256,

@@ -178,6 +178,17 @@ def test_lora_fixture_export_is_deterministic_and_self_describing(
     )
     assert manifest["format"] == "orcacolony_lora_fixture_v1"
     assert manifest["base"]["model_sha256"] == loaded.config.base_model_sha256
+    assert manifest["input_shape"] == [4, 128]
+    assert len(manifest["input_ids"]) == 512
+    assert len(manifest["target_ids"]) == 512
+    assert manifest["model"] == {
+        "context_length": 128,
+        "d_ff": 512,
+        "d_model": 128,
+        "num_heads": 2,
+        "num_layers": 4,
+        "vocab_size": 4096,
+    }
     assert manifest["adapter"]["tensor_count"] == 8
     assert manifest["adapter"]["value_count"] == 8_192
     assert manifest["gradient_contract"] == {

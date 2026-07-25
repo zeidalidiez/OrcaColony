@@ -121,6 +121,7 @@ Completed within the first P2 numerical slice:
 - Published the `p2-lora-numerical-v1` study, experiment, and evidence manifests pinned to exporter commit `5aff4392d3faf0eac740d43c28f57150a7929153`.
 - Generated and checksum-verified the P2 research result with the exact-match metric and all three guardrails passing. Its limitations explicitly exclude browser/native parity, campaign restart/retry, offload, and useful adaptation quality.
 - Added a regression gate that rebuilds every committed research record, so invalid or unlinked studies fail the normal test suite.
+- Extended subsequent LoRA fixtures with the exact model dimensions, input shape, input IDs, and target IDs required by a standalone browser parity run; the earlier validated P2 study remains pinned to its original exporter commit and hashes.
 
 ### P3 — Qualify local memory tiers
 
