@@ -1,10 +1,10 @@
 # OrcaColony — Open Volunteer Model Training Framework
 
-**Technical specification:** v0.6 (approved v0.1 execution profile)
+**Technical specification:** v0.7 (approved v0.1 execution profile and post-v0.1 research charter)
 **Date:** July 24, 2026
-**Status:** Approved north-star architecture; Milestone 0 implementation contract
+**Status:** Approved v0.1 baseline and post-v0.1 research direction
 **Primary deployment:** One campaign operated by the project owner
-**Repository goal:** A reusable framework anyone can fork to host an independent campaign
+**Repository goal:** A reusable campaign framework and reproducible research vehicle for volunteer-compatible model training
 
 ---
 
@@ -13,7 +13,9 @@
 This section records the implementation decisions that govern v0.1. Where an illustrative example elsewhere differs, this section and the executable campaign configuration take precedence.
 
 - The public project and repository name is **OrcaColony**.
-- This document remains the north-star architecture. Version 0.1 ends with Milestone 4; Milestones 5 and 6 are continuing post-v0.1 work.
+- This document remains the north-star architecture. Version 0.1 ends with Milestone 4; later milestones form the continuing post-v0.1 implementation and research program.
+- The approved v0.1 numerical, trust, provenance, and replicated-model contracts remain the stable correctness baseline. Post-v0.1 studies may test PEFT, additional local memory tiers, partial-model work, and other execution topologies without retroactively changing what v0.1 proved.
+- Participation means many transient community contributions accumulating toward one goal. It does not assume that a fixed collection of low-end machines remains online as a permanent training cluster.
 - Work advances one runnable milestone at a time, beginning with Milestone 0. Tests and documentation stay limited to behavior that protects that path.
 - Milestone 0 uses Python 3.11 and PyTorch as the independent single-process oracle. Canonical model and optimizer tensors use safetensors with JSON metadata.
 - The correctness transport is FP32. Workers export gradients of a summed masked loss; the coordinator normalizes once by total loss weight and clips only the aggregate. Lossy transport is a later, separately qualified optimization.
@@ -29,13 +31,15 @@ This section records the implementation decisions that govern v0.1. Where an ill
 
 ## Project summary
 
-> This project is a self-hostable, Folding@home-style framework for training one small open model at a time with compute donated by people using browsers and ordinary consumer machines. The campaign host chooses and freezes the model, corpus or task dataset, learning objective, evaluation, and Hugging Face destination. Contributors choose how they want to be credited, receive short deterministic work units for the current checkpoint, compute gradients locally, and return them to a coordinator that advances one canonical model. The project begins with models small enough to fit whole on ordinary machines, proves correctness and usefulness at each size, and increases parameter count only when measured hardware capacity and evaluation results justify it. Every release publishes the resulting model, exact training corpus and revision, training configuration, evaluation results, and contributor acknowledgments.
+> OrcaColony is a self-hostable, Folding@home-style framework and research vehicle for community model training. A campaign host freezes the model, data, learning objective, concrete use case, evaluation contract, and release destination. Contributors may arrive briefly, complete one or several bounded pieces of accepted work, and leave; the framework reconciles those contributions into one canonical campaign result and records attribution according to contributor preference. The project preserves replicated full-model data parallelism as its correctness baseline while experimentally evaluating PEFT, local RAM and storage offload, partial-model reconciliation, exact tiled computation, and later sparse or model-parallel methods. It prefers the smallest model that meets the declared use case but does not impose the memory limits of one weak GPU as the project's permanent ceiling. Every released model or research finding publishes the exact artifacts, configuration, evaluation, provenance, and limitations needed to reproduce it.
 
-## 1. Executive decision
+## 1. Executive decision and v0.1 baseline
 
-Version 0.1 will **not partition a model across volunteer machines**.
+Version 0.1 uses **replicated full-model data parallelism** and will not partition one model execution across volunteer machines.
 
-The complete model is the unit of direct training. Every direct-training worker loads the same complete, deliberately small model and computes useful training work against the same canonical checkpoint. Faster machines process more assigned batches; slower machines process fewer. The framework starts with the smallest practical models and increases model size only after real measurements show that the active contributor pool can support it.
+The complete model is the v0.1 unit of direct training. Every direct-gradient worker independently executes the same complete, deliberately small model against the same canonical checkpoint but processes a different data assignment. Many people contribute concurrently; they have replicated checkpoint copies rather than each owning a different layer. Faster machines process more assigned batches and slower machines process fewer.
+
+"Complete" does not inherently mean that every tensor must remain simultaneously in GPU VRAM. A complete-local native worker may eventually address the base through GPU VRAM, unified memory, system RAM, memory-mapped files, and explicitly managed local storage. Its defining property is that it can finish its assignment without another live worker computing a required stage. The currently proven v0.1 browser profiles use simpler resident execution; additional memory tiers require separate qualification.
 
 This makes the first system much closer to Folding@home:
 
@@ -46,13 +50,13 @@ This makes the first system much closer to Folding@home:
 5. Accepted work is incorporated into the next checkpoint and credited publicly.
 6. The worker requests another unit or leaves.
 
-No layer slicing, remote autograd, WAN pipeline parallelism, or tensor-shard routing is required in v0.1.
+No layer slicing, remote autograd, WAN pipeline parallelism, or tensor-shard routing is required in v0.1. This is a reliability and correctness baseline, not a permanent prohibition. Post-v0.1 studies may test asynchronously scheduled partial-model or tiled work when they preserve exact provenance, bounded retries, and a declared reconciliation rule.
 
 ---
 
 ## 2. Product definition
 
-The project is a self-hosted, Folding@home-style framework for collaboratively training small open models with volunteer browsers and optional native workers.
+The project is a self-hosted, Folding@home-style framework and research platform for collaboratively training open models with volunteer browsers and optional native workers.
 
 A campaign site presents one common objective:
 
@@ -62,10 +66,11 @@ A campaign site presents one common objective:
 >
 > **Training data: _[published dataset/corpus revision]_**
 
-The project has two products:
+The project has three public outputs:
 
 1. **Framework repository.** Anyone can fork it, define a campaign, and deploy an independent instance.
 2. **Campaign instance.** The project owner chooses and operates one specific model-training campaign, including its data, checkpoints, evaluation, contribution ledger, and Hugging Face publication.
+3. **Research record.** Comparable campaigns can form a study that tests one volunteer-training hypothesis and publishes reproducible positive, negative, or inconclusive findings for others to rerun or extend.
 
 A campaign is not a loose pool in which participants choose what to train. Every accepted worker advances one named campaign, one canonical model, and one immutable data revision.
 
@@ -78,10 +83,12 @@ Before a worker submits its first work unit, the site asks how that contributor 
 The campaign owner controls:
 
 - Campaign goal and description.
+- Concrete intended use case and the claim the campaign will test.
 - Model architecture and parameter count.
 - Random initialization or exact base-checkpoint revision.
 - Tokenizer and tokenizer revision.
 - Training mode.
+- Execution topology, numerical profile, and admitted local memory profiles.
 - Corpus or structured training dataset.
 - Source licenses and redistribution policy.
 - Filtering, deduplication, normalization, and formatting rules.
@@ -92,6 +99,7 @@ The campaign owner controls:
 - Token or example budget.
 - Checkpoint cadence.
 - Evaluation suite and success thresholds.
+- Repeated validation cadence, final holdout, baseline, and guardrails for the declared use case.
 - Contribution-credit rules and contributor-attribution options.
 - Canonical public corpus or dataset page and source-manifest links.
 - Hugging Face organization and repository.
@@ -256,7 +264,9 @@ It then publishes checkpoint `s+1` and begins issuing new work. Up to declared f
 
 A weak worker does not have to keep pace with a faster worker. It receives less data and contributes fewer accepted tokens to the global batch. It never becomes a required stage in a pipeline.
 
-The constraint is that the complete campaign model must fit in the worker’s available memory. That is why the framework begins with small models and advances in parameter count gradually.
+For the v0.1 replicated profile, the worker must be able to complete the model execution within its qualified local resources and lease. Those resources need not eventually be limited to GPU VRAM: native profiles may combine VRAM, system RAM, memory mapping, and explicit local-storage offload. Merely relying on uncontrolled operating-system swap is not a qualified execution plan.
+
+Post-v0.1 research also tests work types that do not require a worker to hold the complete global model, including rolling subnetworks and exact tiled computation. In those modes, a weak worker contributes a smaller parameter or computation task that the coordinator reconciles. Such results are not assumed to be equivalent to v0.1 gradients; each mode must declare and validate its own mathematics.
 
 ### 5.5 Communication tradeoff
 
@@ -407,9 +417,23 @@ The model card must not use vague descriptions such as “trained on public data
 
 ## 8. Determining whether the model improved at the target
 
-Training loss alone is insufficient. A campaign begins with an evaluation contract.
+Training loss alone is insufficient. Every campaign begins with a concrete use-case claim and a frozen evaluation contract. A systems-proof campaign may define its use case as validating distributed correctness, but it must not turn lower language-model loss alone into a broader usefulness claim.
 
-### 8.1 Baseline
+### 8.1 Required use-case evaluation contract
+
+Before training begins, the campaign lock declares:
+
+- **Use-case claim:** the behavior or capability the campaign is intended to improve.
+- **Baseline:** the initialization or base checkpoint and any relevant comparison model.
+- **Repeated validation suite:** frozen examples used to evaluate initialization and selected checkpoints throughout the campaign.
+- **Primary metric and threshold:** the result that would demonstrate useful improvement for the stated use case.
+- **Guardrails:** behaviors, formats, or general capabilities that must not regress beyond declared limits.
+- **Final holdout:** an untouched suite used for promotion or release rather than repeated checkpoint selection.
+- **Evaluation cadence:** which checkpoints are evaluated and how failures affect continuation or release.
+
+The repeated validation suite answers whether training is moving toward the fixed use case. The final holdout reduces the risk of selecting and tuning repeatedly against the only test. A research study compares methods using the same use-case contract wherever the hypothesis permits.
+
+### 8.2 Baseline
 
 Before volunteer training starts, run the full evaluation suite against:
 
@@ -417,7 +441,7 @@ Before volunteer training starts, run the full evaluation suite against:
 - Any relevant existing comparison model.
 - A trivial or rule-based baseline where useful.
 
-### 8.2 Held-out evaluation
+### 8.3 Held-out evaluation
 
 Checkpoints are evaluated on examples excluded from training. Metrics depend on the goal:
 
@@ -431,7 +455,7 @@ Checkpoints are evaluated on examples excluded from training. Metrics depend on 
 | Question answering | Exact match, rubric score, citation or retrieval checks |
 | Summarization | Task-specific rubric plus factuality checks |
 
-### 8.3 Success gates
+### 8.4 Success gates
 
 A campaign should declare thresholds before training, for example:
 
@@ -442,7 +466,7 @@ Format: valid JSON on at least 99% of held-out inputs
 Efficiency: target task completes within the deployment latency budget
 ```
 
-### 8.4 Checkpoint selection
+### 8.5 Checkpoint selection
 
 The final release is not necessarily the checkpoint with the lowest training loss. The campaign selects the best checkpoint using the declared held-out metric and guardrails.
 
@@ -508,6 +532,8 @@ Stores immutable objects:
 - Gradient uploads.
 - Validation reports.
 - Campaign manifests.
+- Research-study manifests and experiment reports.
+- Content-addressed model or tensor shards used by qualified offload profiles.
 - Contribution ledgers.
 
 Object storage should be content-addressed where practical.
@@ -555,6 +581,20 @@ Before connected control-plane work, the runtime must load the exact T0 checkpoi
 
 The first supported model architecture remains intentionally narrow.
 
+### 10.5 Native memory hierarchy and out-of-core execution
+
+Native workers may qualify progressively larger local memory profiles:
+
+1. Complete GPU residency.
+2. GPU plus system-RAM offload.
+3. Quantized frozen-base placement.
+4. Memory-mapped or explicitly cached local-storage/NVMe execution.
+5. Remote shard streaming only when measured reuse makes its transfer cost acceptable.
+
+A complete-local worker does not need every tensor simultaneously resident in RAM or VRAM. It must have independently addressable access to every tensor required by the assignment and finish without another live worker providing a mandatory computation stage. Storage-backed profiles use explicit shard layouts, bounded caches, integrity checks, prefetching, and eviction; uncontrolled pagefile or swap thrashing is not an admitted memory strategy.
+
+PEFT is the first target for advanced placement because the large base can remain immutable while trainable adapter state, gradients, and canonical optimizer state stay small. Full dense out-of-core training remains a separate, more I/O-intensive profile. Every profile records peak VRAM and RAM, local-storage footprint and I/O, transfer volume, useful compute time, and completion rate.
+
 ---
 
 ## 11. Hivemind and Prime usage
@@ -588,7 +628,7 @@ Prime remains a future local-SGD/DiLoCo backend, not the foundation of the brows
 
 ## 12. Concrete model-size progression
 
-Model size is the only direct-training "slice" in the initial framework. A campaign chooses one complete model, and every direct-training worker loads that same model. The project does not begin by partitioning layers or tensors across machines.
+Model size is the only direct-training "slice" in the approved v0.1 profile. A campaign chooses one complete model, and every v0.1 direct-gradient worker independently executes that same model. The project does not begin by partitioning layers or tensors across machines.
 
 The progression uses one narrow GPT-style decoder family so that each rung changes as little as possible:
 
@@ -600,6 +640,15 @@ The progression uses one narrow GPT-style decoder family so that each rung chang
 - The same checkpoint, corpus revision, objective, and evaluation for every worker in a campaign.
 
 For a controlled size comparison, keep the tokenizer, context length, corpus, objective, and optimizer fixed and change only the model configuration. Context length or vocabulary size can be increased in a separate experiment after parameter scaling is understood.
+
+Post-v0.1 studies treat four axes separately rather than calling all scaling "a larger model":
+
+- **Model scale:** total and active parameters, architecture, and context.
+- **Training method:** dense, PEFT, distillation, local updates, or another declared algorithm.
+- **Execution topology:** replicated full model, rolling submodel, exact tiled task graph, sparse experts, or another declared topology.
+- **Placement and numerical profile:** VRAM, RAM, local storage, quantization, compute dtype, and accumulation dtype.
+
+Changing one axis does not silently authorize changes to the others. A study freezes the remaining variables where practical so that its finding has a clear interpretation.
 
 ### 12.1 Recommended ladder
 
@@ -651,8 +700,9 @@ The project moves up exactly one rung only when all of the following are true:
 6. **Acceptable churn:** expired and rejected work do not consume enough capacity to make the larger campaign wasteful.
 7. **A reason to scale:** evaluation indicates under-capacity, underfitting, or a capability benefit likely to come from a larger model. "The next model is bigger" is not by itself a reason.
 8. **One major variable at a time:** the first comparison at the next rung reuses the prior corpus, objective, tokenizer, and context where practical.
+9. **Fixed use-case evidence:** the next rung is evaluated against the campaign's predeclared use-case contract, including its guardrails and final promotion holdout.
 
-Failure at a gate means running another campaign at the current size or fixing the measured bottleneck. It does not trigger model partitioning or a wider redesign automatically.
+Failure at a gate means running another campaign at the current size, fixing the measured bottleneck, or opening a bounded study of a different training method, placement profile, or execution topology. It does not promote a wider redesign automatically.
 
 ### 12.4 Expected participation by tier
 
@@ -680,6 +730,8 @@ References:
 The worker reports measured, not merely advertised, capability:
 
 - A bounded allocation-and-operation fit probe; browsers do not reliably expose free VRAM.
+- Available execution tiers and configured quotas for VRAM, system RAM, and local model storage.
+- Sequential and representative shard I/O, cache behavior, and prefetch capability for storage-backed native profiles.
 - Forward/backward throughput.
 - Supported numeric types.
 - Gradient serialization throughput.
@@ -691,7 +743,8 @@ The worker reports measured, not merely advertised, capability:
 
 A direct-training worker is admitted only when:
 
-- The complete model and required activations fit.
+- Its declared work type and required state fit within the qualified memory and storage profile without uncontrolled swapping.
+- A replicated-profile worker can independently complete the full assignment; a partial-model worker receives a self-contained bounded task under that mode's declared reconciliation rule.
 - The runtime passes numerical parity tests.
 - The estimated work unit can finish before its lease expires.
 - The compute-to-transfer ratio exceeds the campaign minimum.
@@ -890,6 +943,11 @@ campaign:
     A small open model specialized in deterministic source-code transformations.
   owner: example-org
   model_license: Apache-2.0
+  use_case:
+    claim: >-
+      Improve deterministic source-code transformation success on the frozen
+      project task suite without unacceptable general-language regression.
+    baseline: initialization
 
 model:
   architecture: volunteer_decoder_v1
@@ -935,6 +993,15 @@ optimization:
   worker_gradient_format: fp32_le_v1
   max_gradient_norm: 1.0
 
+execution:
+  training_method: dense
+  topology: replicated_full_model
+  numerical_profile: fp32_reference_v1
+  admitted_memory_profiles:
+    - gpu_resident
+    - cpu_resident
+  experimental: false
+
 workers:
   browser_webgpu: true
   browser_wasm_cpu: true
@@ -963,9 +1030,10 @@ stopping:
 evaluation:
   baseline_checkpoint: initialization
   every_steps: 100
-  suites:
+  repeated_validation_suites:
     - eval/code_transform_unit_tests.yaml
     - eval/format_validity.yaml
+  final_holdout_suite: eval/code_transform_final_holdout.yaml
   primary_metric: code_transform_pass_rate
   success_threshold: 0.70
   guardrails:
@@ -1044,12 +1112,13 @@ When the corpus is published on Hugging Face, the model card links directly to t
 
 ## 19. Repository layout
 
-The initial repository should remain small enough that a new contributor can understand the complete executable path without navigating speculative subsystems.
+The stable repository path should remain small enough that a new contributor can understand the complete executable campaign without navigating every experiment. Research records are separated from promoted runtime code and may not silently change the default campaign contract.
 
 ```text
 OrcaColony/
   README.md
   SPEC.md
+  PROGRESS_REPORT.md
   LICENSE
 
   campaign/
@@ -1074,6 +1143,11 @@ OrcaColony/
     evaluation/
     publishing/
 
+  research/
+    README.md
+    studies/
+    experiments/
+
   tests/
     reference/
     protocol/
@@ -1084,13 +1158,13 @@ OrcaColony/
     docker-compose.yml
 ```
 
-Native workers, Hivemind integration, Kubernetes deployment, model partitioning, additional runtime implementations, and generalized plugin systems are added only after a current milestone requires them.
+Native workers, additional runtime implementations, and partial-model systems are added only when an active experiment or promoted milestone requires them. A general plugin abstraction is introduced only after at least two proven execution methods establish the interface it must support.
 
 ---
 
-## 20. Scope discipline: actionable implementation first
+## 20. Scope discipline: actionable implementation and bounded research
 
-The project must be built as a sequence of narrow, working vertical slices. Documentation and tests support an executable milestone; they are not independent deliverables and must not expand the project ahead of usable code.
+The project must be built as a sequence of narrow, working vertical slices and falsifiable experiments. Documentation and tests support an executable milestone or record a completed study; they must not become substitutes for running the method being evaluated.
 
 For each milestone, work proceeds in this order:
 
@@ -1099,10 +1173,11 @@ For each milestone, work proceeds in this order:
 3. Add only the tests needed to protect its important behavior.
 4. Update only the instructions and specification details needed to run or reproduce it.
 
-### 20.1 No speculative implementation
+### 20.1 No unbounded speculative implementation
 
 - A subsystem is not implemented unless the active milestone or a confirmed defect requires it.
-- Future ideas are recorded as short backlog items rather than implemented preemptively.
+- Future ideas are recorded in the ordered research backlog rather than implemented preemptively.
+- A prioritized idea may receive the smallest runnable spike needed to accept or reject its hypothesis; a spike is not automatically a supported framework feature.
 - Abstractions are introduced after a second real use case appears, not in anticipation of one.
 - Coding agents must not broaden a task beyond the named milestone, acceptance criterion, and files without explicit project-owner approval.
 - A technically interesting improvement is not automatically in scope.
@@ -1127,14 +1202,29 @@ For v0.1, the canonical human-readable documentation is:
 
 - `README.md` for setup, local execution, and campaign operation.
 - `SPEC.md` for product behavior and architecture decisions.
+- `PROGRESS_REPORT.md` for the current build position, remaining work, blockers, and priority order.
 - The campaign schema and example configuration.
 - Release provenance generated for published models.
 
-Do not create parallel architecture documents, exhaustive API references, tutorial collections, design catalogs, or future-facing RFCs before they are needed. Code comments should explain non-obvious numerical or protocol invariants, not restate the code. Documentation is updated after the working path exists.
+Post-v0.1 research adds one bounded record per active study or experiment. Do not create parallel architecture documents, exhaustive API references, tutorial collections, or design catalogs without an executable method or concrete comparison to record. Code comments should explain non-obvious numerical or protocol invariants, not restate the code.
 
 ### 20.4 Milestone change control
 
 Every implementation task should name the milestone and acceptance criterion it advances. Work discovered outside that boundary is placed in the backlog unless it blocks the current path. A milestone is complete when its vertical slice works, its high-risk behavior has targeted tests, and another developer has enough instructions to run it.
+
+### 20.5 Research experiment discipline
+
+Every active experiment declares before implementation:
+
+1. The hypothesis and why it could improve volunteer participation or model usefulness.
+2. The fixed campaign use case and baseline it will compare against.
+3. The smallest runnable artifact that can falsify the hypothesis.
+4. Correctness, resource, reliability, and use-case evaluation gates.
+5. The variables held constant and the one major variable being tested.
+6. The evidence and artifacts that will be published.
+7. A terminal disposition: validated, rejected, inconclusive, or promoted.
+
+Negative and inconclusive results are retained when reproducible. A successful spike proves only its declared hypothesis; promotion into the stable framework requires the graduation rules in Section 25.
 
 ---
 
@@ -1198,16 +1288,54 @@ Every implementation task should name the milestone and acceptance criterion it 
 - Select an openly licensed compatible checkpoint or train the chosen small architecture from scratch.
 - Build a task-specific corpus or SFT dataset.
 - Use available AI inference for candidate-data generation where useful.
-- Freeze validation and success criteria before training.
+- Declare one concrete use-case claim; freeze its repeated validation suite, final holdout, baseline, guardrails, and success criteria before training.
 - Run a public volunteer campaign.
 - Publish the best checkpoint, linked corpus, contributor acknowledgments, and complete provenance on Hugging Face.
 
-### Milestone 6: scale model size
+### Milestone 6: reproducible research-study contract
 
-- Advance one rung at a time: T2 → T3 → T4 → T5.
-- Increase parameter count only after the promotion gates in Section 12 pass using measured worker memory, throughput, transfer cost, completion rates, and held-out results.
-- Add gradient compression and native Hivemind participation as needed.
-- Preserve the whole-model worker architecture until measurements prove it is the actual bottleneck.
+- Add machine-readable study and experiment manifests.
+- Tie comparable campaigns to one hypothesis and one fixed use-case evaluation contract.
+- Record code, model, dataset, topology, numerical profile, worker profile, resource, reliability, and evaluation evidence.
+- Publish validated, rejected, and inconclusive outcomes with reproduction instructions.
+- Keep the stable v0.1 campaign path unchanged while the research harness is introduced.
+
+### Milestone 7: PEFT campaign vertical slice
+
+- Freeze one legally redistributable base and one exact LoRA configuration.
+- Declare the complete trainable-adapter tensor manifest.
+- Preserve summed-loss gradients, coordinator normalization, one global clip, canonical optimizer ownership, restart, provenance, evaluation, and release semantics over the adapter state.
+- Prove the base remains immutable and adapter updates match a single-process reference within tolerance.
+- Run a bounded multi-worker PEFT campaign against a fixed use case.
+
+### Milestone 8: local memory tiers and mixed-profile qualification
+
+- Qualify GPU-resident, system-RAM-offloaded, quantized-base, and explicit local-storage profiles one at a time.
+- Implement bounded caches, content-addressed shards, prefetching, eviction, and storage quotas for native workers where needed.
+- Measure peak memory, storage I/O, network transfer, throughput, completion, and evaluation behavior.
+- Prove mixed-profile aggregation against a homogeneous reference before allowing profiles to share a campaign.
+- Advance model size only when Section 12 gates and the campaign's use-case evidence justify it.
+
+### Milestone 9: rolling partial-model study
+
+- Extract capability-sized subnetworks or parameter slices from a larger canonical model.
+- Rotate coverage across frozen checkpoint rounds and reconcile overlapping updates deterministically.
+- Preserve leases, retries, provenance, attribution, and checkpoint lineage.
+- Compare convergence and the fixed use-case result with replicated full-model training.
+- Promote the method only if a global model larger than the admitted worker slices delivers a justified benefit.
+
+### Milestone 10: exact asynchronous tiled-computation study
+
+- Divide one representative transformer layer into persistent forward and backward tensor tasks.
+- Allow transient workers to lease, complete, or abandon tiles without becoming permanent pipeline stages.
+- Reconstruct the exact reference result through deterministic reductions and retry failed work.
+- Measure cache reuse and computation per transferred byte before expanding to a complete-model task graph.
+
+### Milestone 11: sparse experts and advanced topologies
+
+- Investigate expert-sharded or other sparse architectures only after the simpler memory and partial-model studies establish the relevant bottlenecks.
+- Define router, shared-state, availability, replication, reconciliation, evaluation, and release semantics before implementation.
+- Treat live model-parallel peer systems as a measured research option, not the default assumption for community participation.
 
 ---
 
@@ -1258,26 +1386,119 @@ This sequence separates infrastructure validation from claims of model usefulnes
 ## 24. Key architecture decisions
 
 1. **The campaign owner chooses the corpus and objective.** Contributors do not train random things.
-2. **Every direct-training worker holds the complete campaign model.** Model size starts small and rises gradually.
+2. **Replicated full-model data parallelism is the v0.1 correctness baseline.** Every v0.1 direct-gradient worker independently executes the complete assignment, but post-v0.1 research may qualify local offload and partial-model work.
 3. **Workers compute gradients, not canonical optimizer steps, in v0.1.** This removes local Adam-state requirements and makes heterogeneous contributions additive.
 4. **The coordinator constructs one global batch from accepted work.** All work advances one checkpoint.
 5. **GitHub Pages hosts the static client, not the mutable training service.**
 6. **Hivemind informs native collaboration and later averaging.** It is not compiled directly into the browser.
 7. **Prime is deferred.** DiLoCo is a scaling option, not an initial dependency.
 8. **Raw corpus training and task training are separate campaign modes.** The chosen data must match the claimed capability.
-9. **Improvement is established through held-out evaluation, not training loss alone.**
+9. **Every campaign declares a concrete use case.** Improvement is established through its frozen repeated validation and final holdout, not training loss alone.
 10. **Every released model includes reproducible campaign and contribution provenance.**
 11. **Contributors control how they are credited.** Named, pseudonymous, linked, team-based, and anonymous attribution are supported.
 12. **The model page directly names and links the training corpus.** Dataset sources, revisions, licenses, and preprocessing are visible.
 13. **Every accepted contributor is thanked.** The model card links to a complete generated acknowledgment file rather than recognizing only top contributors.
-14. **Working software precedes broad process.** Tests and documentation stay bounded to the active milestone and expand only in response to demonstrated needs.
+14. **Working software and runnable experiments precede broad process.** Tests and documentation stay bounded to the active milestone or study and expand only in response to demonstrated needs.
+15. **Community participation is incremental and transient.** The design does not assume that contributors dedicate permanent workers or remain online together.
+16. **GPU VRAM is not the permanent model-size boundary.** Qualified native profiles may use system RAM and explicit local-storage offload; uncontrolled swapping is not a profile.
+17. **Partial-model contribution is a first-class research question.** Rolling subnetworks and exact tiled tasks are evaluated as distinct methods with explicit reconciliation semantics.
+18. **Training method, execution topology, placement, and numerical profile are separate axes.** A change in one does not silently authorize changes in the others.
+19. **The framework publishes findings as well as models.** Reproducible negative and inconclusive results are retained so the community can avoid repeating failed approaches.
 
 ---
 
-## 25. Summary
+## 25. Research program and experimental graduation
 
-The first framework should deliberately train models small enough that ordinary machines can hold the whole model. T0 is a 1.3M-parameter correctness fixture; the first real public target is T1 at approximately 6.9M parameters. The campaign host selects one fixed model, one locked corpus or task dataset, one training objective, and one evaluation contract. Every contributor receives a bounded data assignment for the same checkpoint, computes gradients, and returns them to a canonical aggregator. Faster hardware contributes more batches; slower hardware contributes fewer. Nobody trains an unrelated copy.
+### 25.1 Community contribution model
 
-The project proves the Folding@home participation model first, then advances through approximately 17.5M, 46.7M, 111M, and 337M parameters only when the preceding tier passes explicit correctness, hardware, transfer, churn, and evaluation gates. Model parallelism remains available as a later answer to a measured scaling limit, not as complexity imposed on version 0.1.
+OrcaColony is not premised on maintaining a permanent cluster of weak computers. It accumulates useful, attributable pieces of work from community members who may participate briefly and independently. A campaign may admit several contribution roles:
 
-Each contributor chooses how they are publicly credited before contributing. The live campaign site and Hugging Face release thank everyone whose accepted work entered the model, while respecting anonymous participation. The model card directly links the exact corpus or dataset revision and source manifest so that the community can see what was trained, on what data, and with whose donated compute.
+- Complete gradients from replicated-model workers.
+- Complete adapter gradients from PEFT workers.
+- Partial parameter updates from a declared rolling-submodel method.
+- Exact tensor or layer computations from a persistent task graph.
+- Expert updates from a future sparse topology.
+- Separately accounted evaluation, data validation, synthetic-data, or verification tasks.
+
+The coordinator must identify the role and mathematics of every accepted result. Different result types are never combined merely because they came from the same checkpoint.
+
+### 25.2 Campaigns, studies, and profiles
+
+- A **campaign** is one locked training run with one canonical state, data revision, use-case evaluation contract, training method, execution topology, and admitted profile set.
+- A **study** compares two or more campaigns or bounded experiments against one hypothesis and shared use-case contract.
+- A **training method** defines what is optimized, such as dense parameters, LoRA adapters, or rolling subnetworks.
+- An **execution topology** defines how one accepted contribution is computed and reconciled, such as replicated full model, partial submodel, tiled task graph, or sparse experts.
+- A **memory profile** defines where tensors may live, such as GPU-resident, RAM-offloaded, or local-storage-backed.
+- A **numerical profile** defines representations and arithmetic that may affect the result, including quantization, compute dtype, accumulation dtype, kernels, and tolerance.
+
+Memory placement that is numerically equivalent may share a campaign after qualification. Materially different base quantizations or training mathematics remain separate campaign profiles until mixed aggregation is proven.
+
+### 25.3 Ordered execution tracks
+
+The research program evaluates the following tracks in dependency order:
+
+1. **Replicated dense baseline.** Preserve the proven full-gradient path as the numerical and operational oracle.
+2. **Replicated PEFT.** Freeze the complete base and train a declared adapter tensor set while retaining coordinator-owned aggregation and optimization.
+3. **Local hierarchical memory.** Qualify RAM and explicit local-storage offload so a worker may execute a base larger than its GPU VRAM and, where practical, larger than its system RAM.
+4. **Mixed numerical profiles.** Certify and then deliberately combine compatible runtime, precision, quantization, and placement profiles.
+5. **Rolling partial models.** Train capability-sized subnetworks or parameter slices from a global model larger than an individual worker assignment and reconcile coverage across checkpoint rounds.
+6. **Exact tiled task graph.** Split model operations into persistent retryable computations so a worker holds only one tile or block while the coordinator respects forward/backward dependencies.
+7. **Sparse experts and advanced model parallelism.** Explore larger total capacity only after simpler methods reveal a measured need.
+
+The complete-local path is not discarded when partial-model research begins. It remains the fallback execution route, reference implementation, and comparison baseline.
+
+### 25.4 Asynchronous partial-model reconciliation
+
+"Asynchronous" means that workers may claim and finish independent available tasks without remaining online together. It does not mean that the mathematical dependency graph disappears.
+
+For a rolling-submodel round:
+
+1. Freeze global checkpoint `s`.
+2. Derive capability-sized submodel assignments with declared parameter coverage.
+3. Let transient workers complete those assignments independently.
+4. Retry expired slices and reject stale revisions.
+5. Reconcile accepted overlapping updates using the method's frozen rule.
+6. Advance to checkpoint `s+1` only after the round's coverage and evaluation gates pass.
+
+These updates are not presumed equal to slices of the full-model gradient. The study must compare convergence and use-case results with the replicated baseline.
+
+For an exact tiled task graph, the coordinator persists intermediate state and unlocks tasks only when their inputs are available. Workers may be interchangeable and retryable, but forward layers, backward signals, and deterministic reductions still impose dependency barriers. The first spike stops at one representative transformer layer unless computation per transferred byte and failure recovery justify expansion.
+
+### 25.5 Numerical and mixed-profile qualification
+
+New profiles graduate in four steps:
+
+1. **Canonical fixture:** run one exact checkpoint and batch through the independent reference.
+2. **Single-profile qualification:** compare loss, complete declared gradient set, one-step update, fixed-K-step replay, resource use, and use-case evaluation.
+3. **Mixed-profile proof:** aggregate controlled contributions from candidate profiles and compare with the homogeneous reference campaign.
+4. **Operational admission:** record profile provenance per result, monitor systematic drift or failure, and revoke profiles that no longer satisfy their gate.
+
+Placement-only differences such as GPU residency versus numerically equivalent RAM offload may qualify together. Aggressive base quantization, different adapter definitions, or changed local-update algorithms are separate semantics until evidence proves compatibility.
+
+### 25.6 Evidence, status, and promotion
+
+Every study records:
+
+- Hypothesis and fixed use-case contract.
+- Baseline and variables held constant.
+- Exact code, model, dataset, tokenizer, and runtime revisions.
+- Training method, topology, memory profile, and numerical profile.
+- Worker capability classes and participation pattern.
+- Correctness, memory, storage, network, throughput, churn, and evaluation evidence.
+- Known limitations and confounders.
+- Reproduction instructions and immutable artifact hashes.
+- Final status: validated, rejected, inconclusive, or promoted.
+
+Promotion into the stable framework requires a runnable end-to-end campaign, restart and retry safety, exact provenance, a supported release path, and improvement or non-regression under the declared use-case gates. A method that only runs once remains experimental. A method that saves memory but makes accepted work impractically slow is recorded but not admitted by default.
+
+`PROGRESS_REPORT.md` is updated in every roadmap commit to record the current build position, remaining major work, blockers, priority order, and immediate bounded target. Git history remains the detailed change log; the progress report remains the concise operational handoff.
+
+---
+
+## 26. Summary
+
+OrcaColony first proved replicated full-model data parallelism: many transient contributors independently execute bounded work against replicated copies of one checkpoint, and the coordinator reconciles complete gradients into one canonical optimizer path. T0 and T1 remain the correctness foundation. A complete-local native worker may later place tensors across GPU VRAM, system RAM, and explicit local storage; complete does not mean entirely GPU-resident.
+
+The project now also serves as a reproducible research vehicle. It will test PEFT, hierarchical local memory, mixed profiles, rolling subnetworks, exact tiled computation, and later sparse topologies through bounded studies. The aim is to let ordinary community members contribute useful pieces toward models that may exceed their individual hardware, without pretending that every experiment is ordinary data-parallel SGD or requiring contributors to form a permanent synchronized cluster.
+
+Every campaign freezes one concrete use-case claim, repeated validation suite, final holdout, baseline, and guardrails. Parameter count is not a status target: the project prefers the smallest model that meets the use case, while allowing measured methods to move beyond the memory ceiling of one weak GPU. Models and research findings publish exact artifacts, campaign or study configuration, evaluation, contribution provenance, limitations, and contributor-controlled attribution.

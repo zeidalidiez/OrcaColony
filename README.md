@@ -1,6 +1,8 @@
 # OrcaColony
 
-OrcaColony is a volunteer-compute framework for training one small open model at a time. The Milestone 0 through Milestone 3 reference, browser, multi-worker, persistent campaign, trusted-participant, live dashboard, evaluation, and publication paths described in [SPEC.md](SPEC.md) are runnable. A bounded local T1 preflight now exercises the Milestone 4 system profile through 12 real-data optimizer steps; the planned remote trusted-participant campaign remains an operator deployment milestone.
+OrcaColony is a volunteer-compute framework and reproducible research vehicle for community model training. Its proven v0.1 path accumulates independent, bounded contributions against one canonical checkpoint; post-v0.1 studies will evaluate PEFT, local offload, partial-model work, and other methods that can let transient contributors help with models beyond one worker's immediate memory. The Milestone 0 through Milestone 3 reference, browser, multi-worker, persistent campaign, trusted-participant, live dashboard, evaluation, and publication paths described in [SPEC.md](SPEC.md) are runnable. A bounded local T1 preflight exercises the Milestone 4 system profile through 12 real-data optimizer steps; the planned remote trusted-participant campaign remains an operator deployment milestone.
+
+See [PROGRESS_REPORT.md](PROGRESS_REPORT.md) for the current build position, completed work, blockers, priority order, and immediate bounded target.
 
 ## Development
 

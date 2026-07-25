@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-07-24
 
-**Current phase:** Transitioning the proven v0.1 baseline into a research-first volunteer-training framework
+**Current phase:** P1 — implementing the reproducible research-study contract on top of the proven v0.1 baseline
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -67,7 +67,7 @@ The current architecture uses replicated full-model data parallelism: every dire
 
 ### P0 — Align the specification with the research-first direction
 
-**Status:** In progress
+**Status:** Complete
 
 - Clarify replicated full-model data parallelism and why it remains the correctness baseline.
 - Clarify that a complete-local worker may use VRAM, system RAM, memory mapping, and local storage offload.
@@ -77,7 +77,7 @@ The current architecture uses replicated full-model data parallelism: every dire
 
 ### P1 — Add the research study and experiment contract
 
-**Status:** Planned
+**Status:** Next bounded implementation target
 
 - Machine-readable study manifest tying comparable campaigns to one hypothesis and use case.
 - Experiment status: proposed, active, validated, rejected, inconclusive, or promoted.
@@ -148,7 +148,7 @@ The native worker is the first target for explicit offload. Browser support rema
 
 ## Immediate next bounded target
 
-Complete P0 by updating `SPEC.md` without changing the approved v0.1 numerical or trust contracts. Verify the documentation and existing test suite, commit the coherent specification update, push it, and update this report to identify P1 as the next target.
+Implement the smallest end-to-end P1 research-record slice without changing the stable v0.1 campaign path: define machine-readable study and experiment manifests, validate them fail-closed, generate a standard result record, and prove the flow with a fixture and focused tests. The artifact must be runnable before broader research UI or plugin abstractions are considered.
 
 ## Remaining major work
 
@@ -175,3 +175,6 @@ Complete P0 by updating `SPEC.md` without changing the approved v0.1 numerical o
 - Recorded the completed local v0.1 foundation.
 - Adopted the research-first direction and community micro-contribution framing.
 - Ordered the initial research tracks from specification alignment through PEFT, local offload, partial models, tiled computation, and sparse experts.
+- Completed the P0 specification alignment while preserving the v0.1 numerical, trust, provenance, and release contracts.
+- Defined campaigns versus studies; separated training method, execution topology, memory placement, and numerical profile.
+- Added the fixed use-case evaluation contract, native hierarchical-memory direction, partial-model research semantics, profile qualification sequence, and experimental graduation rules.
