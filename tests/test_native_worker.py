@@ -1,4 +1,6 @@
+import copy
 import hashlib
+import json
 from pathlib import Path
 import threading
 
@@ -9,6 +11,7 @@ from orcacolony.multiworker import GlobalStepCoordinator, create_http_server
 from orcacolony.native_worker import (
     NativeWorkerSession,
     _prepare_cache_directory,
+    _validate_assignment,
     run_assignment,
 )
 from orcacolony.participants import ParticipantRegistry
@@ -20,6 +23,31 @@ LORA_CONFIG = Path(__file__).parents[1] / "campaign" / "t0-lora-smoke.json"
 BROWSER_ROOT = (
     Path(__file__).parents[1] / "spikes" / "burn-browser-gradient" / "www"
 )
+
+
+def _single_contributor_registry(
+    campaign_id: str,
+    worker_ids: list[str],
+    token: str,
+) -> ParticipantRegistry:
+    return ParticipantRegistry.from_payload(
+        {
+            "format": "orcacolony_participants_v1",
+            "campaign_id": campaign_id,
+            "participants": [
+                {
+                    "contributor_id": "layer-bundle-security-test",
+                    "worker_ids": worker_ids,
+                    "worker_token_sha256": {
+                        worker_id: hashlib.sha256(token.encode("utf-8")).hexdigest()
+                        for worker_id in worker_ids
+                    },
+                    "credit": {"public": False, "display_name": None},
+                }
+            ],
+        },
+        campaign_id=campaign_id,
+    )
 
 
 def test_native_cache_rejects_a_symlinked_managed_directory(tmp_path: Path) -> None:
@@ -120,8 +148,283 @@ def test_native_cpu_worker_reuses_content_addressed_base_and_adapter_cache(
     assert len(list((cache_dir / "adapter").glob("*.safetensors"))) == 1
 
 
+def test_connected_layer_bundle_worker_reuses_exact_shards_across_restart(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    token = "layer-bundle-native-worker-test-token"
+    worker_ids = ["bundle-a", "bundle-b"]
+    participants = ParticipantRegistry.from_payload(
+        {
+            "format": "orcacolony_participants_v1",
+            "campaign_id": loaded.campaign.campaign["id"],
+            "participants": [
+                {
+                    "contributor_id": "layer-bundle-native-test",
+                    "worker_ids": worker_ids,
+                    "worker_token_sha256": {
+                        worker_id: hashlib.sha256(token.encode("utf-8")).hexdigest()
+                        for worker_id in worker_ids
+                    },
+                    "credit": {"public": False, "display_name": None},
+                }
+            ],
+        },
+        campaign_id=str(loaded.campaign.campaign["id"]),
+    )
+    state_dir = tmp_path / "coordinator"
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+        publish_base_layer_bundle=True,
+    )
+    assignment = coordinator.lease("bundle-a", worker_token=token)
+    bundle_contract = assignment["base_layer_bundle"]
+    assert bundle_contract["format"] == "orcacolony_assignment_base_layer_bundle_v1"
+    assert bundle_contract["profile"] == "layer-bundle-streamed-fp32-v1"
+    assert bundle_contract["base_model_sha256"] == loaded.config.base_model_sha256
+    assert len(bundle_contract["artifacts"]) == 18
+    expected_bundle_bytes = assignment["resource_profile"][
+        "layer_bundle_download_bytes"
+    ]
+    cache_dir = tmp_path / "cache"
+
+    server = create_http_server(coordinator, BROWSER_ROOT, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        first = run_assignment(
+            coordinator_url=f"http://127.0.0.1:{server.server_port}",
+            worker_id="bundle-a",
+            worker_token=token,
+            campaign_path=CONFIG,
+            lora_path=LORA_CONFIG,
+            cache_dir=cache_dir,
+            base_profile="layer-bundle",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+    coordinator = GlobalStepCoordinator.load(
+        loaded.campaign,
+        state_dir,
+        participants=participants,
+        lora=loaded,
+    )
+    server = create_http_server(coordinator, BROWSER_ROOT, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        second = run_assignment(
+            coordinator_url=f"http://127.0.0.1:{server.server_port}",
+            worker_id="bundle-b",
+            worker_token=token,
+            campaign_path=CONFIG,
+            lora_path=LORA_CONFIG,
+            cache_dir=cache_dir,
+            base_profile="layer-bundle",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+    assert first.telemetry["transfer_bytes"]["model"] == expected_bundle_bytes
+    assert first.telemetry["transfer_bytes"]["adapter"] > 0
+    assert second.telemetry["transfer_bytes"]["model"] == 0
+    assert second.telemetry["transfer_bytes"]["adapter"] == 0
+    assert second.receipt["step_complete"] is True
+    assert second.receipt["checkpoint_metrics"]["relative_l2_error"] < 1e-6
+    assert not (cache_dir / "model").exists()
+    cached_bundle = cache_dir / "bundle" / bundle_contract["manifest_sha256"]
+    assert len(list(cached_bundle.iterdir())) == 18
+
+
+def test_layer_bundle_assignment_binds_each_artifact_url(tmp_path: Path) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    token = "url-binding-token"
+    participants = _single_contributor_registry(
+        str(loaded.campaign.campaign["id"]),
+        ["worker-0", "worker-1"],
+        token,
+    )
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        tmp_path / "coordinator",
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+        publish_base_layer_bundle=True,
+    )
+    assignment = coordinator.lease("worker-0", worker_token=token)
+    tampered = copy.deepcopy(assignment)
+    tampered["base_layer_bundle"]["artifacts"][2]["url"] = (
+        "/api/v1/artifacts/base-layer-bundle/resident.safetensors"
+    )
+
+    with pytest.raises(ValueError, match="artifact URL differs"):
+        _validate_assignment(tampered, loaded, "layer-bundle")
+
+
+def test_layer_bundle_publication_and_fresh_cache_reject_raw_mutation(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    token = "raw-mutation-token"
+    participants = _single_contributor_registry(
+        str(loaded.campaign.campaign["id"]),
+        ["worker-0", "worker-1"],
+        token,
+    )
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        tmp_path / "coordinator",
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+        publish_base_layer_bundle=True,
+    )
+    assignment = coordinator.lease("worker-0", worker_token=token)
+    artifact = assignment["base_layer_bundle"]["artifacts"][2]
+    artifact_path = coordinator.base_layer_bundle_artifact_path(artifact["file"])
+    mutated = bytearray(artifact_path.read_bytes())
+    mutated[-1] ^= 1
+    artifact_path.write_bytes(mutated)
+
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            tmp_path / "coordinator",
+            participants=participants,
+            lora=loaded,
+        )
+
+    server = create_http_server(coordinator, BROWSER_ROOT, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with pytest.raises(ValueError, match="SHA-256 mismatch"):
+            run_assignment(
+                coordinator_url=f"http://127.0.0.1:{server.server_port}",
+                worker_id="worker-0",
+                worker_token=token,
+                campaign_path=CONFIG,
+                lora_path=LORA_CONFIG,
+                cache_dir=tmp_path / "cache",
+                base_profile="layer-bundle",
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    cache_bundle_root = tmp_path / "cache" / "bundle"
+    assert not any(
+        path.name == artifact["file"]
+        for path in cache_bundle_root.rglob("*.safetensors")
+    )
+
+
+def test_warm_layer_bundle_cache_reauthenticates_each_linear_on_use(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    token = "warm-mutation-token"
+    participants = _single_contributor_registry(
+        str(loaded.campaign.campaign["id"]),
+        ["warm-a", "warm-b"],
+        token,
+    )
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        tmp_path / "coordinator",
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+        publish_base_layer_bundle=True,
+    )
+    cache_dir = tmp_path / "cache"
+    server = create_http_server(coordinator, BROWSER_ROOT, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        first = run_assignment(
+            coordinator_url=f"http://127.0.0.1:{server.server_port}",
+            worker_id="warm-a",
+            worker_token=token,
+            campaign_path=CONFIG,
+            lora_path=LORA_CONFIG,
+            cache_dir=cache_dir,
+            base_profile="layer-bundle",
+        )
+        bundle_dir = next((cache_dir / "bundle").iterdir())
+        linear = bundle_dir / "linear-00000.safetensors"
+        mutated = bytearray(linear.read_bytes())
+        mutated[-1] ^= 1
+        linear.write_bytes(mutated)
+
+        with pytest.raises(ValueError, match="tensor digest mismatch"):
+            run_assignment(
+                coordinator_url=f"http://127.0.0.1:{server.server_port}",
+                worker_id="warm-b",
+                worker_token=token,
+                campaign_path=CONFIG,
+                lora_path=LORA_CONFIG,
+                cache_dir=cache_dir,
+                base_profile="layer-bundle",
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert first.receipt["accepted"] is True
+    assert coordinator.status()["resource_observations"]["accepted_assignments"] == 1
+
+
+def test_connected_layer_bundle_t1_evidence_is_exact_and_evaluated() -> None:
+    evidence_path = (
+        Path(__file__).parents[1]
+        / "spikes"
+        / "layer-bundle-fp32"
+        / "results"
+        / "connected-t1.json"
+    )
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+
+    assert evidence["format"] == "orcacolony_connected_layer_bundle_proof_v1"
+    assert evidence["coordinator_restart_between_assignments"] is True
+    assert evidence["cache_contains_monolithic_base"] is False
+    assert evidence["campaign_state"] == "campaign_complete"
+    assert evidence["assignments"][0]["model_transfer_bytes"] == evidence[
+        "bundle_download_bytes"
+    ]
+    assert evidence["assignments"][1]["model_transfer_bytes"] == 0
+    assert evidence["assignments"][1]["adapter_transfer_bytes"] == 0
+    assert all(
+        assignment["gradient_relative_l2_error"] == 0.0
+        and assignment["gradient_max_absolute_error"] == 0.0
+        for assignment in evidence["assignments"]
+    )
+    assert evidence["checkpoint"]["relative_l2_error"] < 1e-6
+    assert evidence["held_out_evaluation"]["step_1"] < evidence[
+        "held_out_evaluation"
+    ]["initialization"]
+
+
+@pytest.mark.parametrize(
+    ("base_profile", "publish_base_layer_bundle"),
+    (("resident", False), ("layer-bundle", True)),
+)
 def test_persistent_native_session_reuses_model_and_refreshes_adapter_across_steps(
     tmp_path: Path,
+    base_profile: str,
+    publish_base_layer_bundle: bool,
 ) -> None:
     loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
     token = "persistent-native-worker-test-token"
@@ -145,11 +448,12 @@ def test_persistent_native_session_reuses_model_and_refreshes_adapter_across_ste
     )
     coordinator = CampaignCoordinator.create(
         loaded.campaign,
-        tmp_path / "campaign",
+        tmp_path / f"campaign-{base_profile}",
         participants=participants,
         worker_count=2,
         target_steps=2,
         lora=loaded,
+        publish_base_layer_bundle=publish_base_layer_bundle,
     )
     server = create_http_server(coordinator, BROWSER_ROOT, port=0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -161,7 +465,8 @@ def test_persistent_native_session_reuses_model_and_refreshes_adapter_across_ste
             worker_token=token,
             campaign_path=CONFIG,
             lora_path=LORA_CONFIG,
-            cache_dir=tmp_path / "persistent-cache",
+            cache_dir=tmp_path / f"persistent-cache-{base_profile}",
+            base_profile=base_profile,
         )
         results = [session.run_assignment() for _ in range(4)]
     finally:

@@ -2,7 +2,7 @@
 
 This spike tests the next resource-placement step after the monolithic direct-streamed profile: publish one small resident shard and one safetensors shard per frozen linear, then construct the LoRA model without scanning or opening every linear during startup.
 
-The profile remains exact CPU FP32. It does not alter the connected worker tolerance or register a new coordinator backend by itself.
+The profile remains exact CPU FP32. The connected implementation registers a distinct provenance backend without weakening the coordinator's numerical acceptance.
 
 ## Contract
 
@@ -16,7 +16,7 @@ The profile remains exact CPU FP32. It does not alter the connected worker toler
 
 The SHA-256 of that canonical manifest is the authenticated bundle identity supplied to `build_layer_bundle_streamed_lora_model(...)`. The builder binds it back to the LoRA contract's `base_model_sha256`, validates exact bundle membership and paths, builds on `meta`, replaces all frozen linears before `to_empty`, loads only the resident shard, restores the original 2-D causal masks, and failure-atomically loads the adapter. No linear shard is opened during construction.
 
-Every forward/backward linear reload clones its small safetensors mapping into owned contiguous memory before checking exact names, FP32 dtype, shape, finiteness, and tensor SHA-256. The manifest's raw-file hashes are transport/cache identities for the forthcoming connected downloader; lazy compute authenticates semantic tensor content without adding a second full-file read to every layer operation.
+Every forward/backward linear reload clones its small safetensors mapping into owned contiguous memory before checking exact names, FP32 dtype, shape, finiteness, and tensor SHA-256. The manifest's raw-file hashes are transport/cache identities for the connected downloader; lazy compute authenticates semantic tensor content without adding a second full-file read to every layer operation.
 
 `load_lora_manifest(..., verify_base_model=False)` deliberately skips the parser's usual deterministic resident rebuild. It is safe only in a startup path that immediately verifies an independently authenticated base artifact or bundle manifest bound to the same `base_model_sha256`; the default remains `True` everywhere else.
 
@@ -83,14 +83,53 @@ The earlier direct-startup script called the default `load_lora_manifest(...)`, 
 
 With the parser-only path and the direct builder still performing its own complete raw/canonical artifact checks, corrected direct final peak was `740,708,352` bytes—a **46.24% reduction** from the earlier observation. The layer bundle does not materially improve corrected direct peak (`0.047%` here); its measured advantage is removing complete-container startup work and providing independently downloadable authenticated shards.
 
+## Connected T1 TinyStories result
+
+The connected vertical slice is now exercised end to end through the authenticated HTTP coordinator and two separate native-worker processes. The coordinator was deliberately stopped after the first accepted assignment and loaded from durable state before the second worker ran against the same cache.
+
+Enable publication and consumption with:
+
+```bash
+uv run python -m orcacolony.campaign_run \
+  --config campaign/t1-tinystories-smoke.json \
+  --lora-config campaign/t1-tinystories-lora-smoke.json \
+  --participants <participants.json> \
+  --dataset-artifacts .artifacts/p3-t1-profile/dataset \
+  --state <campaign-state> --browser-root spikes/burn-browser-gradient/www \
+  --workers 2 --target-steps 1 --publish-base-layer-bundle
+
+uv run python -m orcacolony.native_worker \
+  --coordinator <coordinator-origin> --worker-id <worker-id> \
+  --worker-token-file <token-file> \
+  --config campaign/t1-tinystories-smoke.json \
+  --lora-config campaign/t1-tinystories-lora-smoke.json \
+  --cache <shared-cache> --base-profile layer-bundle
+```
+
+The committed [`connected-t1.json`](results/connected-t1.json) records:
+
+| Measurement | First process | Restarted coordinator + warm-cache process |
+|---|---:|---:|
+| Bundle/model transfer | 27,621,509 B | 0 B |
+| Adapter transfer | 99,424 B | 0 B |
+| Process peak RSS | 371,679,232 B | 372,981,760 B |
+| Artifact fetch | 0.722035 s | 0.014692 s |
+| Runtime initialization | 1.456090 s | 1.315322 s |
+| Gradient relative L2 / max error | 0 / 0 | 0 / 0 |
+
+The cache contained one manifest, one resident shard, and 24 linear shards—no monolithic model artifact. The bundle was only **0.0267%** larger than the original T1 monolith. Strict aggregation produced checkpoint relative L2 `1.2317732405376926e-7` and maximum absolute error `6.246045813895762e-8`. Held-out TinyStories mean loss improved from `9.041835904121399` at initialization to `9.041222333908081` after the fixed one-step campaign; both the initialization and step-one checkpoint were evaluated over 16 declared validation sequences.
+
+The assignment binds the manifest SHA, `base_model_sha256`, ordered artifact names, raw SHA-256 values, exact byte counts, and exact same-origin URLs. Fresh downloads hash bytes before atomic cache publication. Warm startup hashes the small manifest, validates exact directory membership and file metadata, loads/authenticates the resident shard, and defers each linear's semantic tensor digest to first use. A mutated fresh publication, a changed URL, an unexpected cache member, or a semantically changed warm shard fails closed. `python-native-cpu-layer-bundle-f32` results are accepted only when that bundle was actually assigned; gradient, loss, and checkpoint tolerances are unchanged.
+
 ## Decision and limits
 
-The result is sufficient to proceed to a **connected layer-bundle worker vertical slice**:
+The connected slice establishes:
 
 - exact gradients and loss remained unchanged;
 - final process peak was materially below full residency;
 - retained/current memory remained bounded by resident non-linears plus transient layer/activation work;
-- no linear artifact was opened during startup; and
-- each layer now has a manifest-bound transport identity suitable for content-addressed fetch/cache.
+- no monolithic base was downloaded or cached;
+- coordinator restart and warm-cache reuse preserved exact results with zero repeated model or adapter payload bytes; and
+- the fixed TinyStories use-case evaluation improved after the accepted checkpoint.
 
-It does not yet prove a public untrusted worker, larger-than-RAM execution, cold physical I/O, or cross-platform RSS. This was one Windows run with warm local storage. Logical tensor reads are not physical disk or wire bytes. The exporter still performs complete source scans offline. The standalone loader uses path checks plus owned snapshot/digest validation, not an immutable filesystem snapshot or retained-handle lease; a same-user concurrent writer is detected when content is consumed, but hostile mutable-directory integrity is not claimed. The connected slice must bind the expected manifest SHA and `base_model_sha256` in authenticated assignment state, validate every downloaded shard against its raw digest before cache publication, preserve exact membership, and keep the existing strict FP32 result acceptance unchanged.
+It does not yet prove a public untrusted worker, larger-than-RAM execution, cold physical I/O, or cross-platform RSS. These were Windows runs with local storage. Logical tensor reads are not physical disk or packet-level wire bytes. The exporter still performs complete source scans offline, and the coordinator currently retains both the monolith and a same-size bundle. Warm cache reuse intentionally avoids rehashing every raw shard at startup; semantic digest checks fail on use rather than automatically deleting and refetching a corrupt shard. The path checks plus owned snapshots are not an immutable filesystem snapshot or retained-handle lease, so hostile same-user concurrent mutation is not claimed safe beyond fail-closed content verification.

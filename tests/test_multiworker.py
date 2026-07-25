@@ -198,6 +198,13 @@ def test_burn_worker_telemetry_is_required_and_bound_to_assignment_bytes(
     with pytest.raises(ValueError, match="telemetry is required"):
         coordinator.accept(burn_submission, now=101)
 
+    unassigned_bundle_submission = replace(
+        submission_for(coordinator, assignment),
+        runtime_backend="python-native-cpu-layer-bundle-f32",
+    )
+    with pytest.raises(ValueError, match="layer-bundle runtime was not assigned"):
+        coordinator.accept(unassigned_bundle_submission, now=101)
+
     telemetry = worker_telemetry(coordinator, assignment)
     telemetry["transfer_bytes"]["result"] += 1
     with pytest.raises(ValueError, match="result does not match assignment"):

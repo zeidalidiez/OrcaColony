@@ -1,0 +1,63 @@
+{
+  "assignments": [
+    {
+      "adapter_transfer_bytes": 99424,
+      "artifact_fetch_seconds": 0.7220349999843165,
+      "assignment_id": "c71da33e580939cac2867841f30c894ad2afe4693031f2882f4d99fbe9d010c9",
+      "gradient_compute_seconds": 0.38472580001689494,
+      "gradient_max_absolute_error": 0.0,
+      "gradient_relative_l2_error": 0.0,
+      "model_transfer_bytes": 27621509,
+      "process_peak_rss_bytes": 371679232,
+      "runtime_init_seconds": 1.4560904999962077,
+      "worker_id": "connected-t1-bundle-a"
+    },
+    {
+      "adapter_transfer_bytes": 0,
+      "artifact_fetch_seconds": 0.014692199998535216,
+      "assignment_id": "5cd437837840317e88856de395d3d76bf1e59d73b211e39a9963907c72ab478f",
+      "gradient_compute_seconds": 0.19230059999972582,
+      "gradient_max_absolute_error": 0.0,
+      "gradient_relative_l2_error": 0.0,
+      "model_transfer_bytes": 0,
+      "process_peak_rss_bytes": 372981760,
+      "runtime_init_seconds": 1.3153223000117578,
+      "worker_id": "connected-t1-bundle-b"
+    }
+  ],
+  "base_model_sha256": "6e76ac7cc4919d468b9027650301b0cf7fd49465ff75693486d51cfbb920e175",
+  "bundle_artifact_count": 26,
+  "bundle_download_bytes": 27621509,
+  "bundle_manifest_sha256": "15b92ae68fe742d28773d6e9401d18516fff0846904ff91b1d1ed34ac8f55ad7",
+  "cache_contains_monolithic_base": false,
+  "campaign_id": "orcacolony-t1-tinystories-smoke-v1",
+  "campaign_state": "campaign_complete",
+  "checkpoint": {
+    "adapter_sha256": "f2810f9a03221597f121374d5ec94aa3fd7bbab133b1e9ed43acb72cbca91064",
+    "cosine_similarity": 0.9999999999999921,
+    "max_absolute_error": 6.246045813895762e-08,
+    "relative_l2_error": 1.2317732405376926e-07,
+    "resume_state_sha256": "b1534b5ed787c7fa7306a47fbc8a189eabe56babfeb7c8e17e9cb56d8f07bec2",
+    "tensor_count": 12,
+    "value_count": 24576,
+    "weight_checkpoint_sha256": "656842fe07a9e3e69318b99a63c3407fb092d1bf63ec3a375817f41c5070b51d",
+    "worst_tensor": "blocks.1.attention.qkv.lora_b"
+  },
+  "coordinator_restart_between_assignments": true,
+  "dataset": {
+    "name": "roneneldan/TinyStories",
+    "revision": "99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af",
+    "validation_sequences": 16
+  },
+  "format": "orcacolony_connected_layer_bundle_proof_v1",
+  "held_out_evaluation": {
+    "improvement": 0.0006135702133178711,
+    "initialization": 9.041835904121399,
+    "initialization_perplexity": 8449.274883971822,
+    "metric": "mean_loss",
+    "step_1": 9.041222333908081,
+    "step_1_perplexity": 8444.092250696176
+  },
+  "monolithic_base_bytes": 27614136,
+  "runtime_backend": "python-native-cpu-layer-bundle-f32"
+}

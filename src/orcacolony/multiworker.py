@@ -29,13 +29,16 @@ from .artifacts import PackedDataset
 from .coordinator import _tensor_metrics
 from .participants import ParticipantRegistry, load_participants
 from .peft import (
+    LAYER_BUNDLE_STREAMED_FP32_PROFILE,
     LoadedLoRAManifest,
     _safe_checkpoint_artifact_path,
     adapter_named_parameters,
     apply_adapter_gradient_step,
+    base_layer_bundle_artifact_contract,
     build_lora_model,
     compute_adapter_gradients,
     create_adapter_optimizer,
+    export_base_layer_bundle,
     load_adapter_state,
     load_lora_checkpoint,
     load_lora_manifest,
@@ -75,6 +78,7 @@ RUNTIME_BACKENDS = frozenset(
         "burn-ndarray-f32",
         "burn-webgpu-f32",
         "python-native-cpu-f32",
+        "python-native-cpu-layer-bundle-f32",
         "python-oracle-f32",
     }
 )
@@ -100,6 +104,18 @@ _MEMORY_TELEMETRY_FIELDS = (
     "device_capacity",
 )
 _MAX_SAFE_TELEMETRY_INTEGER = 2**53 - 1
+
+
+def _expected_model_download_bytes(
+    resource_profile: Mapping[str, object],
+    runtime_backend: str,
+) -> int:
+    field = (
+        "layer_bundle_download_bytes"
+        if runtime_backend == "python-native-cpu-layer-bundle-f32"
+        else "model_download_bytes"
+    )
+    return int(resource_profile[field])
 
 
 def _exact_mapping(
@@ -162,7 +178,7 @@ def _validate_worker_telemetry(
             raise ValueError(f"worker transfer telemetry {field} is invalid")
         canonical_transfer[field] = value
     expected_transfer = {
-        "model": int(resource_profile["model_download_bytes"]),
+        "model": _expected_model_download_bytes(resource_profile, runtime_backend),
         "adapter": int(resource_profile["adapter_download_bytes"]),
         "oracle_gradient": int(resource_profile["oracle_gradient_download_bytes"]),
         "result": int(resource_profile["expected_result_upload_bytes"]),
@@ -356,6 +372,7 @@ class GlobalStepCoordinator:
         self.state_dir = state_dir
         self.initial_model_path = state_dir / "model.safetensors"
         self.initial_adapter_path = state_dir / "adapter.safetensors"
+        self.base_layer_bundle_dir = state_dir / "base-layer-bundle"
         self.base_checkpoint_dir = state_dir / "base-checkpoint"
         self.oracle_dir = state_dir / "oracle-gradients"
         self.results_dir = state_dir / "results"
@@ -381,6 +398,7 @@ class GlobalStepCoordinator:
         resume_from: str | Path | None = None,
         dataset: PackedDataset | None = None,
         lora: LoadedLoRAManifest | None = None,
+        publish_base_layer_bundle: bool = False,
     ) -> GlobalStepCoordinator:
         if worker_count < 2:
             raise ValueError("multi-worker proof requires at least two workers")
@@ -392,6 +410,8 @@ class GlobalStepCoordinator:
             raise ValueError("participant registry campaign mismatch")
         if lora is not None and lora.campaign != campaign:
             raise ValueError("LoRA manifest campaign does not match coordinator campaign")
+        if publish_base_layer_bundle and lora is None:
+            raise ValueError("base layer bundles require a frozen-base LoRA campaign")
         validate_dataset_artifacts(campaign, dataset)
 
         state_dir = Path(state_dir)
@@ -542,6 +562,23 @@ class GlobalStepCoordinator:
                 dataset=dataset,
             )
 
+        base_layer_bundle: dict[str, object] | None = None
+        if publish_base_layer_bundle:
+            if lora is None:
+                raise RuntimeError("base layer bundle publication lost its LoRA contract")
+            exported_bundle = export_base_layer_bundle(
+                campaign,
+                lora.config,
+                state_dir / "model.safetensors",
+                _sha256_file(state_dir / "model.safetensors"),
+                state_dir / "base-layer-bundle",
+            )
+            base_layer_bundle = base_layer_bundle_artifact_contract(
+                exported_bundle.output_dir,
+                exported_bundle.manifest_sha256,
+                lora.config.base_model_sha256,
+            )
+
         inputs, targets = fixture_batch(campaign, dataset_cursor, dataset)
         rows_per_assignment = campaign.training.batch_size // worker_count
         assignments: list[dict[str, object]] = []
@@ -622,6 +659,10 @@ class GlobalStepCoordinator:
                         "resume_state_sha256": resume_state_sha256,
                     }
                 )
+                if base_layer_bundle is not None:
+                    basis["base_layer_bundle_manifest_sha256"] = base_layer_bundle[
+                        "manifest_sha256"
+                    ]
             assignment_id = hashlib.sha256(
                 json.dumps(basis, sort_keys=True, separators=(",", ":")).encode("utf-8")
             ).hexdigest()
@@ -671,6 +712,7 @@ class GlobalStepCoordinator:
             ),
             "initial_adapter_sha256": initial_adapter_sha256,
             "resume_state_sha256": resume_state_sha256,
+            "base_layer_bundle": base_layer_bundle,
             "participants": participants.as_payload(),
             "participants_revision": participants.revision,
             "checkpoint_sha256": checkpoint_sha256,
@@ -810,6 +852,31 @@ class GlobalStepCoordinator:
                 != state.get("resume_state_sha256")
             ):
                 raise ValueError("global-step LoRA resume-state identity mismatch")
+        stored_base_layer_bundle = state.get("base_layer_bundle")
+        if stored_base_layer_bundle is not None:
+            if lora is None or not isinstance(stored_base_layer_bundle, Mapping):
+                raise ValueError("global-step base layer bundle contract is invalid")
+            manifest_sha256 = stored_base_layer_bundle.get("manifest_sha256")
+            if not isinstance(manifest_sha256, str):
+                raise ValueError("global-step base layer bundle manifest digest is invalid")
+            canonical_base_layer_bundle = base_layer_bundle_artifact_contract(
+                state_dir / "base-layer-bundle",
+                manifest_sha256,
+                lora.config.base_model_sha256,
+            )
+            if canonical_base_layer_bundle != stored_base_layer_bundle:
+                raise ValueError("global-step base layer bundle contract differs")
+        for assignment in state["assignments"]:
+            assignment_bundle_sha256 = assignment.get(
+                "base_layer_bundle_manifest_sha256"
+            )
+            expected_bundle_sha256 = (
+                stored_base_layer_bundle["manifest_sha256"]
+                if isinstance(stored_base_layer_bundle, Mapping)
+                else None
+            )
+            if assignment_bundle_sha256 != expected_bundle_sha256:
+                raise ValueError("assignment base layer bundle identity differs")
         coordinator = cls(campaign, state_dir, state, dataset, lora=lora)
         state_changed = protocol_migrated
         for assignment in coordinator.assignments:
@@ -831,6 +898,12 @@ class GlobalStepCoordinator:
                     "legacy-unknown" if assignment["state"] == "accepted" else None
                 )
                 state_changed = True
+            if (
+                assignment["runtime_backend"]
+                == "python-native-cpu-layer-bundle-f32"
+                and stored_base_layer_bundle is None
+            ):
+                raise ValueError("persisted layer-bundle runtime was not assigned")
             instrumentation = assignment.get("instrumentation")
             if instrumentation is not None:
                 if not isinstance(instrumentation, Mapping) or set(instrumentation) != {
@@ -866,7 +939,10 @@ class GlobalStepCoordinator:
                     f"{assignment['assignment_id']}.safetensors"
                 )
                 expected_bytes = {
-                    "model_artifact_bytes": resource_profile["model_download_bytes"],
+                    "model_artifact_bytes": _expected_model_download_bytes(
+                        resource_profile,  # type: ignore[arg-type]
+                        str(assignment["runtime_backend"]),
+                    ),
                     "adapter_artifact_bytes": resource_profile[
                         "adapter_download_bytes"
                     ],
@@ -937,11 +1013,15 @@ class GlobalStepCoordinator:
     def assignments(self) -> list[dict[str, object]]:
         return self._state["assignments"]  # type: ignore[return-value]
 
+    @property
+    def has_base_layer_bundle(self) -> bool:
+        return self._state.get("base_layer_bundle") is not None
+
     def _write_state(self) -> None:
         _atomic_json(self.state_dir / "global-state.json", self._state)
 
     def _campaign_lock_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "format": "orcacolony_campaign_lock_v1",
             "campaign_id": self._state["campaign_id"],
             "campaign_revision": self._state["campaign_revision"],
@@ -967,6 +1047,12 @@ class GlobalStepCoordinator:
                 "result_protocol_revision", 1
             ),
         }
+        bundle = self._state.get("base_layer_bundle")
+        if isinstance(bundle, Mapping):
+            payload["base_layer_bundle_manifest_sha256"] = bundle[
+                "manifest_sha256"
+            ]
+        return payload
 
     def _write_campaign_lock(self) -> None:
         _atomic_json(
@@ -1027,6 +1113,28 @@ class GlobalStepCoordinator:
         assignment = self._assignment(assignment_id)
         return self.oracle_dir / str(assignment["oracle_file"])
 
+    def base_layer_bundle_artifact_path(self, file_name: str) -> Path:
+        contract = self._state.get("base_layer_bundle")
+        if not isinstance(contract, Mapping):
+            raise ValueError("base layer bundle is unavailable")
+        artifacts = contract.get("artifacts")
+        if not isinstance(artifacts, list):
+            raise ValueError("base layer bundle artifact contract is invalid")
+        if not any(
+            isinstance(artifact, Mapping) and artifact.get("file") == file_name
+            for artifact in artifacts
+        ):
+            raise ValueError("unknown base layer bundle artifact")
+        lexical_path = self.base_layer_bundle_dir / file_name
+        if lexical_path.is_symlink():
+            raise ValueError("base layer bundle artifact is a symlink")
+        artifact_path = lexical_path.resolve(strict=True)
+        if artifact_path.parent != self.base_layer_bundle_dir.resolve():
+            raise ValueError("base layer bundle artifact escapes its root")
+        if not artifact_path.is_file():
+            raise ValueError("base layer bundle artifact is not a regular file")
+        return artifact_path
+
     def _assignment(self, assignment_id: str) -> dict[str, object]:
         for assignment in self.assignments:
             if assignment["assignment_id"] == assignment_id:
@@ -1036,6 +1144,34 @@ class GlobalStepCoordinator:
     def _public_assignment(self, assignment: Mapping[str, object]) -> dict[str, object]:
         assignment_id = str(assignment["assignment_id"])
         is_lora = assignment.get("training_method") == "frozen-base-lora"
+        stored_bundle = self._state.get("base_layer_bundle")
+        public_bundle: dict[str, object] | None = None
+        layer_bundle_download_bytes = 0
+        if stored_bundle is not None:
+            if not isinstance(stored_bundle, Mapping):
+                raise ValueError("stored base layer bundle contract is invalid")
+            artifacts = stored_bundle.get("artifacts")
+            if not isinstance(artifacts, list):
+                raise ValueError("stored base layer bundle artifact list is invalid")
+            public_artifacts = [
+                {
+                    **artifact,
+                    "url": f"/api/v1/artifacts/base-layer-bundle/{artifact['file']}",
+                }
+                for artifact in artifacts
+                if isinstance(artifact, Mapping)
+            ]
+            if len(public_artifacts) != len(artifacts):
+                raise ValueError("stored base layer bundle artifact entry is invalid")
+            layer_bundle_download_bytes = int(stored_bundle["download_bytes"])
+            public_bundle = {
+                "format": "orcacolony_assignment_base_layer_bundle_v1",
+                "profile": stored_bundle["profile"],
+                "manifest_sha256": stored_bundle["manifest_sha256"],
+                "base_model_sha256": stored_bundle["base_model_sha256"],
+                "artifacts": public_artifacts,
+                "download_bytes": layer_bundle_download_bytes,
+            }
         payload: dict[str, object] = {
             "format": "orcacolony_assignment_v2" if is_lora else "orcacolony_assignment_v1",
             "campaign_id": assignment["campaign_id"],
@@ -1065,11 +1201,17 @@ class GlobalStepCoordinator:
             "result_protocol_revision": self._state.get(
                 "result_protocol_revision", 1
             ),
-            "runtime_backends": sorted(RUNTIME_BACKENDS),
+            "runtime_backends": sorted(
+                backend
+                for backend in RUNTIME_BACKENDS
+                if backend != "python-native-cpu-layer-bundle-f32"
+                or public_bundle is not None
+            ),
             "telemetry_protocol_revision": 1,
             "resource_profile": {
                 "format": "orcacolony_assignment_resources_v1",
                 "model_download_bytes": self.initial_model_path.stat().st_size,
+                "layer_bundle_download_bytes": layer_bundle_download_bytes,
                 "adapter_download_bytes": (
                     self.initial_adapter_path.stat().st_size if is_lora else 0
                 ),
@@ -1103,6 +1245,13 @@ class GlobalStepCoordinator:
                     "adapter_url": "/api/v1/artifacts/adapter.safetensors",
                 }
             )
+            if public_bundle is not None:
+                if (
+                    assignment.get("base_layer_bundle_manifest_sha256")
+                    != public_bundle["manifest_sha256"]
+                ):
+                    raise ValueError("assignment base layer bundle identity differs")
+                payload["base_layer_bundle"] = public_bundle
         return payload
 
     def lease(
@@ -1188,6 +1337,12 @@ class GlobalStepCoordinator:
                 raise ValueError("loss sum must be finite")
             if submission.runtime_backend not in RUNTIME_BACKENDS:
                 raise ValueError("runtime backend is not supported")
+            if (
+                submission.runtime_backend
+                == "python-native-cpu-layer-bundle-f32"
+                and self._state.get("base_layer_bundle") is None
+            ):
+                raise ValueError("layer-bundle runtime was not assigned")
             if submission.coordinator_receive_seconds is not None and (
                 not math.isfinite(submission.coordinator_receive_seconds)
                 or submission.coordinator_receive_seconds < 0
@@ -1220,9 +1375,10 @@ class GlobalStepCoordinator:
                 "format": "orcacolony_assignment_instrumentation_v1",
                 "worker_reported": worker_telemetry,
                 "coordinator_measured": {
-                    "model_artifact_bytes": resource_profile[
-                        "model_download_bytes"
-                    ],
+                    "model_artifact_bytes": _expected_model_download_bytes(
+                        resource_profile,  # type: ignore[arg-type]
+                        submission.runtime_backend,
+                    ),
                     "adapter_artifact_bytes": resource_profile[
                         "adapter_download_bytes"
                     ],
@@ -1667,6 +1823,17 @@ class _GlobalStepHandler(SimpleHTTPRequestHandler):
         if path == "/api/v1/artifacts/adapter.safetensors":
             self._send_artifact(self.coordinator.initial_adapter_path)
             return
+        bundle_prefix = "/api/v1/artifacts/base-layer-bundle/"
+        if path.startswith(bundle_prefix):
+            try:
+                artifact = self.coordinator.base_layer_bundle_artifact_path(
+                    path.removeprefix(bundle_prefix)
+                )
+            except (FileNotFoundError, ValueError) as error:
+                self._send_json({"error": str(error)}, HTTPStatus.NOT_FOUND)
+                return
+            self._send_artifact(artifact)
+            return
         if path.startswith("/api/v1/oracle/") and path.endswith(".safetensors"):
             assignment_id = path.removeprefix("/api/v1/oracle/").removesuffix(
                 ".safetensors"
@@ -1852,6 +2019,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--lease-seconds", type=int, default=120)
     parser.add_argument("--resume-from", type=Path)
+    parser.add_argument("--publish-base-layer-bundle", action="store_true")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--public-origin")
@@ -1896,6 +2064,7 @@ def main() -> None:
             resume_from=args.resume_from,
             dataset=dataset,
             lora=lora,
+            publish_base_layer_bundle=args.publish_base_layer_bundle,
         )
     server = create_http_server(
         coordinator,

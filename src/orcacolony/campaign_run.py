@@ -73,6 +73,7 @@ class CampaignCoordinator:
         lease_seconds: int = 120,
         dataset: PackedDataset | None = None,
         lora: LoadedLoRAManifest | None = None,
+        publish_base_layer_bundle: bool = False,
     ) -> CampaignCoordinator:
         if target_steps < 1:
             raise ValueError("campaign target steps must be positive")
@@ -80,6 +81,8 @@ class CampaignCoordinator:
             raise ValueError("participant campaign does not match configuration")
         if lora is not None and lora.campaign != campaign:
             raise ValueError("LoRA manifest campaign does not match campaign run")
+        if publish_base_layer_bundle and lora is None:
+            raise ValueError("base layer bundle publication requires frozen-base LoRA")
         state_dir = Path(state_dir)
         if state_dir.exists() and any(state_dir.iterdir()):
             raise ValueError(f"campaign state directory is not empty: {state_dir}")
@@ -97,6 +100,7 @@ class CampaignCoordinator:
             lease_seconds=lease_seconds,
             dataset=dataset,
             lora=lora,
+            publish_base_layer_bundle=publish_base_layer_bundle,
         )
         state: dict[str, object] = {
             "format": "orcacolony_campaign_state_v1",
@@ -122,6 +126,7 @@ class CampaignCoordinator:
             "base_model_sha256": (
                 lora.config.base_model_sha256 if lora is not None else None
             ),
+            "publish_base_layer_bundle": publish_base_layer_bundle,
         }
         coordinator = cls(campaign, state_dir, participants, state, current, dataset, lora)
         if campaign.evaluation is not None:
@@ -193,6 +198,7 @@ class CampaignCoordinator:
         state.setdefault("evaluations", [])
         state.setdefault("last_evaluation", None)
         state.setdefault("baseline_checkpoint", None)
+        state.setdefault("publish_base_layer_bundle", False)
         current_path = state_dir / str(state["current_round"])
         current = GlobalStepCoordinator.load(
             campaign,
@@ -201,6 +207,8 @@ class CampaignCoordinator:
             dataset=dataset,
             lora=lora,
         )
+        if current.has_base_layer_bundle != bool(state["publish_base_layer_bundle"]):
+            raise ValueError("campaign layer-bundle publication state differs")
         checkpoints = state.get("checkpoints")
         if not isinstance(checkpoints, list):
             raise ValueError("campaign checkpoint history must be a JSON array")
@@ -217,13 +225,17 @@ class CampaignCoordinator:
             prior_round = (state_dir / expected_round).resolve()
             if prior_round == current_resolved:
                 continue
-            GlobalStepCoordinator.load(
+            prior_coordinator = GlobalStepCoordinator.load(
                 campaign,
                 prior_round,
                 participants=participants,
                 dataset=dataset,
                 lora=lora,
             )
+            if prior_coordinator.has_base_layer_bundle != bool(
+                state["publish_base_layer_bundle"]
+            ):
+                raise ValueError("prior campaign layer-bundle state differs")
         coordinator = cls(campaign, state_dir, participants, state, current, dataset, lora)
         lock_path = state_dir / "campaign-lock.json"
         if (
@@ -255,6 +267,9 @@ class CampaignCoordinator:
 
     def oracle_gradient_path(self, assignment_id: str) -> Path:
         return self._current.oracle_gradient_path(assignment_id)
+
+    def base_layer_bundle_artifact_path(self, file_name: str) -> Path:
+        return self._current.base_layer_bundle_artifact_path(file_name)
 
     def lease(
         self,
@@ -310,6 +325,8 @@ class CampaignCoordinator:
                     "result_protocol_revision": 3,
                 }
             )
+        if self._state["publish_base_layer_bundle"]:
+            payload["publish_base_layer_bundle"] = True
         return payload
 
     def _write_lock(self) -> None:
@@ -421,6 +438,9 @@ class CampaignCoordinator:
                 resume_from=checkpoint,
                 dataset=self.dataset,
                 lora=self.lora,
+                publish_base_layer_bundle=bool(
+                    self._state["publish_base_layer_bundle"]
+                ),
             )
         self._current = next_round
         self._state["current_round"] = next_relative.as_posix()
@@ -704,6 +724,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--target-steps", type=int, required=True)
     parser.add_argument("--lease-seconds", type=int, default=120)
+    parser.add_argument("--publish-base-layer-bundle", action="store_true")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--public-origin")
@@ -747,6 +768,7 @@ def main() -> None:
             lease_seconds=args.lease_seconds,
             dataset=dataset,
             lora=lora,
+            publish_base_layer_bundle=args.publish_base_layer_bundle,
         )
     server = create_http_server(
         coordinator,  # type: ignore[arg-type]

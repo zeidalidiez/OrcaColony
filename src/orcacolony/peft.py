@@ -1117,6 +1117,66 @@ def _load_base_layer_bundle(
     )
 
 
+def base_layer_bundle_artifact_contract(
+    bundle_dir: str | Path,
+    bundle_manifest_sha256: str,
+    base_model_sha256: str,
+    *,
+    verify_artifacts: bool = True,
+) -> dict[str, object]:
+    """Return the exact transport contract for an authenticated layer bundle.
+
+    Coordinators use the default full raw-file verification before publication.
+    Workers may set ``verify_artifacts=False`` after fresh-download SHA-256 checks;
+    that path still authenticates the canonical manifest, exact membership, names,
+    sizes, and base identity without rescanning every warm cached shard.
+    """
+
+    bundle = _load_base_layer_bundle(
+        bundle_dir,
+        bundle_manifest_sha256,
+        base_model_sha256,
+    )
+    artifacts = [
+        {
+            "file": "manifest.json",
+            "sha256": bundle.manifest_sha256,
+            "bytes": (bundle.root / "manifest.json").stat().st_size,
+        },
+        {
+            "file": bundle.resident_path.name,
+            "sha256": bundle.resident_sha256,
+            "bytes": bundle.resident_bytes,
+        },
+        *[
+            {
+                "file": descriptor.artifact_path.name,
+                "sha256": descriptor.artifact_sha256,
+                "bytes": descriptor.artifact_bytes,
+            }
+            for descriptor in sorted(
+                bundle.linears.values(),
+                key=lambda value: value.artifact_path.name,
+            )
+        ],
+    ]
+    if verify_artifacts:
+        for artifact in artifacts:
+            path = bundle.root / str(artifact["file"])
+            if _sha256_file(path) != artifact["sha256"]:
+                raise ValueError(
+                    f"base layer bundle raw artifact SHA-256 mismatch: {path.name}"
+                )
+    return {
+        "format": "orcacolony_base_layer_bundle_artifacts_v1",
+        "profile": LAYER_BUNDLE_STREAMED_FP32_PROFILE,
+        "manifest_sha256": bundle.manifest_sha256,
+        "base_model_sha256": bundle.base_model_sha256,
+        "artifacts": artifacts,
+        "download_bytes": sum(int(artifact["bytes"]) for artifact in artifacts),
+    }
+
+
 class _LayerBundleStreamedFrozenLinearFunction(torch.autograd.Function):
     @staticmethod
     def forward(

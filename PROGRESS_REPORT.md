@@ -179,7 +179,10 @@ Completed within the first P3 measurement and native-baseline slice:
 - Added deterministic `orcacolony_base_layer_bundle_v1` publication and `layer-bundle-streamed-fp32-v1` construction. The manifest binds the canonical base identity to exact resident/linear shard membership, raw transport hashes, semantic tensor hashes, shapes, sizes, modules, and bias contracts. Meta/empty startup opens no linear shard; each later forward/backward load validates an owned FP32 snapshot.
 - Corrected the direct-profile resource interpretation: the earlier proof's default LoRA-manifest parse built a complete resident model before direct construction. With parser-only contract loading and the direct builder still performing its own complete artifact checks, direct final T2 peak fell from `1,377,845,248` to `740,708,352` bytes. The earlier measurement remains valid for that process path but did not isolate the direct constructor.
 - In the new isolated T2 comparison, resident/direct/bundle returned the same `4687.0` loss and exact gradient SHA-256. The bundle retained `27,482,112` tensor bytes, opened zero linears at startup, and reduced final peak RSS by 46.35% versus resident. It matched corrected direct memory but reduced build time by 62.53% (`3.548609` to `1.329829` seconds) by removing complete-container startup work.
-- Selected a connected authenticated layer-bundle worker as the next vertical slice. This promotion is for independently fetchable digest-bound shards plus materially lower memory than residency; it does not claim bundle memory is better than corrected direct construction or weaken strict FP32 acceptance.
+- Added connected layer-bundle publication and consumption. Coordinator state, locks, and assignment IDs bind the manifest; assignments carry the base identity plus ordered raw hashes, byte counts, and exact same-origin URLs. The new `python-native-cpu-layer-bundle-f32` provenance is accepted only when a bundle was actually assigned, under the unchanged strict gradient/loss/checkpoint contract.
+- Fresh native downloads hash every artifact before atomic cache publication. Warm restart hashes the small manifest, validates exact membership/metadata, authenticates the resident shard, and checks every linear's semantic tensor digest on use without rescanning the complete base. Mutation, URL, membership, coordinator-reload, restart, persistent-session, and resident-compatibility tests fail closed or retain exact parity as appropriate.
+- Completed a two-process T1 TinyStories campaign across a deliberate coordinator restart. The cold worker transferred the 27,621,509-byte bundle; the warm worker transferred zero model and adapter bytes; neither cached a monolithic base. Both gradients were exact, process peaks were 371,679,232 and 372,981,760 bytes, and aggregate checkpoint relative L2 was `1.2317732405376926e-7`.
+- Evaluated the fixed use case at initialization and after the accepted connected checkpoint. Held-out mean loss over 16 declared TinyStories validation sequences improved from `9.041835904121399` to `9.041222333908081`.
 
 ### P4 — Qualify numerical and mixed execution profiles
 
@@ -221,11 +224,11 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Bind the authenticated layer-bundle manifest and exact shard URLs into coordinator assignments, extend the native content-addressed cache to fetch/validate those shards without a monolithic base download, and complete a real connected exact-FP32 assignment with unchanged gradient acceptance. Preserve the resident native worker as the baseline and carry int8 into P4 as a distinct numerical trajectory.
+Qualify the connected layer-bundle profile at T2 in a mixed resident/bundle campaign, preserving the fixed held-out TinyStories evaluation while measuring per-profile transfer, peak RSS, runtime, and exact aggregate/checkpoint behavior. Publish the P3 result before moving int8 into P4 as a distinct numerical trajectory.
 
 ## Remaining major work
 
-- Connected exact-FP32 layer-bundle assignment/cache execution and restart proof.
+- Connected T2 and mixed resident/layer-bundle qualification.
 - Quantized-profile oracle, trajectory, and homogeneous-campaign proof in P4.
 - Profile certification and mixed-profile proof.
 - Rolling-submodel feasibility study.
@@ -247,6 +250,8 @@ Bind the authenticated layer-bundle manifest and exact shard URLs into coordinat
 - Proved exact T2 layer-bundle gradients while reducing resident-relative final process peak by 46.35% and direct-relative build time by 62.53%.
 - Corrected the earlier direct-startup interpretation by isolating and removing a redundant resident validation build from artifact-backed startup.
 - Advanced the immediate target to a real connected layer-bundle worker rather than stopping at the offline profile.
+- Bound layer-bundle identities and exact shard URLs into authenticated coordinator state/assignments, added fresh-download and warm-use cache authentication, and retained strict FP32 result acceptance under a distinct runtime provenance.
+- Completed a real T1 TinyStories campaign across a coordinator restart with exact gradients, zero warm model/adapter payload bytes, no monolithic worker cache, sub-`1.24e-7` checkpoint parity, and positive held-out loss movement.
 
 ### 2026-07-24
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import hashlib
 import json
 import os
 import stat
@@ -21,8 +22,10 @@ from safetensors.torch import save as save_safetensors
 
 from .multiworker import normalize_http_origin
 from .peft import (
+    LAYER_BUNDLE_STREAMED_FP32_PROFILE,
     LoadedLoRAManifest,
-    adapter_named_parameters,
+    base_layer_bundle_artifact_contract,
+    build_layer_bundle_streamed_lora_model,
     build_lora_model,
     compute_adapter_gradients,
     load_adapter_state,
@@ -118,7 +121,7 @@ def _directory_identity(path: Path) -> tuple[int, int]:
 
 
 def _prepare_cache_directory(cache_dir: Path, kind: str) -> tuple[Path, tuple[int, int]]:
-    if kind not in {"model", "adapter"}:
+    if kind not in {"model", "adapter", "bundle"}:
         raise ValueError("native worker cache kind is invalid")
     absolute = Path(os.path.abspath(cache_dir))
     current = Path(absolute.anchor)
@@ -222,6 +225,223 @@ def _cached_artifact(
     return target, downloaded
 
 
+def _require_sha256(value: object, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(f"{label} is invalid")
+    return value
+
+
+def _layer_bundle_assignment_contract(
+    assignment: Mapping[str, object],
+    loaded: LoadedLoRAManifest,
+) -> Mapping[str, object]:
+    value = assignment.get("base_layer_bundle")
+    if not isinstance(value, Mapping) or set(value) != {
+        "format",
+        "profile",
+        "manifest_sha256",
+        "base_model_sha256",
+        "artifacts",
+        "download_bytes",
+    }:
+        raise ValueError("assignment base layer bundle contract is invalid")
+    if value["format"] != "orcacolony_assignment_base_layer_bundle_v1":
+        raise ValueError("assignment base layer bundle format is unsupported")
+    if value["profile"] != LAYER_BUNDLE_STREAMED_FP32_PROFILE:
+        raise ValueError("assignment base layer bundle profile is unsupported")
+    manifest_sha256 = _require_sha256(
+        value["manifest_sha256"],
+        "assignment base layer bundle manifest SHA-256",
+    )
+    if value["base_model_sha256"] != loaded.config.base_model_sha256:
+        raise ValueError("assignment base layer bundle base identity differs")
+    artifacts = value["artifacts"]
+    expected_linear_count = loaded.campaign.model.layers * 4
+    expected_files = [
+        "manifest.json",
+        "resident.safetensors",
+        *[f"linear-{index:05d}.safetensors" for index in range(expected_linear_count)],
+    ]
+    if not isinstance(artifacts, list) or len(artifacts) != len(expected_files):
+        raise ValueError("assignment base layer bundle artifact count differs")
+    total_bytes = 0
+    for expected_file, artifact in zip(expected_files, artifacts, strict=True):
+        if not isinstance(artifact, Mapping) or set(artifact) != {
+            "file",
+            "sha256",
+            "bytes",
+            "url",
+        }:
+            raise ValueError("assignment base layer bundle artifact entry is invalid")
+        if artifact["file"] != expected_file:
+            raise ValueError("assignment base layer bundle artifact order differs")
+        digest = _require_sha256(
+            artifact["sha256"],
+            f"assignment base layer bundle artifact SHA-256: {expected_file}",
+        )
+        if expected_file == "manifest.json" and digest != manifest_sha256:
+            raise ValueError("assignment base layer bundle manifest artifact differs")
+        artifact_bytes = artifact["bytes"]
+        if (
+            isinstance(artifact_bytes, bool)
+            or not isinstance(artifact_bytes, int)
+            or artifact_bytes <= 0
+        ):
+            raise ValueError("assignment base layer bundle artifact bytes are invalid")
+        expected_url = f"/api/v1/artifacts/base-layer-bundle/{expected_file}"
+        if artifact["url"] != expected_url:
+            raise ValueError("assignment base layer bundle artifact URL differs")
+        total_bytes += artifact_bytes
+    if (
+        isinstance(value["download_bytes"], bool)
+        or value["download_bytes"] != total_bytes
+    ):
+        raise ValueError("assignment base layer bundle download bytes differ")
+    return value
+
+
+def _raw_file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _validate_raw_bundle_cache(
+    path: Path,
+    digest: str,
+    expected_bytes: int,
+    *,
+    authenticate_content: bool,
+) -> bool:
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return False
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or stat.S_ISLNK(metadata.st_mode)
+        or attributes & reparse_point
+        or metadata.st_size != expected_bytes
+    ):
+        return False
+    return not authenticate_content or _raw_file_sha256(path) == digest
+
+
+def _cached_base_layer_bundle(
+    *,
+    opener: Any,
+    origin: str,
+    cache_dir: Path,
+    assignment: Mapping[str, object],
+    loaded: LoadedLoRAManifest,
+) -> tuple[Path, int, str]:
+    contract = _layer_bundle_assignment_contract(assignment, loaded)
+    manifest_sha256 = str(contract["manifest_sha256"])
+    bundle_root, bundle_root_identity = _prepare_cache_directory(cache_dir, "bundle")
+    bundle_dir = bundle_root / manifest_sha256
+    try:
+        bundle_dir.mkdir()
+    except FileExistsError:
+        pass
+    bundle_identity = _directory_identity(bundle_dir)
+    downloaded = 0
+    artifacts = contract["artifacts"]
+    if not isinstance(artifacts, list):
+        raise RuntimeError("validated base layer bundle artifacts disappeared")
+    for artifact in artifacts:
+        if not isinstance(artifact, Mapping):
+            raise RuntimeError("validated base layer bundle artifact disappeared")
+        file_name = str(artifact["file"])
+        digest = str(artifact["sha256"])
+        expected_bytes = int(artifact["bytes"])
+        target = bundle_dir / file_name
+        if _validate_raw_bundle_cache(
+            target,
+            digest,
+            expected_bytes,
+            authenticate_content=file_name == "manifest.json",
+        ):
+            continue
+        target.unlink(missing_ok=True)
+        request = Request(
+            _coordinator_url(origin, artifact["url"]),
+            headers={"User-Agent": _USER_AGENT},
+        )
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=bundle_root,
+            prefix=f".{manifest_sha256}.{file_name}.",
+            suffix=".tmp",
+        )
+        temporary = Path(temporary_name)
+        artifact_downloaded = 0
+        hasher = hashlib.sha256()
+        try:
+            with os.fdopen(descriptor, "wb") as output, opener.open(
+                request,
+                timeout=180,
+            ) as response:
+                if _origin(response.geturl()) != _origin(origin):
+                    raise ValueError("bundle artifact response crossed the pinned origin")
+                content_length = response.headers.get("Content-Length")
+                if content_length is not None and int(content_length) != expected_bytes:
+                    raise ValueError("bundle artifact length does not match assignment")
+                while chunk := response.read(
+                    min(1024 * 1024, expected_bytes - artifact_downloaded + 1)
+                ):
+                    artifact_downloaded += len(chunk)
+                    if artifact_downloaded > expected_bytes:
+                        raise ValueError("bundle artifact exceeds the assigned byte count")
+                    hasher.update(chunk)
+                    output.write(chunk)
+                output.flush()
+                os.fsync(output.fileno())
+            if artifact_downloaded != expected_bytes:
+                raise ValueError("bundle artifact length does not match assignment")
+            if hasher.hexdigest() != digest:
+                raise ValueError("bundle artifact raw SHA-256 mismatch")
+            if _directory_identity(bundle_root) != bundle_root_identity:
+                raise ValueError("native worker bundle cache root changed during download")
+            if _directory_identity(bundle_dir) != bundle_identity:
+                raise ValueError("native worker bundle directory changed during download")
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+        downloaded += artifact_downloaded
+
+    expected_names = {str(artifact["file"]) for artifact in artifacts if isinstance(artifact, Mapping)}
+    if {entry.name for entry in bundle_dir.iterdir()} != expected_names:
+        raise ValueError("native worker bundle cache membership differs")
+    local_contract = base_layer_bundle_artifact_contract(
+        bundle_dir,
+        manifest_sha256,
+        loaded.config.base_model_sha256,
+        verify_artifacts=False,
+    )
+    assigned_transport = [
+        {
+            "file": artifact["file"],
+            "sha256": artifact["sha256"],
+            "bytes": artifact["bytes"],
+        }
+        for artifact in artifacts
+        if isinstance(artifact, Mapping)
+    ]
+    if (
+        local_contract["artifacts"] != assigned_transport
+        or local_contract["download_bytes"] != contract["download_bytes"]
+    ):
+        raise ValueError("cached base layer bundle differs from the assignment")
+    return bundle_dir, downloaded, manifest_sha256
+
+
 def _load_frozen_base(
     loaded: LoadedLoRAManifest,
     model: torch.nn.Module,
@@ -316,6 +536,7 @@ def _device_capacity_bytes() -> int | None:
 def _validate_assignment(
     assignment: Mapping[str, object],
     loaded: LoadedLoRAManifest,
+    base_profile: str,
 ) -> None:
     if assignment.get("campaign_id") != loaded.campaign.campaign["id"]:
         raise ValueError("assignment campaign does not match native worker configuration")
@@ -339,6 +560,17 @@ def _validate_assignment(
         "orcacolony_assignment_resources_v1"
     ):
         raise ValueError("assignment resource profile is invalid")
+    if base_profile == "layer-bundle":
+        contract = _layer_bundle_assignment_contract(assignment, loaded)
+        if resources.get("layer_bundle_download_bytes") != contract["download_bytes"]:
+            raise ValueError("assignment layer bundle resource bytes differ")
+        runtime_backends = assignment.get("runtime_backends")
+        if not isinstance(runtime_backends, list) or (
+            "python-native-cpu-layer-bundle-f32" not in runtime_backends
+        ):
+            raise ValueError("coordinator does not accept layer-bundle native results")
+    elif base_profile != "resident":
+        raise ValueError("native worker base profile is unsupported")
 
 
 @dataclass
@@ -349,6 +581,7 @@ class _NativeSessionState:
     loaded: LoadedLoRAManifest
     opener: Any
     cache_dir: Path
+    base_profile: str
     model: torch.nn.Module | None = None
     base_digest: str | None = None
     adapter_digest: str | None = None
@@ -364,17 +597,25 @@ def _create_session_state(
     campaign_path: str | Path,
     lora_path: str | Path,
     cache_dir: str | Path,
+    base_profile: str,
 ) -> _NativeSessionState:
     origin = normalize_http_origin(coordinator_url)
     if not worker_id or not worker_token:
         raise ValueError("worker ID and token must not be empty")
+    if base_profile not in {"resident", "layer-bundle"}:
+        raise ValueError("native worker base profile is unsupported")
     return _NativeSessionState(
         origin=origin,
         worker_id=worker_id,
         worker_token=worker_token,
-        loaded=load_lora_manifest(campaign_path, lora_path),
+        loaded=load_lora_manifest(
+            campaign_path,
+            lora_path,
+            verify_base_model=base_profile != "layer-bundle",
+        ),
         opener=build_opener(_SameOriginRedirectHandler(origin)),
         cache_dir=Path(cache_dir),
+        base_profile=base_profile,
     )
 
 
@@ -388,6 +629,7 @@ class NativeWorkerSession:
         campaign_path: str | Path,
         lora_path: str | Path,
         cache_dir: str | Path,
+        base_profile: str = "resident",
     ) -> None:
         self._state = _create_session_state(
             coordinator_url=coordinator_url,
@@ -396,6 +638,7 @@ class NativeWorkerSession:
             campaign_path=campaign_path,
             lora_path=lora_path,
             cache_dir=cache_dir,
+            base_profile=base_profile,
         )
 
     @property
@@ -432,17 +675,33 @@ def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
     )
     assignment_seconds = time.perf_counter() - assignment_started
     assignment = _json_response(assignment_body, "assignment response")
-    _validate_assignment(assignment, loaded)
+    _validate_assignment(assignment, loaded, session.base_profile)
     resources = assignment["resource_profile"]
 
     artifact_started = time.perf_counter()
-    base_digest = str(assignment["base_model_sha256"])
+    bundle_dir: Path | None = None
+    bundle_manifest_sha256: str | None = None
+    if session.base_profile == "layer-bundle":
+        bundle_contract = _layer_bundle_assignment_contract(assignment, loaded)
+        base_digest = str(bundle_contract["manifest_sha256"])
+    else:
+        base_digest = str(assignment["base_model_sha256"])
     reused_model = session.model is not None
     base_path: Path | None = None
     if reused_model:
         if session.base_digest != base_digest:
             raise ValueError("persistent native session base identity changed")
         model_network_bytes = 0
+    elif session.base_profile == "layer-bundle":
+        bundle_dir, model_network_bytes, bundle_manifest_sha256 = (
+            _cached_base_layer_bundle(
+                opener=opener,
+                origin=origin,
+                cache_dir=session.cache_dir,
+                assignment=assignment,
+                loaded=loaded,
+            )
+        )
     else:
         base_path, model_network_bytes = _cached_artifact(
             opener=opener,
@@ -471,16 +730,7 @@ def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
     artifact_seconds = time.perf_counter() - artifact_started
 
     runtime_started = time.perf_counter()
-    if session.model is None:
-        if base_path is None:
-            raise RuntimeError("native session base artifact was not loaded")
-        model = build_lora_model(loaded.campaign, loaded.config)
-        _load_frozen_base(loaded, model, base_path)
-        session.model = model
-        session.base_digest = base_digest
-        session.model_build_count += 1
-    else:
-        model = session.model
+    adapter_tensors: Mapping[str, torch.Tensor] | None = None
     if not reused_adapter:
         if adapter_path is None:
             raise RuntimeError("native session adapter artifact was not loaded")
@@ -488,8 +738,39 @@ def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
         loaded_adapter_digest = tensor_sha256(adapter_tensors)
         if loaded_adapter_digest != adapter_digest:
             raise ValueError("native session adapter tensor digest mismatch")
-        load_adapter_state(model, adapter_tensors)
-        session.adapter_digest = loaded_adapter_digest
+    adapter_loaded_during_build = False
+    if session.model is None:
+        if session.base_profile == "layer-bundle":
+            if (
+                bundle_dir is None
+                or bundle_manifest_sha256 is None
+                or adapter_tensors is None
+            ):
+                raise RuntimeError("native session layer bundle was not loaded")
+            model = build_layer_bundle_streamed_lora_model(
+                loaded.campaign,
+                loaded.config,
+                bundle_dir,
+                bundle_manifest_sha256,
+                adapter_tensors,
+            )
+            adapter_loaded_during_build = True
+        else:
+            if base_path is None:
+                raise RuntimeError("native session base artifact was not loaded")
+            model = build_lora_model(loaded.campaign, loaded.config)
+            _load_frozen_base(loaded, model, base_path)
+        session.model = model
+        session.base_digest = base_digest
+        session.model_build_count += 1
+    else:
+        model = session.model
+    if not reused_adapter:
+        if adapter_tensors is None:
+            raise RuntimeError("native session adapter tensors were not loaded")
+        if not adapter_loaded_during_build:
+            load_adapter_state(model, adapter_tensors)
+        session.adapter_digest = adapter_digest
         session.adapter_load_count += 1
     expected_weight_identity = lora_weight_checkpoint_sha256(
         loaded,
@@ -544,6 +825,11 @@ def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
             "device_capacity": _device_capacity_bytes(),
         },
     }
+    runtime_backend = (
+        "python-native-cpu-layer-bundle-f32"
+        if session.base_profile == "layer-bundle"
+        else "python-native-cpu-f32"
+    )
     result_request = Request(
         _coordinator_url(origin, assignment["result_url"]),
         data=gradient_bytes,
@@ -555,7 +841,7 @@ def _run_session_assignment(session: _NativeSessionState) -> NativeWorkerResult:
             "X-Orca-Checkpoint-Sha256": str(assignment["checkpoint_sha256"]),
             "X-Orca-Loss-Sum": str(gradient_result.loss_sum),
             "X-Orca-Loss-Weight-Sum": str(gradient_result.loss_weight_sum),
-            "X-Orca-Runtime-Backend": "python-native-cpu-f32",
+            "X-Orca-Runtime-Backend": runtime_backend,
             "X-Orca-Worker-Telemetry": json.dumps(
                 telemetry,
                 sort_keys=True,
@@ -588,6 +874,7 @@ def run_assignment(
     campaign_path: str | Path,
     lora_path: str | Path,
     cache_dir: str | Path,
+    base_profile: str = "resident",
 ) -> NativeWorkerResult:
     return _run_session_assignment(
         _create_session_state(
@@ -597,6 +884,7 @@ def run_assignment(
             campaign_path=campaign_path,
             lora_path=lora_path,
             cache_dir=cache_dir,
+            base_profile=base_profile,
         )
     )
 
@@ -611,6 +899,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--lora-config", type=Path, required=True)
     parser.add_argument("--cache", type=Path, required=True)
+    parser.add_argument(
+        "--base-profile",
+        choices=("resident", "layer-bundle"),
+        default="resident",
+    )
     parser.add_argument(
         "--assignments",
         type=int,
@@ -642,6 +935,7 @@ def main() -> None:
         campaign_path=args.config,
         lora_path=args.lora_config,
         cache_dir=args.cache,
+        base_profile=args.base_profile,
     )
     results = [session.run_assignment() for _ in range(args.assignments)]
     payload: dict[str, object]
