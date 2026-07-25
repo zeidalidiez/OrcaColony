@@ -135,6 +135,7 @@ Completed within the first P2 numerical slice:
 - Proved the real authenticated two-browser CPU/WASM path. Both disjoint assignments returned exactly 8 tensors and 8,192 values and were accepted once; their gradient relative L2 errors were `4.80808764225882e-7` and `4.599249278948762e-7`. The canonical adapter survived coordinator restart and matched an independent centralized Python step with cosine `0.9999999999985897`, relative L2 `1.6795715402185043e-6`, and maximum absolute error `7.257913239300251e-7`.
 - Published `p2-connected-browser-lora-v1`, pinned to implementation commit `cab9b6c49e4b9fad666a9f42396a28541ffc84ce`, with the two accepted browser assignments, separate weight and full resume-state identities, restart evidence, independent Python comparison, exact artifact hashes, and explicit one-host/synthetic-fixture limitations.
 - Extended the persistent campaign runner through frozen-base LoRA initialization, versioned adapter checkpoints, per-checkpoint held-out evaluation, restart between global steps, retry recovery, explicit dashboard identities, and the `--lora-config` CLI path while preserving dense campaign behavior. A real two-step Burn CPU/WASM run accepted four browser assignments and 1,024 tokens across a coordinator restart; its final adapter SHA-256 was `91aea4b661edaab1c79dc78d3019d48c512ab02cfe56a92cc795a48bab0b982b`, its full resume-state identity was `cf4b3444f732f28daecf912263991ceaa6282c75bd07ae108d95b136aee1793d`, and final adapter parity remained within `7.3883157399442305e-6` relative L2 of the independent Python trajectory.
+- Extended deterministic release bundles to validate and publish frozen-base LoRA state without overloading identities: `base-model.safetensors`, `adapter.safetensors`, optimizer moments, and complete resume metadata remain separate, while checkpoint selection still follows the campaign evaluation profile. A real two-step evaluated release proof improved held-out mean loss from `8.373976469039917` to `8.350127935409546`, passed its declared `0.0001` minimum-improvement gate by `0.023848533630371094`, selected step 2, built through the public CLI, and passed every generated `SHA256SUMS` entry.
 
 ### P3 — Qualify local memory tiers
 
@@ -190,11 +191,11 @@ The native worker is the first target for explicit offload. Browser support rema
 
 ## Immediate next bounded target
 
-Make deterministic release bundles understand complete LoRA checkpoints: publish the frozen base and selected adapter separately, retain full restart state and explicit identities, select checkpoints by the fixed evaluation contract, and keep dense releases byte-stable in behavior.
+Publish the persistent evaluated LoRA campaign and release as a reproducible study pinned to the implementation checkpoint, then begin P3 with measured worker/runtime/transfer/storage instrumentation before selecting the first native offload profile.
 
 ## Remaining major work
 
-- Deterministic adapter-campaign release bundles and a published multi-step evaluation study.
+- Published multi-step adapter evaluation/release study.
 - Native worker with explicit RAM and storage offload.
 - Profile certification and mixed-profile proof.
 - Rolling-submodel feasibility study.

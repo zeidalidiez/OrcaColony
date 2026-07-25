@@ -11,11 +11,14 @@ from html import escape
 from pathlib import Path
 from typing import Mapping
 
+from safetensors.torch import load_file as load_safetensors_file
+
 from .artifacts import PackedDataset
 from .campaign_run import CampaignCoordinator
 from .multiworker import _campaign_payload, _revision, normalize_http_origin
 from .participants import load_participants
-from .reference import CampaignConfig, load_campaign
+from .peft import LoadedLoRAManifest, load_lora_checkpoint, load_lora_manifest
+from .reference import CampaignConfig, load_campaign, tensor_sha256
 
 
 _DATASET_FILES = (
@@ -349,6 +352,28 @@ def _validate_checkpoint_for_release(
     return model_sha256
 
 
+def _validate_lora_checkpoint_for_release(
+    lora: LoadedLoRAManifest,
+    checkpoint: Path,
+    state: Mapping[str, object],
+    step: int,
+    dataset_revision: str,
+) -> dict[str, object]:
+    _, _, loaded_step, _, _ = load_lora_checkpoint(lora, checkpoint)
+    if loaded_step != step or state.get("dataset_revision") != dataset_revision:
+        raise ValueError("selected LoRA checkpoint provenance is inconsistent")
+    adapter = state.get("adapter")
+    if not isinstance(adapter, Mapping):
+        raise ValueError("selected LoRA adapter metadata is invalid")
+    return {
+        "training_method": "frozen-base-lora",
+        "base_model_sha256": lora.config.base_model_sha256,
+        "adapter_sha256": adapter["tensor_sha256"],
+        "weight_checkpoint_sha256": state["weight_checkpoint_sha256"],
+        "resume_state_sha256": state["checkpoint_sha256"],
+    }
+
+
 def _copy_static_site(
     browser_root: Path,
     destination: Path,
@@ -459,12 +484,28 @@ def build_release_bundle(
         )
         checkpoint_state_bytes = (checkpoint / "state.json").read_bytes()
         checkpoint_state = json.loads(checkpoint_state_bytes)
-        checkpoint_sha256 = _validate_checkpoint_for_release(
-            campaign,
-            checkpoint,
-            checkpoint_state,
-            step,
-            dataset.revision,
+        lora = coordinator.lora
+        lora_identities = (
+            _validate_lora_checkpoint_for_release(
+                lora,
+                checkpoint,
+                checkpoint_state,
+                step,
+                dataset.revision,
+            )
+            if lora is not None
+            else None
+        )
+        checkpoint_sha256 = (
+            str(lora_identities["resume_state_sha256"])
+            if lora_identities is not None
+            else _validate_checkpoint_for_release(
+                campaign,
+                checkpoint,
+                checkpoint_state,
+                step,
+                dataset.revision,
+            )
         )
         if selected_evaluation is not None and (
             selected_evaluation["checkpoint_sha256"] != checkpoint_sha256
@@ -478,11 +519,16 @@ def build_release_bundle(
         release_dashboard = copy.deepcopy(dashboard)
         completed_step = int(dashboard["progress"]["completed_steps"])
         release_dashboard["checkpoint"] = {
-            "download_url": "checkpoint/model.safetensors",
+            "download_url": (
+                "checkpoint/adapter.safetensors"
+                if lora_identities is not None
+                else "checkpoint/model.safetensors"
+            ),
             "parity": (
                 dashboard["checkpoint"]["parity"] if step == completed_step else None
             ),
             "sha256": checkpoint_sha256,
+            **(lora_identities or {}),
         }
         _write_json(temporary / "public-dashboard.json", release_dashboard)
         _write_json(
@@ -508,10 +554,26 @@ def build_release_bundle(
             },
         )
 
-        for filename in ("model.safetensors", "optimizer.safetensors", "state.json"):
+        checkpoint_files = (
+            ("adapter.safetensors", "optimizer.safetensors", "state.json")
+            if lora_identities is not None
+            else ("model.safetensors", "optimizer.safetensors", "state.json")
+        )
+        for filename in checkpoint_files:
             _copy_public_file(
                 checkpoint / filename,
                 temporary / "checkpoint" / filename,
+            )
+        if lora_identities is not None:
+            base_model_path = coordinator.initial_model_path
+            base_model_sha256 = tensor_sha256(
+                load_safetensors_file(str(base_model_path))
+            )
+            if base_model_sha256 != lora_identities["base_model_sha256"]:
+                raise ValueError("release frozen-base artifact identity is inconsistent")
+            _copy_public_file(
+                base_model_path,
+                temporary / "checkpoint" / "base-model.safetensors",
             )
         for filename in _DATASET_FILES:
             _copy_public_file(
@@ -526,15 +588,34 @@ def build_release_bundle(
         if published_state_bytes != checkpoint_state_bytes:
             raise ValueError("copied release checkpoint state changed during export")
         published_checkpoint = json.loads(published_state_bytes)
-        copied_model_sha256 = _validate_checkpoint_for_release(
-            campaign,
-            temporary / "checkpoint",
-            published_checkpoint,
-            step,
-            dataset.revision,
-        )
-        if copied_model_sha256 != checkpoint_sha256:
-            raise ValueError("copied release checkpoint digest is inconsistent")
+        if lora is not None:
+            copied_lora_identities = _validate_lora_checkpoint_for_release(
+                lora,
+                temporary / "checkpoint",
+                published_checkpoint,
+                step,
+                dataset.revision,
+            )
+            copied_base_sha256 = tensor_sha256(
+                load_safetensors_file(
+                    str(temporary / "checkpoint" / "base-model.safetensors")
+                )
+            )
+            if (
+                copied_lora_identities != lora_identities
+                or copied_base_sha256 != lora.config.base_model_sha256
+            ):
+                raise ValueError("copied LoRA release checkpoint is inconsistent")
+        else:
+            copied_model_sha256 = _validate_checkpoint_for_release(
+                campaign,
+                temporary / "checkpoint",
+                published_checkpoint,
+                step,
+                dataset.revision,
+            )
+            if copied_model_sha256 != checkpoint_sha256:
+                raise ValueError("copied release checkpoint digest is inconsistent")
         _copy_public_file(Path(project_license), temporary / "LICENSE")
         _copy_public_file(
             Path(third_party_notice),
@@ -549,7 +630,8 @@ def build_release_bundle(
 
         (temporary / "OPERATE.md").write_text(
             "# OrcaColony v0.1 release bundle\n\n"
-            "- `checkpoint/` is the selected canonical model and restart state.\n"
+            "- `checkpoint/` is the selected canonical dense model or separate "
+            "frozen base plus adapter, together with restart state.\n"
             "- `dataset/` is the exact redistributable packed dataset and tokenizer.\n"
             "- `site/` is the static browser worker and public campaign dashboard.\n"
             "- `public-ledger.json` contains only contributor-approved public credit.\n\n"
@@ -569,6 +651,17 @@ def build_release_bundle(
             for path in sorted(temporary.rglob("*"))
             if path.is_file()
         }
+        checkpoint_manifest: dict[str, object] = {
+            "step": step,
+            "selection": (
+                "lowest_mean_loss" if selected_evaluation is not None else "final"
+            ),
+            "evaluation": selected_evaluation,
+        }
+        if lora_identities is not None:
+            checkpoint_manifest.update(lora_identities)
+        else:
+            checkpoint_manifest["model_sha256"] = checkpoint_sha256
         release_manifest: dict[str, object] = {
             "format": "orcacolony_release_bundle_v1",
             "campaign_id": dashboard["campaign"]["id"],
@@ -576,14 +669,7 @@ def build_release_bundle(
             "public_coordinator_url": public_coordinator_url,
             "participants_revision": lock["participants_revision"],
             "dataset_revision": dataset.revision,
-            "checkpoint": {
-                "step": step,
-                "model_sha256": checkpoint_sha256,
-                "selection": (
-                    "lowest_mean_loss" if selected_evaluation is not None else "final"
-                ),
-                "evaluation": selected_evaluation,
-            },
+            "checkpoint": checkpoint_manifest,
             "files": payload_files,
         }
         _write_json(temporary / "release-manifest.json", release_manifest)
@@ -614,6 +700,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Build a deterministic public OrcaColony v0.1 release bundle"
     )
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--lora-config", type=Path)
     parser.add_argument("--participants", type=Path, required=True)
     parser.add_argument("--dataset-artifacts", type=Path, required=True)
     parser.add_argument("--campaign-state", type=Path, required=True)
@@ -631,7 +718,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = _build_parser().parse_args()
-    campaign = load_campaign(args.config)
+    lora = (
+        load_lora_manifest(args.config, args.lora_config)
+        if args.lora_config is not None
+        else None
+    )
+    campaign = lora.campaign if lora is not None else load_campaign(args.config)
     participants = load_participants(
         args.participants,
         campaign_id=str(campaign.campaign["id"]),
@@ -642,6 +734,7 @@ def main() -> None:
         args.campaign_state,
         participants=participants,
         dataset=dataset,
+        lora=lora,
     )
     manifest = build_release_bundle(
         campaign,
