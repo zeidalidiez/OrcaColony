@@ -130,6 +130,41 @@ class LoRATrainingResult:
     checkpoint_sha256: str
 
 
+@dataclass(frozen=True)
+class BaseLayerBundleExportResult:
+    output_dir: Path
+    manifest_path: Path
+    manifest_sha256: str
+    base_model_sha256: str
+    source_artifact_sha256: str
+    linear_count: int
+    artifact_bytes: int
+
+
+@dataclass(frozen=True)
+class _LayerBundleLinearDescriptor:
+    module_path: str
+    artifact_path: Path
+    artifact_sha256: str
+    tensor_sha256: str
+    artifact_bytes: int
+    weight_shape: tuple[int, int]
+    has_bias: bool
+
+
+@dataclass(frozen=True)
+class _LoadedBaseLayerBundle:
+    root: Path
+    manifest_sha256: str
+    base_model_sha256: str
+    resident_path: Path
+    resident_sha256: str
+    resident_tensor_sha256: str
+    resident_bytes: int
+    resident_shapes: Mapping[str, tuple[int, ...]]
+    linears: Mapping[str, _LayerBundleLinearDescriptor]
+
+
 class LoRALinear(nn.Module):
     def __init__(
         self,
@@ -677,6 +712,618 @@ def build_direct_streamed_lora_model(
     return model
 
 
+LAYER_BUNDLE_STREAMED_FP32_PROFILE = "layer-bundle-streamed-fp32-v1"
+_LAYER_BUNDLE_ARTIFACT_PATTERN = re.compile(
+    r"(?:resident|linear-[0-9]{5})\.safetensors\Z"
+)
+
+
+def _layer_bundle_shape(
+    value: object,
+    label: str,
+    *,
+    rank: int | None = None,
+) -> tuple[int, ...]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{label} must be a non-empty JSON array")
+    shape: list[int] = []
+    for dimension in value:
+        if isinstance(dimension, bool) or not isinstance(dimension, int) or dimension <= 0:
+            raise ValueError(f"{label} dimensions must be positive integers")
+        shape.append(dimension)
+    if rank is not None and len(shape) != rank:
+        raise ValueError(f"{label} must have rank {rank}")
+    return tuple(shape)
+
+
+def _layer_bundle_positive_int(value: object, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{label} must be a positive integer")
+    return value
+
+
+def _layer_bundle_digest(value: object, label: str) -> str:
+    if not isinstance(value, str) or _SHA256_PATTERN.fullmatch(value) is None:
+        raise ValueError(f"{label} must be a lowercase SHA-256 digest")
+    return value
+
+
+def _layer_bundle_artifact_path(
+    root: Path,
+    filename: object,
+    expected_bytes: int,
+    label: str,
+) -> Path:
+    if (
+        not isinstance(filename, str)
+        or _LAYER_BUNDLE_ARTIFACT_PATTERN.fullmatch(filename) is None
+        or Path(filename).name != filename
+    ):
+        raise ValueError(f"{label} must be a safe bundle artifact filename")
+    lexical_path = root / filename
+    if lexical_path.is_symlink():
+        raise ValueError(f"{label} must not be a symlink")
+    artifact_path = lexical_path.resolve(strict=True)
+    if artifact_path.parent != root or not artifact_path.is_file():
+        raise ValueError(f"{label} must be a regular file inside the bundle")
+    if artifact_path.stat().st_size != expected_bytes:
+        raise ValueError(f"{label} byte size differs")
+    return artifact_path
+
+
+def _base_layer_layout(
+    campaign: CampaignConfig,
+) -> tuple[dict[str, tuple[int, ...]], list[tuple[str, tuple[int, int], bool]]]:
+    with torch.device("meta"):
+        model = VolunteerDecoder(campaign.model)
+    actual_parameters = sum(parameter.numel() for parameter in model.parameters())
+    if actual_parameters != campaign.model.parameters:
+        raise ValueError("layer-bundle model parameter count differs")
+    state_shapes = {
+        name: tuple(tensor.shape)
+        for name, tensor in model.state_dict().items()
+    }
+    linears = [
+        (
+            name,
+            (int(module.out_features), int(module.in_features)),
+            module.bias is not None,
+        )
+        for name, module in model.named_modules()
+        if name and isinstance(module, nn.Linear)
+    ]
+    return state_shapes, linears
+
+
+def export_base_layer_bundle(
+    campaign: CampaignConfig,
+    config: LoRAConfig,
+    base_artifact_path: str | Path,
+    base_artifact_sha256: str,
+    output_dir: str | Path,
+) -> BaseLayerBundleExportResult:
+    """Export one authenticated resident shard plus one shard per frozen linear.
+
+    This is an offline publication step. It scans the complete source artifact,
+    verifies its canonical tensor identity against ``base_model_sha256``, and
+    emits a manifest whose digest can be authenticated before worker startup.
+    """
+
+    expected_source_sha256 = _layer_bundle_digest(
+        base_artifact_sha256,
+        "base artifact SHA-256",
+    )
+    lexical_source = Path(base_artifact_path)
+    if lexical_source.is_symlink():
+        raise ValueError("base artifact must not be a symlink")
+    source_path = lexical_source.resolve(strict=True)
+    if not source_path.is_file():
+        raise ValueError("base artifact must be a regular file")
+    if _sha256_file(source_path) != expected_source_sha256:
+        raise ValueError("base artifact SHA-256 mismatch")
+
+    mapped = load_safetensors_file(source_path, device="cpu")
+    source_tensors = {
+        name: tensor.clone().contiguous()
+        for name, tensor in mapped.items()
+    }
+    del mapped
+    if _sha256_file(source_path) != expected_source_sha256:
+        raise ValueError("base artifact changed during bundle export")
+    if any(tensor.dtype != torch.float32 for tensor in source_tensors.values()):
+        raise ValueError("base artifact tensors must all be FP32")
+    if any(not bool(torch.isfinite(tensor).all().item()) for tensor in source_tensors.values()):
+        raise ValueError("base artifact tensors must all be finite")
+    if tensor_sha256(source_tensors) != config.base_model_sha256:
+        raise ValueError("base artifact canonical tensor identity mismatch")
+
+    expected_shapes, linear_layout = _base_layer_layout(campaign)
+    if set(source_tensors) != set(expected_shapes):
+        raise ValueError("base artifact tensor names differ from the campaign model")
+    for name, expected_shape in expected_shapes.items():
+        if tuple(source_tensors[name].shape) != expected_shape:
+            raise ValueError(f"base artifact tensor shape differs: {name}")
+
+    requested_output = Path(output_dir)
+    if requested_output.exists() or requested_output.is_symlink():
+        raise FileExistsError(f"base layer bundle already exists: {requested_output}")
+    parent = requested_output.parent.resolve(strict=True)
+    if not parent.is_dir() or requested_output.name in {"", ".", ".."}:
+        raise ValueError("base layer bundle output must have an existing parent")
+    output = parent / requested_output.name
+    temporary = Path(
+        tempfile.mkdtemp(prefix=f".{output.name}-", dir=parent)
+    )
+    try:
+        consumed: set[str] = set()
+        linear_entries: list[dict[str, object]] = []
+        for index, (module_path, weight_shape, has_bias) in enumerate(linear_layout):
+            weight_name = f"{module_path}.weight"
+            bias_name = f"{module_path}.bias"
+            tensors = {"weight": source_tensors[weight_name]}
+            consumed.add(weight_name)
+            if has_bias:
+                tensors["bias"] = source_tensors[bias_name]
+                consumed.add(bias_name)
+            filename = f"linear-{index:05d}.safetensors"
+            artifact_path = temporary / filename
+            save_safetensors_file(tensors, str(artifact_path))
+            linear_entries.append(
+                {
+                    "module": module_path,
+                    "file": filename,
+                    "file_sha256": _sha256_file(artifact_path),
+                    "tensor_sha256": tensor_sha256(tensors),
+                    "bytes": artifact_path.stat().st_size,
+                    "weight_shape": list(weight_shape),
+                    "bias": has_bias,
+                }
+            )
+
+        resident_tensors = {
+            name: source_tensors[name]
+            for name in sorted(set(source_tensors) - consumed)
+        }
+        if not resident_tensors:
+            raise ValueError("base layer bundle has no resident tensors")
+        resident_path = temporary / "resident.safetensors"
+        save_safetensors_file(resident_tensors, str(resident_path))
+        manifest: dict[str, object] = {
+            "format": "orcacolony_base_layer_bundle_v1",
+            "base_model_sha256": config.base_model_sha256,
+            "source_artifact_sha256": expected_source_sha256,
+            "resident": {
+                "file": resident_path.name,
+                "file_sha256": _sha256_file(resident_path),
+                "tensor_sha256": tensor_sha256(resident_tensors),
+                "bytes": resident_path.stat().st_size,
+                "tensors": {
+                    name: {"shape": list(tensor.shape)}
+                    for name, tensor in sorted(resident_tensors.items())
+                },
+            },
+            "linears": linear_entries,
+        }
+        manifest_bytes = _canonical_json(manifest)
+        manifest_path = temporary / "manifest.json"
+        manifest_path.write_bytes(manifest_bytes)
+        manifest_sha256 = _sha256_bytes(manifest_bytes)
+        artifact_bytes = sum(
+            path.stat().st_size
+            for path in temporary.iterdir()
+            if path.suffix == ".safetensors"
+        )
+        temporary.rename(output)
+    except BaseException:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
+    return BaseLayerBundleExportResult(
+        output_dir=output,
+        manifest_path=output / "manifest.json",
+        manifest_sha256=manifest_sha256,
+        base_model_sha256=config.base_model_sha256,
+        source_artifact_sha256=expected_source_sha256,
+        linear_count=len(linear_entries),
+        artifact_bytes=artifact_bytes,
+    )
+
+
+def _load_base_layer_bundle(
+    bundle_dir: str | Path,
+    expected_manifest_sha256: str,
+    expected_base_model_sha256: str,
+) -> _LoadedBaseLayerBundle:
+    manifest_sha256 = _layer_bundle_digest(
+        expected_manifest_sha256,
+        "base layer bundle manifest SHA-256",
+    )
+    base_model_sha256 = _layer_bundle_digest(
+        expected_base_model_sha256,
+        "expected base model SHA-256",
+    )
+    lexical_root = Path(bundle_dir)
+    if lexical_root.is_symlink():
+        raise ValueError("base layer bundle root must not be a symlink")
+    root = lexical_root.resolve(strict=True)
+    if not root.is_dir():
+        raise ValueError("base layer bundle root must be a directory")
+    lexical_manifest = root / "manifest.json"
+    if lexical_manifest.is_symlink():
+        raise ValueError("base layer bundle manifest must not be a symlink")
+    manifest_path = lexical_manifest.resolve(strict=True)
+    if manifest_path.parent != root or not manifest_path.is_file():
+        raise ValueError("base layer bundle manifest must be inside the bundle")
+    manifest_bytes = manifest_path.read_bytes()
+    if _sha256_bytes(manifest_bytes) != manifest_sha256:
+        raise ValueError("base layer bundle manifest SHA-256 mismatch")
+    manifest_payload = json.loads(
+        manifest_bytes.decode("utf-8"),
+        object_pairs_hook=_reject_duplicate_keys,
+    )
+    manifest = _require_mapping(manifest_payload, "base layer bundle manifest")
+    _require_exact_fields(
+        manifest,
+        {
+            "format",
+            "base_model_sha256",
+            "source_artifact_sha256",
+            "resident",
+            "linears",
+        },
+        "base layer bundle manifest",
+    )
+    if _canonical_json(manifest) != manifest_bytes:
+        raise ValueError("base layer bundle manifest is not canonical JSON")
+    if manifest["format"] != "orcacolony_base_layer_bundle_v1":
+        raise ValueError("unsupported base layer bundle format")
+    declared_base = _layer_bundle_digest(
+        manifest["base_model_sha256"],
+        "base layer bundle base_model_sha256",
+    )
+    if declared_base != base_model_sha256:
+        raise ValueError("base layer bundle does not match base_model_sha256")
+    _layer_bundle_digest(
+        manifest["source_artifact_sha256"],
+        "base layer bundle source_artifact_sha256",
+    )
+
+    resident = _require_mapping(manifest["resident"], "base layer bundle resident")
+    _require_exact_fields(
+        resident,
+        {"file", "file_sha256", "tensor_sha256", "bytes", "tensors"},
+        "base layer bundle resident",
+    )
+    resident_bytes = _layer_bundle_positive_int(
+        resident["bytes"],
+        "base layer bundle resident bytes",
+    )
+    resident_path = _layer_bundle_artifact_path(
+        root,
+        resident["file"],
+        resident_bytes,
+        "base layer bundle resident artifact",
+    )
+    resident_shapes_payload = _require_mapping(
+        resident["tensors"],
+        "base layer bundle resident tensors",
+    )
+    if not resident_shapes_payload:
+        raise ValueError("base layer bundle resident tensors must not be empty")
+    resident_shapes: dict[str, tuple[int, ...]] = {}
+    for name, contract_payload in resident_shapes_payload.items():
+        if _TARGET_PATTERN.fullmatch(name) is None:
+            raise ValueError(f"invalid base layer bundle resident tensor name: {name!r}")
+        contract = _require_mapping(
+            contract_payload,
+            f"base layer bundle resident tensor {name}",
+        )
+        _require_exact_fields(
+            contract,
+            {"shape"},
+            f"base layer bundle resident tensor {name}",
+        )
+        resident_shapes[name] = _layer_bundle_shape(
+            contract["shape"],
+            f"base layer bundle resident tensor shape: {name}",
+        )
+
+    linears_payload = manifest["linears"]
+    if not isinstance(linears_payload, list) or not linears_payload:
+        raise ValueError("base layer bundle linears must be a non-empty JSON array")
+    linears: dict[str, _LayerBundleLinearDescriptor] = {}
+    artifact_paths = {resident_path}
+    for index, entry_payload in enumerate(linears_payload):
+        entry = _require_mapping(
+            entry_payload,
+            f"base layer bundle linear {index}",
+        )
+        _require_exact_fields(
+            entry,
+            {
+                "module",
+                "file",
+                "file_sha256",
+                "tensor_sha256",
+                "bytes",
+                "weight_shape",
+                "bias",
+            },
+            f"base layer bundle linear {index}",
+        )
+        module_path = entry["module"]
+        if not isinstance(module_path, str) or _TARGET_PATTERN.fullmatch(module_path) is None:
+            raise ValueError("base layer bundle linear module path is invalid")
+        if module_path in linears:
+            raise ValueError("base layer bundle linear module paths must be unique")
+        artifact_bytes = _layer_bundle_positive_int(
+            entry["bytes"],
+            f"base layer bundle linear bytes: {module_path}",
+        )
+        artifact_path = _layer_bundle_artifact_path(
+            root,
+            entry["file"],
+            artifact_bytes,
+            f"base layer bundle linear artifact: {module_path}",
+        )
+        if artifact_path in artifact_paths:
+            raise ValueError("base layer bundle artifact files must be unique")
+        artifact_paths.add(artifact_path)
+        has_bias = entry["bias"]
+        if not isinstance(has_bias, bool):
+            raise ValueError("base layer bundle linear bias must be boolean")
+        weight_shape = _layer_bundle_shape(
+            entry["weight_shape"],
+            f"base layer bundle linear weight shape: {module_path}",
+            rank=2,
+        )
+        linears[module_path] = _LayerBundleLinearDescriptor(
+            module_path=module_path,
+            artifact_path=artifact_path,
+            artifact_sha256=_layer_bundle_digest(
+                entry["file_sha256"],
+                f"base layer bundle linear file SHA-256: {module_path}",
+            ),
+            tensor_sha256=_layer_bundle_digest(
+                entry["tensor_sha256"],
+                f"base layer bundle linear tensor SHA-256: {module_path}",
+            ),
+            artifact_bytes=artifact_bytes,
+            weight_shape=(weight_shape[0], weight_shape[1]),
+            has_bias=has_bias,
+        )
+    expected_artifact_names = {
+        "manifest.json",
+        resident_path.name,
+        *(descriptor.artifact_path.name for descriptor in linears.values()),
+    }
+    if {entry.name for entry in root.iterdir()} != expected_artifact_names:
+        raise ValueError("base layer bundle artifact set differs from the manifest")
+    return _LoadedBaseLayerBundle(
+        root=root,
+        manifest_sha256=manifest_sha256,
+        base_model_sha256=declared_base,
+        resident_path=resident_path,
+        resident_sha256=_layer_bundle_digest(
+            resident["file_sha256"],
+            "base layer bundle resident file SHA-256",
+        ),
+        resident_tensor_sha256=_layer_bundle_digest(
+            resident["tensor_sha256"],
+            "base layer bundle resident tensor SHA-256",
+        ),
+        resident_bytes=resident_bytes,
+        resident_shapes=resident_shapes,
+        linears=linears,
+    )
+
+
+class _LayerBundleStreamedFrozenLinearFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        inputs: Tensor,
+        module: "LayerBundleStreamedFrozenLinear",
+    ) -> Tensor:
+        weight, bias = module.load_tensors()
+        ctx.module = module
+        with torch.autocast(device_type=inputs.device.type, enabled=False):
+            return F.linear(inputs.float(), weight, bias)
+
+    @staticmethod
+    def backward(ctx, grad_output: Tensor) -> tuple[Tensor, None]:
+        weight, _ = ctx.module.load_tensors()
+        with torch.autocast(device_type=grad_output.device.type, enabled=False):
+            return grad_output.float().matmul(weight), None
+
+
+class LayerBundleStreamedFrozenLinear(nn.Module):
+    """Exact-FP32 frozen linear backed by one authenticated bundle shard."""
+
+    def __init__(self, descriptor: _LayerBundleLinearDescriptor) -> None:
+        super().__init__()
+        self.artifact_path = descriptor.artifact_path
+        self.expected_artifact_sha256 = descriptor.artifact_sha256
+        self.expected_tensor_sha256 = descriptor.tensor_sha256
+        self.artifact_bytes = descriptor.artifact_bytes
+        self.out_features, self.in_features = descriptor.weight_shape
+        self.has_bias = descriptor.has_bias
+        self.read_bytes = 0
+        self.read_count = 0
+
+    def load_tensors(self) -> tuple[Tensor, Tensor | None]:
+        if self.artifact_path.stat().st_size != self.artifact_bytes:
+            raise ValueError("layer-bundle linear artifact byte size differs")
+        mapped = load_safetensors_file(self.artifact_path, device="cpu")
+        tensors = {
+            name: tensor.clone().contiguous()
+            for name, tensor in mapped.items()
+        }
+        del mapped
+        expected_names = {"weight", "bias"} if self.has_bias else {"weight"}
+        if set(tensors) != expected_names:
+            raise ValueError("layer-bundle linear tensor names differ")
+        weight = tensors["weight"]
+        bias = tensors.get("bias")
+        if weight.dtype != torch.float32 or weight.shape != (
+            self.out_features,
+            self.in_features,
+        ):
+            raise ValueError("layer-bundle linear weight contract differs")
+        if bias is not None and (
+            bias.dtype != torch.float32 or bias.shape != (self.out_features,)
+        ):
+            raise ValueError("layer-bundle linear bias contract differs")
+        if any(not bool(torch.isfinite(tensor).all().item()) for tensor in tensors.values()):
+            raise ValueError("layer-bundle linear tensors must be finite")
+        if tensor_sha256(tensors) != self.expected_tensor_sha256:
+            raise ValueError("layer-bundle linear tensor digest mismatch")
+        self.read_bytes += sum(
+            tensor.numel() * tensor.element_size()
+            for tensor in tensors.values()
+        )
+        self.read_count += 1
+        return weight, bias
+
+    def forward(self, inputs: Tensor) -> Tensor:
+        if inputs.device.type != "cpu" or inputs.dtype != torch.float32:
+            raise ValueError("layer-bundle streamed profile requires CPU FP32 activations")
+        return _LayerBundleStreamedFrozenLinearFunction.apply(inputs, self)
+
+
+def _replace_with_layer_bundle_linears(
+    module: nn.Module,
+    descriptors: Mapping[str, _LayerBundleLinearDescriptor],
+    prefix: str = "",
+) -> tuple[int, set[str]]:
+    count = 0
+    consumed: set[str] = set()
+    for child_name, child in list(module.named_children()):
+        child_path = f"{prefix}.{child_name}" if prefix else child_name
+        if isinstance(child, LoRALinear):
+            source = child.base
+            if not isinstance(source, nn.Linear):
+                raise ValueError("layer-bundle LoRA base is not linear")
+            descriptor = descriptors.get(child_path)
+            if descriptor is None:
+                raise ValueError(f"base layer bundle is missing linear: {child_path}")
+            if descriptor.weight_shape != tuple(source.weight.shape):
+                raise ValueError(f"base layer bundle linear shape differs: {child_path}")
+            if descriptor.has_bias != (source.bias is not None):
+                raise ValueError(f"base layer bundle linear bias differs: {child_path}")
+            child.base = LayerBundleStreamedFrozenLinear(descriptor)
+            consumed.add(child_path)
+            count += 1
+        elif isinstance(child, nn.Linear):
+            if any(parameter.requires_grad for parameter in child.parameters()):
+                raise ValueError("layer-bundle streaming requires frozen linears")
+            descriptor = descriptors.get(child_path)
+            if descriptor is None:
+                raise ValueError(f"base layer bundle is missing linear: {child_path}")
+            if descriptor.weight_shape != tuple(child.weight.shape):
+                raise ValueError(f"base layer bundle linear shape differs: {child_path}")
+            if descriptor.has_bias != (child.bias is not None):
+                raise ValueError(f"base layer bundle linear bias differs: {child_path}")
+            setattr(
+                module,
+                child_name,
+                LayerBundleStreamedFrozenLinear(descriptor),
+            )
+            consumed.add(child_path)
+            count += 1
+        else:
+            nested_count, nested_consumed = _replace_with_layer_bundle_linears(
+                child,
+                descriptors,
+                child_path,
+            )
+            count += nested_count
+            consumed.update(nested_consumed)
+    return count, consumed
+
+
+def build_layer_bundle_streamed_lora_model(
+    campaign: CampaignConfig,
+    config: LoRAConfig,
+    bundle_dir: str | Path,
+    bundle_manifest_sha256: str,
+    adapter_state: Mapping[str, Tensor],
+) -> VolunteerDecoder:
+    """Construct a meta/empty LoRA model from pre-authenticated layer shards."""
+
+    bundle = _load_base_layer_bundle(
+        bundle_dir,
+        bundle_manifest_sha256,
+        config.base_model_sha256,
+    )
+    with torch.device("meta"):
+        model = VolunteerDecoder(campaign.model)
+        actual_parameters = sum(parameter.numel() for parameter in model.parameters())
+        if actual_parameters != campaign.model.parameters:
+            raise ValueError("layer-bundle model parameter count differs")
+        for parameter in model.parameters():
+            parameter.requires_grad_(False)
+        generator = torch.Generator(device="cpu")
+        generator.manual_seed(config.adapter_seed)
+        for target in config.targets:
+            parent, child_name = _resolve_parent(model, target)
+            child = getattr(parent, child_name, None)
+            if not isinstance(child, nn.Linear):
+                raise ValueError(f"LoRA target is not a linear layer: {target}")
+            setattr(parent, child_name, LoRALinear(child, config, generator))
+
+    linear_count, consumed_linears = _replace_with_layer_bundle_linears(
+        model,
+        bundle.linears,
+    )
+    if linear_count <= 0 or consumed_linears != set(bundle.linears):
+        raise ValueError("base layer bundle linear partition differs")
+    model.to_empty(device="cpu")
+
+    mapped_resident = load_safetensors_file(bundle.resident_path, device="cpu")
+    resident_tensors = {
+        name: tensor.clone().contiguous()
+        for name, tensor in mapped_resident.items()
+    }
+    del mapped_resident
+    if bundle.resident_path.stat().st_size != bundle.resident_bytes:
+        raise ValueError("base layer bundle resident artifact byte size differs")
+    if set(resident_tensors) != set(bundle.resident_shapes):
+        raise ValueError("base layer bundle resident tensor names differ")
+    if tensor_sha256(resident_tensors) != bundle.resident_tensor_sha256:
+        raise ValueError("base layer bundle resident tensor digest mismatch")
+
+    adapter_suffixes = (".lora_a", ".lora_b")
+    resident_parameters = {
+        name: parameter
+        for name, parameter in model.named_parameters()
+        if not name.endswith(adapter_suffixes)
+    }
+    if set(resident_parameters) != set(resident_tensors):
+        raise ValueError("base layer bundle resident parameter partition differs")
+    with torch.no_grad():
+        for name, parameter in resident_parameters.items():
+            tensor = resident_tensors[name]
+            if tensor.dtype != torch.float32:
+                raise ValueError(f"base layer bundle resident tensor is not FP32: {name}")
+            if tensor.shape != parameter.shape or tensor.shape != bundle.resident_shapes[name]:
+                raise ValueError(f"base layer bundle resident tensor shape differs: {name}")
+            if not bool(torch.isfinite(tensor).all().item()):
+                raise ValueError(f"base layer bundle resident tensor is non-finite: {name}")
+            parameter.copy_(tensor)
+
+    context_length = campaign.model.context_length
+    causal_mask = torch.triu(
+        torch.ones(context_length, context_length, dtype=torch.bool),
+        diagonal=1,
+    )
+    for module in model.modules():
+        if isinstance(module, CausalSelfAttention):
+            module.causal_mask = causal_mask.clone()
+    load_adapter_state(model, adapter_state)
+    adapter_named_parameters(model)
+    return model
+
+
 def adapter_named_parameters(model: nn.Module) -> dict[str, nn.Parameter]:
     adapters = {
         name: parameter
@@ -964,7 +1611,18 @@ def _validated_optimizer_tensors(
 def load_lora_manifest(
     campaign_path: str | Path,
     manifest_path: str | Path,
+    *,
+    verify_base_model: bool = True,
 ) -> LoadedLoRAManifest:
+    """Load the LoRA contract, optionally deferring deterministic-base rebuild.
+
+    ``verify_base_model=False`` is only for startup paths that separately bind
+    an authenticated artifact manifest to ``base_model_sha256``. The default
+    preserves the resident deterministic-base verification used elsewhere.
+    """
+
+    if not isinstance(verify_base_model, bool):
+        raise ValueError("verify_base_model must be boolean")
     campaign_path = Path(campaign_path)
     manifest_path = Path(manifest_path)
     campaign_payload = json.loads(
@@ -1034,7 +1692,8 @@ def load_lora_manifest(
         targets=tuple(targets),  # type: ignore[arg-type]
     )
     campaign = load_campaign(campaign_path)
-    build_lora_model(campaign, config)
+    if verify_base_model:
+        build_lora_model(campaign, config)
     return LoadedLoRAManifest(
         campaign=campaign,
         config=config,

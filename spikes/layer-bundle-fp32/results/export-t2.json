@@ -1,0 +1,11 @@
+{
+  "artifact_bytes": 366187968,
+  "artifact_file_count": 50,
+  "base_model_sha256": "47a536cd24b50e7a3bd7a36dc224e2e31774ab0c1c0738df0256e6f579fc15e5",
+  "campaign_id": "orcacolony-t2-tinystories-memory-smoke-v1",
+  "export_seconds": 4.747503199992934,
+  "format": "orcacolony_base_layer_bundle_export_proof_v1",
+  "linear_count": 48,
+  "manifest_sha256": "605832705b40f5f76d964df6b7efb4995cf123af252271d27852739ecaf5c6ad",
+  "source_artifact_sha256": "47a536cd24b50e7a3bd7a36dc224e2e31774ab0c1c0738df0256e6f579fc15e5"
+}

@@ -1,6 +1,6 @@
 # OrcaColony Progress Report
 
-**Last updated:** 2026-07-24
+**Last updated:** 2026-07-25
 
 **Current phase:** P3 — measuring and qualifying native local-memory profiles while preserving the P2 adapter and dense baselines
 
@@ -176,6 +176,10 @@ Completed within the first P3 measurement and native-baseline slice:
 - Added the explicit offline `streamed-fp32-frozen-linear-v1` builder. Every forward/backward reload validates exact tensor names, shapes, FP32 dtype, finite values, and tensor identity. Like the int8 builder, this first version converts a fully constructed model and therefore does not yet lower startup peak RSS.
 - Added `direct-streamed-fp32-v1`: a restartable meta/empty builder that authenticates one raw base artifact before/after construction, partitions every base tensor exactly, materializes only non-linear/adapter tensors, and streams 48 T2 frozen linears directly from that artifact. It never invokes the resident FP32 builder.
 - In isolated T2 processes, direct streaming preserved exact loss and gradient SHA-256 while reducing retained tensors by 92.52%, RSS after build by 49.67%, and RSS after gradient by 45.88%. Peak RSS fell only 1.94%; build and gradient runtime rose to 1.713x and 2.305x. The single-file profile is therefore insufficient for connected offload.
+- Added deterministic `orcacolony_base_layer_bundle_v1` publication and `layer-bundle-streamed-fp32-v1` construction. The manifest binds the canonical base identity to exact resident/linear shard membership, raw transport hashes, semantic tensor hashes, shapes, sizes, modules, and bias contracts. Meta/empty startup opens no linear shard; each later forward/backward load validates an owned FP32 snapshot.
+- Corrected the direct-profile resource interpretation: the earlier proof's default LoRA-manifest parse built a complete resident model before direct construction. With parser-only contract loading and the direct builder still performing its own complete artifact checks, direct final T2 peak fell from `1,377,845,248` to `740,708,352` bytes. The earlier measurement remains valid for that process path but did not isolate the direct constructor.
+- In the new isolated T2 comparison, resident/direct/bundle returned the same `4687.0` loss and exact gradient SHA-256. The bundle retained `27,482,112` tensor bytes, opened zero linears at startup, and reduced final peak RSS by 46.35% versus resident. It matched corrected direct memory but reduced build time by 62.53% (`3.548609` to `1.329829` seconds) by removing complete-container startup work.
+- Selected a connected authenticated layer-bundle worker as the next vertical slice. This promotion is for independently fetchable digest-bound shards plus materially lower memory than residency; it does not claim bundle memory is better than corrected direct construction or weaken strict FP32 acceptance.
 
 ### P4 — Qualify numerical and mixed execution profiles
 
@@ -217,11 +221,11 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Build a pre-authenticated per-layer bundle/manifest bound to `base_model_sha256`, then construct T2 directly from that bundle without complete-base rescans or repeated monolithic-container opens. Re-measure isolated startup peak/current RSS and cold/warm reads before any connected offload claim. Carry int8 into P4 as a distinct numerical trajectory rather than weakening the connected FP32 contract.
+Bind the authenticated layer-bundle manifest and exact shard URLs into coordinator assignments, extend the native content-addressed cache to fetch/validate those shards without a monolithic base download, and complete a real connected exact-FP32 assignment with unchanged gradient acceptance. Preserve the resident native worker as the baseline and carry int8 into P4 as a distinct numerical trajectory.
 
 ## Remaining major work
 
-- Per-layer authenticated bundle construction plus connected exact-FP32 mapped/layer-streamed execution.
+- Connected exact-FP32 layer-bundle assignment/cache execution and restart proof.
 - Quantized-profile oracle, trajectory, and homogeneous-campaign proof in P4.
 - Profile certification and mixed-profile proof.
 - Rolling-submodel feasibility study.
@@ -236,6 +240,13 @@ Build a pre-authenticated per-layer bundle/manifest bound to `base_model_sha256`
 - Larger-model execution methods are hypotheses until measured; none should be described as supported merely because a paper or prototype demonstrates the general idea.
 
 ## Change record
+
+### 2026-07-25
+
+- Added deterministic authenticated base layer bundles and meta/empty construction with exact partition, restart, short-sequence, autocast, owned-snapshot, mutation, and no-linear-startup-read coverage.
+- Proved exact T2 layer-bundle gradients while reducing resident-relative final process peak by 46.35% and direct-relative build time by 62.53%.
+- Corrected the earlier direct-startup interpretation by isolating and removing a redundant resident validation build from artifact-backed startup.
+- Advanced the immediate target to a real connected layer-bundle worker rather than stopping at the offline profile.
 
 ### 2026-07-24
 

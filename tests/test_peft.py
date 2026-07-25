@@ -423,6 +423,334 @@ def test_direct_streamed_profile_builds_from_artifacts_without_full_fp32_model(
         first_direct.load_tensors()
 
 
+def test_layer_bundle_builds_exact_model_without_linear_startup_reads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded = peft.load_lora_manifest(CONFIG, LORA_CONFIG)
+    base_model = build_model(loaded.campaign)
+    base_path = tmp_path / "base-model.safetensors"
+    save_file(
+        {
+            name: tensor.detach().cpu().contiguous()
+            for name, tensor in base_model.state_dict().items()
+        },
+        base_path,
+    )
+    base_artifact_sha256 = hashlib.sha256(base_path.read_bytes()).hexdigest()
+    bundle = peft.export_base_layer_bundle(
+        loaded.campaign,
+        loaded.config,
+        base_path,
+        base_artifact_sha256,
+        tmp_path / "base-layer-bundle",
+    )
+    manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["format"] == "orcacolony_base_layer_bundle_v1"
+    assert manifest["base_model_sha256"] == loaded.config.base_model_sha256
+    assert bundle.linear_count == 16
+
+    resident_model = peft.build_lora_model(loaded.campaign, loaded.config)
+    adapter_state = {
+        name: tensor.detach().clone()
+        for name, tensor in peft.adapter_named_parameters(resident_model).items()
+    }
+
+    opened_artifacts: list[Path] = []
+    original_load = peft.load_safetensors_file
+
+    def recording_load(path: str | Path, *args: object, **kwargs: object):
+        opened_artifacts.append(Path(path).resolve())
+        return original_load(path, *args, **kwargs)
+
+    def forbidden_full_builder(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("layer-bundle construction materialized the FP32 builder")
+
+    monkeypatch.setattr(peft, "load_safetensors_file", recording_load)
+    monkeypatch.setattr(peft, "build_lora_model", forbidden_full_builder)
+    model = peft.build_layer_bundle_streamed_lora_model(
+        loaded.campaign,
+        loaded.config,
+        bundle.output_dir,
+        bundle.manifest_sha256,
+        adapter_state,
+    )
+    linears = [
+        module
+        for module in model.modules()
+        if isinstance(module, peft.LayerBundleStreamedFrozenLinear)
+    ]
+    assert peft.LAYER_BUNDLE_STREAMED_FP32_PROFILE == (
+        "layer-bundle-streamed-fp32-v1"
+    )
+    assert len(linears) == 16
+    assert not any(isinstance(module, torch.nn.Linear) for module in model.modules())
+    assert sum(module.read_count for module in linears) == 0
+    assert opened_artifacts == [(bundle.output_dir / "resident.safetensors").resolve()]
+    assert all(
+        module.causal_mask.shape
+        == (
+            loaded.campaign.model.context_length,
+            loaded.campaign.model.context_length,
+        )
+        for module in model.modules()
+        if isinstance(module, peft.CausalSelfAttention)
+    )
+
+    inputs, targets = fixture_batch(loaded.campaign)
+    resident = None
+    for sequence_length in (1, 8, loaded.campaign.model.context_length):
+        reads_before = sum(module.read_count for module in linears)
+        resident = peft.compute_adapter_gradients(
+            resident_model,
+            inputs[:, :sequence_length],
+            targets[:, :sequence_length],
+        )
+        streamed = peft.compute_adapter_gradients(
+            model,
+            inputs[:, :sequence_length],
+            targets[:, :sequence_length],
+        )
+        assert streamed.loss_sum == resident.loss_sum
+        assert all(
+            torch.equal(streamed.gradients[name], tensor)
+            for name, tensor in resident.gradients.items()
+        )
+        assert sum(module.read_count for module in linears) - reads_before == 31
+    assert resident is not None
+
+    restarted = peft.build_layer_bundle_streamed_lora_model(
+        loaded.campaign,
+        loaded.config,
+        bundle.output_dir,
+        bundle.manifest_sha256,
+        adapter_state,
+    )
+    restarted_linears = [
+        module
+        for module in restarted.modules()
+        if isinstance(module, peft.LayerBundleStreamedFrozenLinear)
+    ]
+    assert sum(module.read_count for module in restarted_linears) == 0
+    restarted_result = peft.compute_adapter_gradients(restarted, inputs, targets)
+    assert restarted_result.loss_sum == resident.loss_sum
+    assert all(
+        torch.equal(restarted_result.gradients[name], tensor)
+        for name, tensor in resident.gradients.items()
+    )
+
+
+def test_layer_bundle_can_parse_lora_contract_without_resident_base_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def forbidden_full_builder(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("LoRA manifest parser materialized the FP32 base")
+
+    monkeypatch.setattr(peft, "build_lora_model", forbidden_full_builder)
+    loaded = peft.load_lora_manifest(
+        CONFIG,
+        LORA_CONFIG,
+        verify_base_model=False,
+    )
+    assert loaded.config.base_model_sha256 == _lora_config().base_model_sha256
+
+
+def test_layer_bundle_rejects_unlisted_artifacts_and_manifest_rebinding(
+    tmp_path: Path,
+) -> None:
+    loaded = peft.load_lora_manifest(CONFIG, LORA_CONFIG)
+    base_model = build_model(loaded.campaign)
+    base_path = tmp_path / "base-model.safetensors"
+    save_file(
+        {
+            name: tensor.detach().cpu().contiguous()
+            for name, tensor in base_model.state_dict().items()
+        },
+        base_path,
+    )
+    bundle = peft.export_base_layer_bundle(
+        loaded.campaign,
+        loaded.config,
+        base_path,
+        hashlib.sha256(base_path.read_bytes()).hexdigest(),
+        tmp_path / "base-layer-bundle",
+    )
+    adapter_state = {
+        name: tensor.detach().clone()
+        for name, tensor in peft.adapter_named_parameters(
+            peft.build_lora_model(loaded.campaign, loaded.config)
+        ).items()
+    }
+
+    unlisted_path = bundle.output_dir / "linear-99999.safetensors"
+    save_file({"weight": torch.zeros(1, dtype=torch.float32)}, unlisted_path)
+    with pytest.raises(ValueError, match="artifact set differs"):
+        peft.build_layer_bundle_streamed_lora_model(
+            loaded.campaign,
+            loaded.config,
+            bundle.output_dir,
+            bundle.manifest_sha256,
+            adapter_state,
+        )
+    unlisted_path.unlink()
+
+    manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+    manifest["base_model_sha256"] = "0" * 64
+    rebound_bytes = (
+        json.dumps(
+            manifest,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+    bundle.manifest_path.write_bytes(rebound_bytes)
+    with pytest.raises(ValueError, match="does not match base_model_sha256"):
+        peft.build_layer_bundle_streamed_lora_model(
+            loaded.campaign,
+            loaded.config,
+            bundle.output_dir,
+            hashlib.sha256(rebound_bytes).hexdigest(),
+            adapter_state,
+        )
+
+
+def test_layer_bundle_export_is_deterministic_and_layer_snapshots_are_owned(
+    tmp_path: Path,
+) -> None:
+    loaded = peft.load_lora_manifest(CONFIG, LORA_CONFIG)
+    base_model = build_model(loaded.campaign)
+    base_path = tmp_path / "base-model.safetensors"
+    save_file(
+        {
+            name: tensor.detach().cpu().contiguous()
+            for name, tensor in base_model.state_dict().items()
+        },
+        base_path,
+    )
+    base_artifact_sha256 = hashlib.sha256(base_path.read_bytes()).hexdigest()
+    first = peft.export_base_layer_bundle(
+        loaded.campaign,
+        loaded.config,
+        base_path,
+        base_artifact_sha256,
+        tmp_path / "first-bundle",
+    )
+    second = peft.export_base_layer_bundle(
+        loaded.campaign,
+        loaded.config,
+        base_path,
+        base_artifact_sha256,
+        tmp_path / "second-bundle",
+    )
+    assert first.manifest_sha256 == second.manifest_sha256
+    assert first.artifact_bytes == second.artifact_bytes
+    assert {
+        path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in first.output_dir.iterdir()
+    } == {
+        path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in second.output_dir.iterdir()
+    }
+
+    resident_model = peft.build_lora_model(loaded.campaign, loaded.config)
+    model = peft.build_layer_bundle_streamed_lora_model(
+        loaded.campaign,
+        loaded.config,
+        first.output_dir,
+        first.manifest_sha256,
+        {
+            name: tensor.detach().clone()
+            for name, tensor in peft.adapter_named_parameters(resident_model).items()
+        },
+    )
+    first_linear = next(
+        module
+        for module in model.modules()
+        if isinstance(module, peft.LayerBundleStreamedFrozenLinear)
+    )
+    weight_snapshot, bias_snapshot = first_linear.load_tensors()
+    original_weight = weight_snapshot.clone()
+    original_bias = None if bias_snapshot is None else bias_snapshot.clone()
+    repeated_weight, repeated_bias = first_linear.load_tensors()
+    assert repeated_weight.untyped_storage().data_ptr() != (
+        weight_snapshot.untyped_storage().data_ptr()
+    )
+    repeated_weight.add_(1.0)
+    assert torch.equal(weight_snapshot, original_weight)
+    if bias_snapshot is not None and repeated_bias is not None:
+        assert repeated_bias.untyped_storage().data_ptr() != (
+            bias_snapshot.untyped_storage().data_ptr()
+        )
+
+    sample = torch.randn(2, 3, first_linear.in_features, dtype=torch.float32)
+    ordinary_input = sample.clone().requires_grad_(True)
+    ordinary_output = first_linear(ordinary_input)
+    ordinary_output.sum().backward()
+    ordinary_gradient = ordinary_input.grad.detach().clone()
+    autocast_input = sample.clone().requires_grad_(True)
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        autocast_output = first_linear(autocast_input)
+    assert autocast_output.dtype == torch.float32
+    autocast_output.sum().backward()
+    assert autocast_input.grad is not None
+    assert autocast_input.grad.dtype == torch.float32
+    assert torch.equal(autocast_output, ordinary_output)
+    assert torch.equal(autocast_input.grad, ordinary_gradient)
+
+    valid_tensors = {"weight": original_weight}
+    if original_bias is not None:
+        valid_tensors["bias"] = original_bias
+    invalid_names = {"linear": original_weight}
+    if original_bias is not None:
+        invalid_names["bias"] = original_bias
+    save_file(invalid_names, first_linear.artifact_path)
+    with pytest.raises(ValueError, match="layer-bundle linear tensor names differ"):
+        first_linear.load_tensors()
+    save_file(valid_tensors, first_linear.artifact_path)
+
+    mutated = {"weight": original_weight + 1.0}
+    if original_bias is not None:
+        mutated["bias"] = original_bias
+    save_file(mutated, first_linear.artifact_path)
+
+    assert torch.equal(weight_snapshot, original_weight)
+    if bias_snapshot is not None and original_bias is not None:
+        assert torch.equal(bias_snapshot, original_bias)
+    with pytest.raises(ValueError, match="layer-bundle linear tensor digest mismatch"):
+        first_linear.load_tensors()
+
+
+def test_layer_bundle_t2_evidence_preserves_exact_identity_and_resource_claims() -> None:
+    results = CONFIG.parents[1] / "spikes" / "layer-bundle-fp32" / "results"
+    exported = json.loads((results / "export-t2.json").read_text(encoding="utf-8"))
+    resident = json.loads((results / "resident-t2.json").read_text(encoding="utf-8"))
+    direct = json.loads((results / "direct-t2.json").read_text(encoding="utf-8"))
+    bundle = json.loads((results / "bundle-t2.json").read_text(encoding="utf-8"))
+
+    expected_base = "47a536cd24b50e7a3bd7a36dc224e2e31774ab0c1c0738df0256e6f579fc15e5"
+    expected_gradient = (
+        "227b763759a9a63da9eae0ca98af6166a2bccd0dd08212aa668a3b09cdf3b11d"
+    )
+    assert exported["base_model_sha256"] == expected_base
+    assert exported["linear_count"] == 48
+    assert exported["artifact_file_count"] == 50
+    assert bundle["bundle_manifest_sha256"] == exported["manifest_sha256"]
+    assert all(
+        result["base_model_sha256"] == expected_base
+        and result["loss_sum"] == 4687.0
+        and result["gradient_sha256"] == expected_gradient
+        for result in (resident, direct, bundle)
+    )
+    assert bundle["startup_streamed_read_count"] == 0
+    assert bundle["startup_streamed_read_bytes"] == 0
+    assert bundle["retained_tensor_bytes"] < resident["retained_tensor_bytes"]
+    assert bundle["peak_after_build_bytes"] < resident["peak_after_build_bytes"]
+    assert bundle["peak_rss_bytes"] < resident["peak_rss_bytes"]
+    assert bundle["build_seconds"] < direct["build_seconds"]
+
+
 def test_adapter_gradient_application_matches_an_independent_mean_loss_step() -> None:
     campaign = load_campaign(CONFIG)
     config = _lora_config()
