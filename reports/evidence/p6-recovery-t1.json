@@ -1,0 +1,85 @@
+{
+  "block_index": 2,
+  "campaign_id": "orcacolony-t1-tinystories-smoke-v1",
+  "centralized_clipped_gradient_sha256": "49020e33505da6e3f9e4e7028c2e9e0f2cc1d96b842e45799864c058eeb41904",
+  "centralized_loss": 9.07593822479248,
+  "centralized_model_sha256": "9cca12c0dab7952ed258bbea4f6524b8029749be0b29aca6eaf81c77c68498eb",
+  "centralized_optimizer_sha256": "4876e58b8fc9a08ca7a15e0061e4df2dd7f8ff0168d23f4d3644feca400fbdcb",
+  "centralized_raw_gradient_sha256": "716d78894420c7a789d2c8e80b0ed0ea606ab15defe4d714791025e438e1013a",
+  "cursor": 0,
+  "dataset_revision": "99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af",
+  "duplicate_result_rejected": true,
+  "first_forward_seconds": 0.015546100010396913,
+  "first_worker_exit_code": -15,
+  "first_worker_initialization_seconds": 2.955027899995912,
+  "first_worker_terminated": true,
+  "format": "orcacolony_recovered_tile_transaction_evidence_v1",
+  "forward_output_wire_bytes": 524368,
+  "input_wire_bytes": 524368,
+  "max_abs_clipped_gradient_difference": 0.0,
+  "max_abs_model_difference": 0.0,
+  "max_abs_raw_gradient_difference": 0.0,
+  "output_adjoint_wire_bytes": 524376,
+  "persisted_file_count": 6,
+  "persisted_files": [
+    {
+      "name": "forward-output.safetensors",
+      "sha256": "53dd0f98c9a36f6cf7ebe5399312d9f908638bd3074f2964ac9587b259eca27a",
+      "size_bytes": 524368
+    },
+    {
+      "name": "input.safetensors",
+      "sha256": "afb24574e05a0a12de2ab6e7be5fcae6e12d7cf92f8969c30204682078d6186d",
+      "size_bytes": 524368
+    },
+    {
+      "name": "manifest.json",
+      "sha256": "b2cfdd25aee21e099b899556c627fce9db58e9325d5f5aeabe4be97f3368906b",
+      "size_bytes": 1340
+    },
+    {
+      "name": "output-adjoint.safetensors",
+      "sha256": "39956baa49a80188d59cd05e6f62d6a7cb452f7fcaefe7867353a53a7338f260",
+      "size_bytes": 524376
+    },
+    {
+      "name": "result.safetensors",
+      "sha256": "f9ac4f1a49c3d5b7d0ca259517df326c6e7b83f45c413c7f23e55679a8360df5",
+      "size_bytes": 3684520
+    },
+    {
+      "name": "tile.safetensors",
+      "sha256": "9457beb8d3fa3495aa2909e4aba7d85d71dfd2fd9182b3e5d42576601fc8ad40",
+      "size_bytes": 3160040
+    }
+  ],
+  "persisted_tensor_bytes": 8417672,
+  "phase_history": [
+    "prepared",
+    "forward_accepted",
+    "worker_lost",
+    "replay_verified",
+    "adjoint_persisted",
+    "result_accepted",
+    "applied"
+  ],
+  "recovered_clipped_gradient_sha256": "49020e33505da6e3f9e4e7028c2e9e0f2cc1d96b842e45799864c058eeb41904",
+  "recovered_loss": 9.07593822479248,
+  "recovered_model_sha256": "9cca12c0dab7952ed258bbea4f6524b8029749be0b29aca6eaf81c77c68498eb",
+  "recovered_optimizer_sha256": "4876e58b8fc9a08ca7a15e0061e4df2dd7f8ff0168d23f4d3644feca400fbdcb",
+  "recovered_raw_gradient_sha256": "716d78894420c7a789d2c8e80b0ed0ea606ab15defe4d714791025e438e1013a",
+  "recovery_retransmitted_tensor_bytes": 3684408,
+  "recovery_seconds": 3.252500200003851,
+  "recovery_total_tensor_bytes": 8417672,
+  "replacement_backward_seconds": 0.029395899997325614,
+  "replacement_worker_exit_code": 0,
+  "replacement_worker_initialization_seconds": 2.926675599999726,
+  "replacement_worker_peak_rss_bytes": 322076672,
+  "replay_forward_seconds": 0.014077800005907193,
+  "replay_output_bytes_identical": true,
+  "result_wire_bytes": 3684520,
+  "start_method": "spawn",
+  "tile_model_wire_bytes": 3160040,
+  "transaction_id": "d8277cc42aa7d2a09a7c67b54c5f514bf77f80f07eee9309fddafa8a076f8fd1",
+  "worker_model_transmissions": 2
+}

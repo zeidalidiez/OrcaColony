@@ -243,7 +243,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P6 — Explore exact asynchronous tiled computation
 
-**Status:** Active research — process-level worker-memory feasibility qualified
+**Status:** Completed feasibility — exact worker-loss recovery qualified conditionally
 
 - Divide one representative transformer layer into retryable matrix or tensor tasks.
 - Persist dependency state at the coordinator.
@@ -264,10 +264,14 @@ Completed within the first P3 measurement and native-baseline slice:
 - A matched persistent full-model child now uses the same trusted-local spawn lifecycle, exact T1 checkpoint, two cursors, deterministic settings, safetensors/JSON framing, and coordinator-owned clipping/AdamW. Both full-process runs repeated every deterministic field and exact gradient, optimizer, and model identity.
 - The full worker peaked at `664,604,672`–`664,682,496` bytes versus `331,595,776`–`331,620,352` for the tile. The tile therefore reduced isolated worker peak RSS by 50.10%–50.11%, saving `332,984,320`–`333,086,720` bytes. Current RSS after model load was 24.26%–24.43% lower.
 - Matched cold/warm tensor payload was `55,237,296`/`27,623,160` bytes for the full worker and `8,417,672`/`5,257,632` for the tile, a tile reduction of 84.76%/80.97%. Report 007 qualifies worker-memory feasibility but makes no end-to-end speed claim because coordinator prefix/suffix and optimizer work are outside the tile IPC timers.
+- A coordinator-owned boundary transaction now persists tile weights, prefix activation, first forward output, output adjoint, backward result, identity, phase history, file digests/sizes, and a durable apply bit. The seven phases are `prepared → forward_accepted → worker_lost → replay_verified → adjoint_persisted → result_accepted → applied`.
+- The first worker was deliberately terminated after forward (`exit=-15`). A replacement loaded only persisted tile/input bytes, reproduced the serialized output byte-for-byte, returned exact gradients/input adjoint, and exited cleanly. Centralized and recovered raw gradients, clipped gradients, AdamW state, and model bytes were identical in two T1 runs; a second apply attempt was rejected before mutation.
+- Recovery took `3.21`–`3.25` seconds, dominated by `2.88`–`2.93` seconds of replacement initialization. Recovery retransmitted `3,684,408` bytes before replay and persisted `8,417,672` tensor bytes plus a `1,340`-byte manifest. Report 008 closes bounded P6 feasibility as qualified but conditional.
+- P6 does **not** establish coordinator crash recovery, externally authenticated manifests, sudden-power-loss directory durability, hostile payload safety, network transport, refreshed-weight multi-step execution, coordinator-memory reduction, or production readiness. The coordinator and its prefix autograd graph survive the tested worker loss.
 
 ### P7 — Explore sparse experts and other advanced topologies
 
-**Status:** Deferred research
+**Status:** Active research — sparse-expert tracer next
 
 - Expert-sharded or sparse models.
 - Router and shared-trunk training.
@@ -276,7 +280,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Persist one exact T1 boundary transaction, terminate the tile worker after its forward result, and recover on a replacement worker. Bind checkpoint, dataset cursor, tile state, phase, owned prefix activation, forward-output digest, and output adjoint; require byte-identical replay, accept exactly one gradient result, reject duplicates, map once, and reproduce centralized AdamW state while measuring recovery latency and retransmitted bytes.
+Build a tiny deterministic sparse-expert tracer with coordinator-owned routing and a shared trunk. Dispatch only the selected expert to a worker, map its gradient into canonical AdamW, and compare byte-exactly with a centralized sparse control. Measure per-worker residency/payload, routing balance, inactive-expert staleness, aggregate transfer, and held-out movement before deciding whether expert assignments are sufficiently independent for opportunistic volunteers.
 
 ## Remaining major work
 
@@ -342,6 +346,9 @@ Persist one exact T1 boundary transaction, terminate the tile worker after its f
 - Added and repeated a matched persistent full-model process control with the same campaign, dataset, cursors, launcher, framing, and coordinator optimizer authority as the tile worker. The control reproduced centralized training exactly.
 - Published Report 007: exact process tiling cuts isolated T1 worker peak RSS 50.10%–50.11% and cold/warm tensor payload 84.76%/80.97% versus the matched full worker. P6 now advances to persisted crash/retry rather than additional memory profiling.
 - The matched full-process control gate passed `217` tests, including warning-strict process tests, plus source/test compilation, lock and CLI verification, exact control evidence and report-link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
+- Added a fail-closed persisted boundary transaction and deliberate tile-worker crash/replacement path. Replay is byte-identical, one exact result is applied, duplicate application is rejected durably, and all centralized optimizer/model identities remain exact.
+- Repeated the authenticated T1 recovery and published Report 008. Recovery costs about 3.2 seconds and 3.68 MB of pre-replay retransmission; P6 closes as qualified but conditional, and the autonomous method track advances to P7 sparse experts.
+- The final P6 recovery gate passed `219` tests, including warning-strict crash/recovery tests, plus source/test compilation, lock and CLI verification, live persisted-file digest/size checks, report-link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
 
 ### 2026-07-24
 
