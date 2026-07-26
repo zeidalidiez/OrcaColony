@@ -243,7 +243,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P6 — Explore exact asynchronous tiled computation
 
-**Status:** Active research — exact process-separated T1 tile measured
+**Status:** Active research — process-level worker-memory feasibility qualified
 
 - Divide one representative transformer layer into retryable matrix or tensor tasks.
 - Persist dependency state at the coordinator.
@@ -261,6 +261,9 @@ Completed within the first P3 measurement and native-baseline slice:
 - Serialized cold/warm tile tensor payloads were `8,417,672`/`5,257,632` bytes, 84.75%/90.48% below a replicated-full round trip. Safetensors overhead was only `2,440` cold bytes (0.03%), and all JSON controls totaled `1,460` bytes; private multiprocessing frame headers are excluded explicitly. Local forward/backward IPC round trips measured `13.10`–`17.51`/`24.90`–`30.61` ms.
 - Cold spawn-to-ready took `2.90`–`3.23` seconds. Isolated worker RSS was `199,393,280`–`199,561,216` bytes before model load, `289,488,896`–`290,054,144` after load, and `331,595,776`–`331,620,352` final peak. Runtime/autograd overhead therefore dominates the `3,160,040`-byte tile; no resident-memory saving may be claimed until a full-model child is measured under the same harness.
 - The launcher is trusted-local research only: no sandbox, Job Object, restricted token, environment scrubbing, persisted boundary transaction, crash/reassignment proof, network transport, or refreshed-weight trajectory. Report 006 makes those boundaries explicit.
+- A matched persistent full-model child now uses the same trusted-local spawn lifecycle, exact T1 checkpoint, two cursors, deterministic settings, safetensors/JSON framing, and coordinator-owned clipping/AdamW. Both full-process runs repeated every deterministic field and exact gradient, optimizer, and model identity.
+- The full worker peaked at `664,604,672`–`664,682,496` bytes versus `331,595,776`–`331,620,352` for the tile. The tile therefore reduced isolated worker peak RSS by 50.10%–50.11%, saving `332,984,320`–`333,086,720` bytes. Current RSS after model load was 24.26%–24.43% lower.
+- Matched cold/warm tensor payload was `55,237,296`/`27,623,160` bytes for the full worker and `8,417,672`/`5,257,632` for the tile, a tile reduction of 84.76%/80.97%. Report 007 qualifies worker-memory feasibility but makes no end-to-end speed claim because coordinator prefix/suffix and optimizer work are outside the tile IPC timers.
 
 ### P7 — Explore sparse experts and other advanced topologies
 
@@ -273,7 +276,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Run a matched full-model T1 child through the same trusted-local spawn harness for the same two cursors. Measure cold startup, current/peak RSS, serialized payload, and forward/backward latency, then compare process-tile savings using real process observations rather than tensor counts. Only if the process tile retains useful memory economics should P6 advance to persisted boundary transactions and crash/retry.
+Persist one exact T1 boundary transaction, terminate the tile worker after its forward result, and recover on a replacement worker. Bind checkpoint, dataset cursor, tile state, phase, owned prefix activation, forward-output digest, and output adjoint; require byte-identical replay, accept exactly one gradient result, reject duplicates, map once, and reproduce centralized AdamW state while measuring recovery latency and retransmitted bytes.
 
 ## Remaining major work
 
@@ -336,6 +339,9 @@ Run a matched full-model T1 child through the same trusted-local spawn harness f
 - Added a bounded persistent tile child protocol with exact safetensors tensor frames, JSON controls, deterministic child configuration, finite lifecycle, one cold model transfer, and two warm-compatible same-checkpoint assignments. The first process run exposed and fixed a `4.66e-9` gradient drift caused by missing child thread/determinism configuration.
 - Repeated the authenticated T1 process run exactly and published Report 006. Serialized overhead is negligible and local IPC is tens of milliseconds, but cold startup is about three seconds and isolated worker peak RSS is about 332 MB, so a matched full-process control is now required before any memory-savings claim.
 - The process-separated P6 gate passed `215` tests, including warning-strict child-process tests, plus source/test compilation, lock and CLI verification, exact evidence-copy and report-link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
+- Added and repeated a matched persistent full-model process control with the same campaign, dataset, cursors, launcher, framing, and coordinator optimizer authority as the tile worker. The control reproduced centralized training exactly.
+- Published Report 007: exact process tiling cuts isolated T1 worker peak RSS 50.10%–50.11% and cold/warm tensor payload 84.76%/80.97% versus the matched full worker. P6 now advances to persisted crash/retry rather than additional memory profiling.
+- The matched full-process control gate passed `217` tests, including warning-strict process tests, plus source/test compilation, lock and CLI verification, exact control evidence and report-link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
 
 ### 2026-07-24
 
