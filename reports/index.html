@@ -111,6 +111,15 @@
 
       <div class="report-list">
         <article class="report">
+          <div class="report-number">009</div>
+          <div>
+            <h3><a href="p7-sparse-expert-t0.html">Sparse experts are small per worker; cold fan-out is worse than full</a></h3>
+            <p>Four exact expert workers cut individual payload 63.36%, but duplicated shared-head state made cold colony round trip 50.15% larger than full replication.</p>
+          </div>
+          <div class="report-meta"><strong>Exact T0 tracer</strong>P7 · 4 experts<br>Frozen cached head next</div>
+        </article>
+
+        <article class="report">
           <div class="report-number">008</div>
           <div>
             <h3><a href="p6-persisted-crash-recovery-t1.html">A killed tile recovers exactly from a persisted boundary transaction</a></h3>

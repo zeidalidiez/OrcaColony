@@ -271,21 +271,24 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P7 — Explore sparse experts and other advanced topologies
 
-**Status:** Active research — sparse-expert tracer next
+**Status:** Active research — exact independent T0 experts measured
 
 - Expert-sharded or sparse models.
 - Router and shared-trunk training.
 - Expert availability, replication, reconciliation, and release semantics.
 - Model-parallel systems for unreliable peers only after simpler tracks establish the relevant evidence.
+- A capacity-bounded top-1 router and four independent token-wise MLP experts now reproduce centralized sparse raw/clipped gradients, router/shared/expert AdamW state, loss, and updated model bytes exactly. The worker objective includes the complete token loss and returns the expert/head gradients plus shared-trunk input adjoints, so it does not require P6's second live output-adjoint round trip.
+- Byte-canonical aggregation required an explicit untied output head: tying input embedding and output projection made independently returned head gradients accumulate in a different FP32 order. This deliberate extra shared state is part of the P7 payload result, not hidden implementation detail.
+- One cold expert worker carries `2,626,048` bytes versus `7,167,488` full bytes, a 63.36% reduction; the `2,098,176`-byte shared norm/head cache is 79.90% of that cold worker payload. With it cached, expert-only payload is `527,872` bytes, 92.64% below full. But four cold workers duplicate `10,504,192` model bytes and produce a `21,536,768`-byte round trip, 46.55%/50.15% above full. Warm model bytes fall 70.54% and warm round trip only 8.36% below full because shared-head gradients still dominate uploads. The full comparison includes its `8,192` input bytes.
+- Unconstrained routing counts `[108, 147, 152, 105]` had 16.87% load CV. Capacity 128 rerouted 44/512 tokens (8.59%) to force `[128, 128, 128, 128]`; perfect reported balance is therefore policy intervention, not learned-router evidence. Report 009 keeps the one-step synthetic/no-process/no-quality limitations explicit.
 
 ## Immediate next bounded target
 
-Build a tiny deterministic sparse-expert tracer with coordinator-owned routing and a shared trunk. Dispatch only the selected expert to a worker, map its gradient into canonical AdamW, and compare byte-exactly with a centralized sparse control. Measure per-worker residency/payload, routing balance, inactive-expert staleness, aggregate transfer, and held-out movement before deciding whether expert assignments are sufficiently independent for opportunistic volunteers.
+Freeze and persistently cache the untied final norm/output head in both centralized and distributed sparse controls. Train only router, shared trunk, and experts, preserve byte-exact canonical AdamW, and recompute cold/warm result traffic without duplicated head gradients. Advance to authenticated T1/process workers only if this one-variable control produces a meaningful aggregate advantage rather than an individual-worker-only saving.
 
 ## Remaining major work
 
-- Exact tiled-computation feasibility study.
-- Later sparse-expert investigation.
+- P7 cached-head, authenticated-data, process-memory, retry, and quality qualification.
 - Operator-owned remote trusted campaign when deployment inputs are available.
 
 ## Current blockers and hold-ups
@@ -349,6 +352,9 @@ Build a tiny deterministic sparse-expert tracer with coordinator-owned routing a
 - Added a fail-closed persisted boundary transaction and deliberate tile-worker crash/replacement path. Replay is byte-identical, one exact result is applied, duplicate application is rejected durably, and all centralized optimizer/model identities remain exact.
 - Repeated the authenticated T1 recovery and published Report 008. Recovery costs about 3.2 seconds and 3.68 MB of pre-replay retransmission; P6 closes as qualified but conditional, and the autonomous method track advances to P7 sparse experts.
 - The final P6 recovery gate passed `219` tests, including warning-strict crash/recovery tests, plus source/test compilation, lock and CLI verification, live persisted-file digest/size checks, report-link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
+- Began P7 with a capacity-bounded top-1 router, shared transformer trunk, four independent expert workers, and an explicit untied output head. Two T0 runs repeated every deterministic route, gradient, optimizer, model, and byte field exactly.
+- Published Report 009: individual cold/warm expert payload is 63.36%/92.64% below full, but duplicated cold colony round trip is 50.15% above full and warm round trip only 8.36% below. The next control freezes and caches the shared head before any T1/process scale-up.
+- The first P7 gate passed `221` tests, including warning-strict sparse-expert tests, plus source/test compilation, lock and CLI verification, two exact deterministic runs, fair full-input round-trip accounting, report-claim/link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
 
 ### 2026-07-24
 
