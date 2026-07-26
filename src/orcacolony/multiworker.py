@@ -570,6 +570,76 @@ def _assignment_fields(
     return frozenset(fields)
 
 
+def _validate_persisted_assignment_lifecycle(
+    assignment: Mapping[str, object],
+    participants: ParticipantRegistry,
+) -> None:
+    state = assignment.get("state")
+    attempt = assignment.get("attempt")
+    if state not in {"open", "leased", "accepted"}:
+        raise ValueError("persisted assignment state is invalid")
+    if type(attempt) is not int or attempt < 0:
+        raise ValueError("persisted assignment attempt is invalid")
+    if state == "open":
+        if attempt != 0 or any(
+            assignment.get(field) is not None
+            for field in (
+                "leased_by",
+                "contributor_id",
+                "lease_token",
+                "lease_expires_at",
+                "result_file",
+                "result_file_sha256",
+                "result_tensor_sha256",
+                "accepted_loss_sum",
+                "runtime_backend",
+                "gradient_metrics",
+            )
+        ):
+            raise ValueError("persisted open assignment lifecycle is invalid")
+        return
+    worker_id = assignment.get("leased_by")
+    contributor_id = assignment.get("contributor_id")
+    lease_token = assignment.get("lease_token")
+    lease_expires_at = assignment.get("lease_expires_at")
+    participant = (
+        participants.participant_for_worker(worker_id)
+        if isinstance(worker_id, str) and worker_id
+        else None
+    )
+    if (
+        attempt < 1
+        or participant is None
+        or contributor_id != participant.contributor_id
+    ):
+        raise ValueError("persisted assignment lease authority is invalid")
+    if state == "accepted":
+        if lease_token is not None or lease_expires_at is not None:
+            raise ValueError("persisted accepted assignment lease is not closed")
+        return
+    expected_lease_token = hashlib.sha256(
+        f"{assignment.get('assignment_id')}:{worker_id}:{attempt}".encode("utf-8")
+    ).hexdigest()
+    if (
+        lease_token != expected_lease_token
+        or type(lease_expires_at) not in {int, float}
+        or not math.isfinite(lease_expires_at)
+    ):
+        raise ValueError("persisted assignment lease authority is invalid")
+    if state == "leased" and any(
+        assignment.get(field) is not None
+        for field in (
+            "result_file",
+            "result_file_sha256",
+            "result_tensor_sha256",
+            "accepted_loss_sum",
+            "runtime_backend",
+            "gradient_metrics",
+        )
+    ):
+        raise ValueError("persisted leased assignment result authority is invalid")
+
+
 def _is_reparse_point(metadata: os.stat_result) -> bool:
     reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
     return bool(getattr(metadata, "st_file_attributes", 0) & reparse_flag)
@@ -1359,6 +1429,15 @@ class GlobalStepCoordinator:
         persisted_state_fields = frozenset(state)
         if state.get("format") != "orcacolony_global_step_v1":
             raise ValueError("unsupported global-step state format")
+        obsolete_migration_fields = {
+            "participants_revision",
+            "training_method",
+            "result_protocol_revision",
+        } - persisted_state_fields
+        if obsolete_migration_fields:
+            if "numerical_profile" not in persisted_state_fields:
+                raise ValueError("combined global-step migration is invalid")
+            raise ValueError("unsupported legacy global-step migration schema")
         requested_profile = _validated_numerical_profile(numerical_profile)
         numerical_profile_migrated = "numerical_profile" not in state
         if numerical_profile_migrated:
@@ -1842,6 +1921,7 @@ class GlobalStepCoordinator:
         for assignment_index, assignment in enumerate(coordinator.assignments):
             if not isinstance(assignment, dict):
                 raise ValueError("global-step assignment entry is invalid")
+            _validate_persisted_assignment_lifecycle(assignment, participants)
             _validated_assignment_artifact_name(assignment)
             if result_identity_migrated:
                 if any(field in assignment for field in _ASSIGNMENT_IDENTITY_FIELDS):
@@ -2121,11 +2201,15 @@ class GlobalStepCoordinator:
         if not isinstance(checkpoint_state, Mapping):
             raise ValueError("completed checkpoint state is invalid")
         if self.lora is not None:
-            load_lora_checkpoint(
+            checkpoint_model, _, _, _, _ = load_lora_checkpoint(
                 self.lora,
                 self.checkpoint_dir,
                 expected_numerical_profile=str(self._state["numerical_profile"]),
             )
+            checkpoint_parameters = {
+                name: parameter.detach().cpu().clone().contiguous()
+                for name, parameter in adapter_named_parameters(checkpoint_model).items()
+            }
             adapter = checkpoint_state.get("adapter")
             if (
                 checkpoint_state.get("base_model_sha256")
@@ -2141,10 +2225,14 @@ class GlobalStepCoordinator:
             ):
                 raise ValueError("completed LoRA global-step identity mismatch")
         else:
-            _load_checkpoint(
+            checkpoint_model, _, _, _, _ = _load_checkpoint(
                 self.campaign,
                 self.checkpoint_dir,
             )
+            checkpoint_parameters = {
+                name: tensor.detach().cpu().clone().contiguous()
+                for name, tensor in checkpoint_model.state_dict().items()
+            }
             model = checkpoint_state.get("model")
             if (
                 not isinstance(model, Mapping)
@@ -2170,6 +2258,42 @@ class GlobalStepCoordinator:
             )
         ):
             raise ValueError("completed global-step progress identity mismatch")
+        expected_checkpoint_metrics = _tensor_metrics(
+            self._reference_state,
+            checkpoint_parameters,
+        )
+        _validate_checkpoint_profile_metrics(
+            str(self._state["numerical_profile"]),
+            expected_checkpoint_metrics,
+        )
+        if not _exact_json_equal(
+            self._state.get("checkpoint_metrics"),
+            expected_checkpoint_metrics,
+        ):
+            raise ValueError("completed global-step checkpoint metrics changed")
+        ordered_assignments = sorted(
+            self.assignments,
+            key=lambda assignment: assignment["data_range"][0],
+        )
+        expected_loss_sum = 0.0
+        expected_loss_weight_sum = 0
+        for assignment in ordered_assignments:
+            accepted_loss_sum = assignment.get("accepted_loss_sum")
+            loss_weight_sum = assignment.get("loss_weight_sum")
+            if (
+                assignment.get("state") != "accepted"
+                or type(accepted_loss_sum) is not float
+                or type(loss_weight_sum) is not int
+            ):
+                raise ValueError("completed global-step assignment totals are invalid")
+            expected_loss_sum += accepted_loss_sum
+            expected_loss_weight_sum += loss_weight_sum
+        if not _exact_json_equal(
+            self._state.get("loss_sum"), expected_loss_sum
+        ) or not _exact_json_equal(
+            self._state.get("loss_weight_sum"), expected_loss_weight_sum
+        ):
+            raise ValueError("completed global-step totals changed")
         if (
             _safe_artifact_snapshot(
                 self.checkpoint_dir,
@@ -2543,7 +2667,7 @@ class GlobalStepCoordinator:
             gradients,
             expected_gradients,
         )
-        if assignment.get("gradient_metrics") != metrics:
+        if not _exact_json_equal(assignment.get("gradient_metrics"), metrics):
             raise ValueError("accepted result gradient metrics changed")
         if legacy_identity:
             if not migrate_legacy_identity:

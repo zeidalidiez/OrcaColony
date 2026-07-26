@@ -420,6 +420,9 @@ def test_restart_rejects_removed_result_identity_from_current_state(
         ("boolean-lease", "lease duration is invalid"),
         ("float-protocol", "result protocol revision is invalid"),
         ("integer-expected-loss", "expected loss must be a finite JSON float"),
+        ("float-attempt", "assignment attempt is invalid"),
+        ("numeric-assignment-state", "assignment state is invalid"),
+        ("string-lease-expiry", "assignment lease authority is invalid"),
         ("boolean-result-cursor", "unfinished global-step result authority"),
         ("integer-result-history", "unfinished global-step result authority"),
     ),
@@ -432,13 +435,15 @@ def test_restart_requires_exact_current_global_step_schemas(
     loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
     participants = participants_for(loaded.campaign.campaign["id"])
     state_dir = tmp_path / "coordinator"
-    GlobalStepCoordinator.create(
+    coordinator = GlobalStepCoordinator.create(
         loaded.campaign,
         state_dir,
         worker_count=2,
         participants=participants,
         lora=loaded,
     )
+    if mutation == "string-lease-expiry":
+        coordinator.lease("worker-a", worker_token="test-token", now=100)
     state_path = state_dir / "global-state.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     lock_path = state_dir / "campaign-lock.json"
@@ -457,6 +462,12 @@ def test_restart_requires_exact_current_global_step_schemas(
         lock["result_protocol_revision"] = 3.0
     elif mutation == "integer-expected-loss":
         state["assignments"][0]["expected_loss_sum"] = 1
+    elif mutation == "float-attempt":
+        state["assignments"][0]["attempt"] = 0.0
+    elif mutation == "numeric-assignment-state":
+        state["assignments"][0]["state"] = 0
+    elif mutation == "string-lease-expiry":
+        state["assignments"][0]["lease_expires_at"] = "160"
     elif mutation == "boolean-result-cursor":
         state["result_dataset_cursor"] = True
         lock["result_dataset_cursor"] = True
@@ -473,6 +484,47 @@ def test_restart_requires_exact_current_global_step_schemas(
             participants=participants,
             lora=loaded,
         )
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    ("participants_revision", "training_method", "result_protocol_revision"),
+)
+def test_restart_rejects_obsolete_migration_schemas_without_writes(
+    tmp_path: Path,
+    missing_field: str,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    participants = participants_for(campaign.campaign["id"])
+    state_dir = tmp_path / missing_field
+    GlobalStepCoordinator.create(
+        campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+    )
+    state_path = state_dir / "global-state.json"
+    lock_path = state_dir / "campaign-lock.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop(missing_field)
+    state["unexpected_predecessor_field"] = None
+    state["assignments"][0]["unexpected_predecessor_field"] = None
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    state_before = state_path.read_bytes()
+    lock_before = lock_path.read_bytes()
+
+    with pytest.raises(
+        ValueError,
+        match="unsupported legacy global-step migration schema",
+    ):
+        GlobalStepCoordinator.load(
+            campaign,
+            state_dir,
+            participants=participants,
+        )
+
+    assert state_path.read_bytes() == state_before
+    assert lock_path.read_bytes() == lock_before
 
 
 def test_legacy_result_identity_migration_rejects_partial_assignment_schema(
@@ -1350,6 +1402,52 @@ def test_two_non_overlapping_workers_match_one_reference_global_step(
     assert coordinator.status()["loss_sum"] == pytest.approx(
         first_submission.loss_sum + float(second["expected_loss_sum"])
     )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("integer-checkpoint-metric", "checkpoint metrics changed"),
+        ("string-loss-sum", "global-step totals changed"),
+        ("float-loss-weight", "global-step totals changed"),
+    ),
+)
+def test_restart_recomputes_completed_global_step_authority(
+    tmp_path: Path,
+    mutation: str,
+    message: str,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    participants = participants_for(campaign.campaign["id"])
+    state_dir = tmp_path / mutation
+    coordinator = GlobalStepCoordinator.create(
+        campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+    )
+    for worker in ("worker-a", "worker-b"):
+        assignment = coordinator.lease(worker, worker_token="test-token", now=100)
+        coordinator.accept(submission_for(coordinator, assignment), now=101)
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if mutation == "integer-checkpoint-metric":
+        state["checkpoint_metrics"]["cosine_similarity"] = 1
+    elif mutation == "string-loss-sum":
+        state["loss_sum"] = str(state["loss_sum"])
+    else:
+        state["loss_weight_sum"] = float(state["loss_weight_sum"])
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    state_before = state_path.read_bytes()
+
+    with pytest.raises(ValueError, match=message):
+        GlobalStepCoordinator.load(
+            campaign,
+            state_dir,
+            participants=participants,
+        )
+
+    assert state_path.read_bytes() == state_before
 
 
 def test_expired_attempt_is_rejected_and_accepted_work_replays_after_restart(

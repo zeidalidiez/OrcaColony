@@ -578,6 +578,17 @@ class CampaignCoordinator:
                 state["publish_base_layer_bundle"]
             ):
                 raise ValueError("prior campaign layer-bundle state differs")
+        expected_last_checkpoint_metrics = None
+        if completed_steps:
+            last_checkpoint_round = str(checkpoints[-1]["round"])
+            expected_last_checkpoint_metrics = validated_rounds[
+                last_checkpoint_round
+            ].status()["checkpoint_metrics"]
+        if not _exact_json_equal(
+            state.get("last_checkpoint_metrics"),
+            expected_last_checkpoint_metrics,
+        ):
+            raise ValueError("campaign last checkpoint metrics differ")
         coordinator = cls(
             campaign,
             state_dir,

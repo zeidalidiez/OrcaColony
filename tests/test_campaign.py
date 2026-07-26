@@ -784,6 +784,36 @@ def test_dense_evaluation_exact_predecessor_migrates_once(tmp_path: Path) -> Non
     }
 
 
+def test_campaign_restart_recomputes_last_checkpoint_metrics(tmp_path: Path) -> None:
+    lora, dataset = evaluated_lora_fixture(tmp_path)
+    participants = participants_for(lora.campaign.campaign["id"])
+    state_dir = tmp_path / "campaign-metrics"
+    coordinator = CampaignCoordinator.create(
+        lora.campaign,
+        state_dir,
+        participants=participants,
+        worker_count=2,
+        target_steps=1,
+        dataset=dataset,
+    )
+    complete_one_step_campaign(coordinator)
+    state_path = state_dir / "campaign-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["last_checkpoint_metrics"]["cosine_similarity"] = 1
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    state_before = state_path.read_bytes()
+
+    with pytest.raises(ValueError, match="last checkpoint metrics differ"):
+        CampaignCoordinator.load(
+            lora.campaign,
+            state_dir,
+            participants=participants,
+            dataset=dataset,
+        )
+
+    assert state_path.read_bytes() == state_before
+
+
 def test_parent_validation_precedes_child_migration_persistence(
     tmp_path: Path,
 ) -> None:
