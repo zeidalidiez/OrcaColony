@@ -28,6 +28,8 @@ The participation model is community accumulation, not a permanent cluster of we
 
 The project will preserve a stable correctness baseline while testing additional execution methods through bounded studies. Methods graduate into supported framework capabilities only after they pass declared correctness, reliability, resource, provenance, and use-case evaluation gates.
 
+P5–P7 method engineering and human-directed practical campaigns are parallel tracks. Mechanism work continues through measured executable slices without waiting for time-consuming manual evaluation. The campaign owner remains responsible for practical goals, data selection, example review, evaluation rubrics, checkpoint interpretation, and promotion decisions; automation preserves evidence rather than replacing those judgments.
+
 ## Overall build position
 
 ### Proven stable foundation
@@ -62,6 +64,7 @@ The current architecture uses replicated full-model data parallelism: every dire
 - Evaluate checkpoints throughout a campaign on frozen validation data; reserve a final holdout for promotion.
 - Record failed and inconclusive experiments as first-class findings.
 - Promote one measured capability at a time; do not productionize every research idea.
+- Publish important findings as self-contained human-readable HTML under `reports/`; retain `research/` unchanged as the existing machine-readable study-record system.
 
 ## Priority order
 
@@ -222,6 +225,7 @@ Completed within the first P3 measurement and native-baseline slice:
 - First bounded experiment: keep a complete canonical model at the coordinator, give a worker an executable submodel containing shared input/output components plus one selected transformer block, rotate the selected block across rounds, merge only explicitly mapped trainable gradients, and compare memory, transfer, coverage, and fixed-use-case loss movement with replicated full-model training. A negative result is publishable evidence rather than a reason to expand the protocol first.
 - The first T0 rolling-block run is executable and measured. Four assignments selected blocks `0, 1, 2, 3`; each worker retained `2,973,184` tensor bytes versus `5,401,600` for the full model (44.96% lower), received `2,956,800` payload tensor bytes versus `5,336,064` (44.59% lower), and returned `793,088` gradient bytes for `198,272` trainable parameters. Fixed-fixture mean loss improved by `0.6197383403778076`, 38.02% of the `1.6302005052566528` improvement from four replicated full-model updates.
 - The same run exposed the central tradeoff early: shared embedding/output state dominates each worker, and one persistent worker rotating through all four blocks eventually receives `5,336,064` unique tensor bytes—the complete full-model payload. This prototype proves lower peak residency and real mapped updates, not yet a way for one worker to avoid ever receiving the full model across complete coverage. The next experiment must test reuse and quality on held-out T1 data before any protocol promotion.
+- P5, P6, and P7 implementation do not wait on the slower practical-campaign review loop. The first owner-directed campaign target is noisy bug reports to validated triage JSON; its data, rubric, baseline examples, checkpoints, and final interpretation remain manual approval points.
 
 ### Cross-cutting worker reliability — hidden assignment canaries
 
@@ -301,6 +305,7 @@ Run the same bounded rolling-block experiment on authenticated T1 TinyStories da
 - Began P5 with a runnable T0 rolling-block worker rather than more P4 contract work. One complete four-block coverage cycle mapped real gradients into a coordinator-owned full model, reduced per-worker tensor residency by 44.96%, and improved fixed-fixture loss, while exposing that complete persistent-worker coverage still transfers the full model's unique tensor bytes and achieves only 38.02% of the four-step full-model baseline improvement.
 - Recorded hidden coordinator-known audit assignments as a future sampled reputation mechanism for public untrusted workers, distinct from planted training-data canaries and explicitly not a prerequisite for P5 or the trusted-participant pilot.
 - The first P5 vertical-slice gate passed `202` tests plus compilation, lock verification, diff validation, the new CLI help path, and a reproducible real four-step experiment.
+- Added the separate root `reports/` human findings layer without changing `research/`. Report 001 turns the measured P5 T0 result into a self-contained HTML decision record with exact evidence, positive and negative findings, limitations, reproduction commands, and the next experiment. Method engineering and human-directed practical campaign review now proceed in parallel.
 
 ### 2026-07-24
 

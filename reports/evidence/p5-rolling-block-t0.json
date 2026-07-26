@@ -1,0 +1,30 @@
+{
+  "block_sequence": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "format": "orcacolony_rolling_block_evidence_v1",
+  "full_baseline_final_mean_loss": 6.705502152442932,
+  "full_baseline_loss_improvement": 1.6302005052566528,
+  "full_baseline_model_sha256": "3845e3fca5e053edd32083cb747393e84af48a9605e57d97660d430075ef005b",
+  "full_parameter_count": 1334016,
+  "full_payload_tensor_bytes": 5336064,
+  "full_resident_tensor_bytes": 5401600,
+  "initial_mean_loss": 8.335702657699585,
+  "mapped_gradient_bytes_per_assignment": 793088,
+  "replicated_full_payload_tensor_bytes": 21344256,
+  "rolling_final_mean_loss": 7.715964317321777,
+  "rolling_loss_improvement": 0.6197383403778076,
+  "rolling_model_sha256": "2d48e5ade94f44bf13f2d4bb135d73b6d9b0baebb104aa415525ff434cfe458d",
+  "selected_block_payload_tensor_bytes": 793088,
+  "shared_payload_tensor_bytes": 2163712,
+  "steps": 4,
+  "transient_worker_payload_tensor_bytes": 11827200,
+  "unique_coverage_payload_tensor_bytes": 5336064,
+  "worker_parameter_count": 739200,
+  "worker_payload_tensor_bytes": 2956800,
+  "worker_resident_tensor_bytes": 2973184,
+  "worker_trainable_parameter_count": 198272
+}

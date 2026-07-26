@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>OrcaColony Reports</title>
+  <style>
+    :root {
+      --paper: #f4f1e8;
+      --paper-deep: #e8e4d8;
+      --ink: #13282b;
+      --muted: #617170;
+      --ocean: #0d5961;
+      --ocean-dark: #073c42;
+      --amber: #bf681f;
+      --line: #c8d0ca;
+      --white: #fffefa;
+      --max: 1120px;
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--paper); color: var(--ink); }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Aptos", sans-serif;
+      line-height: 1.55;
+      background:
+        linear-gradient(90deg, transparent 0 7.5%, rgba(13, 89, 97, .045) 7.5% 7.65%, transparent 7.65%),
+        var(--paper);
+    }
+    a { color: var(--ocean-dark); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    a:hover { color: var(--amber); }
+    a:focus-visible { outline: 3px solid var(--amber); outline-offset: 4px; }
+    header, main, footer { width: min(calc(100% - 40px), var(--max)); margin-inline: auto; }
+    header { padding: 76px 0 54px; border-bottom: 1px solid var(--line); }
+    .kicker {
+      font: 700 .76rem/1.2 "Consolas", monospace;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      color: var(--ocean);
+    }
+    h1, h2 { font-family: Georgia, "Times New Roman", serif; font-weight: 500; letter-spacing: -.025em; }
+    h1 { max-width: 880px; margin: 18px 0 20px; font-size: clamp(2.8rem, 7vw, 6.6rem); line-height: .96; }
+    .lede { max-width: 760px; margin: 0; color: var(--muted); font-size: clamp(1.05rem, 2vw, 1.3rem); }
+    main { padding: 54px 0 80px; }
+    .section-head { display: grid; grid-template-columns: 1fr 2fr; gap: 28px; align-items: baseline; margin-bottom: 18px; }
+    h2 { margin: 0; font-size: clamp(1.8rem, 4vw, 3rem); }
+    .section-note { margin: 0; color: var(--muted); }
+    .report-list { border-top: 2px solid var(--ink); }
+    .report {
+      display: grid;
+      grid-template-columns: 120px minmax(0, 1fr) 180px;
+      gap: 28px;
+      padding: 30px 0 34px;
+      border-bottom: 1px solid var(--line);
+      align-items: start;
+    }
+    .report-number { font: 700 1.1rem/1 "Consolas", monospace; color: var(--amber); }
+    .report h3 { margin: 0 0 9px; font: 600 clamp(1.4rem, 2.6vw, 2rem)/1.15 Georgia, serif; }
+    .report p { margin: 0; color: var(--muted); max-width: 690px; }
+    .report-meta { font: 600 .78rem/1.55 "Consolas", monospace; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .report-meta strong { display: block; color: var(--ocean-dark); }
+    .report-link { display: inline-block; margin-top: 18px; font-weight: 700; }
+    .tracks {
+      margin-top: 74px;
+      display: grid;
+      grid-template-columns: .85fr 1.15fr;
+      gap: 58px;
+      padding: 42px 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .tracks h2 { max-width: 350px; }
+    .tracks ol { margin: 0; padding: 0; list-style: none; counter-reset: track; }
+    .tracks li { counter-increment: track; position: relative; padding: 0 0 24px 50px; }
+    .tracks li::before { content: "0" counter(track); position: absolute; left: 0; top: 2px; font: 700 .76rem/1 "Consolas", monospace; color: var(--amber); }
+    .tracks strong { display: block; margin-bottom: 4px; }
+    .tracks span { color: var(--muted); }
+    .upcoming { margin-top: 58px; max-width: 760px; }
+    .upcoming h2 { margin-bottom: 14px; }
+    .upcoming p { color: var(--muted); }
+    footer { padding: 28px 0 42px; border-top: 1px solid var(--line); color: var(--muted); font-size: .86rem; display: flex; justify-content: space-between; gap: 30px; }
+    @media (max-width: 760px) {
+      body { background: var(--paper); }
+      header { padding-top: 48px; }
+      .section-head, .tracks { grid-template-columns: 1fr; }
+      .report { grid-template-columns: 52px minmax(0, 1fr); }
+      .report-meta { grid-column: 2; }
+      footer { display: block; }
+    }
+    @media print {
+      body { background: white; }
+      header, main, footer { width: 100%; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="kicker">OrcaColony / Human-readable findings</div>
+    <h1>Research that ends in a decision.</h1>
+    <p class="lede">Plain-language reports of what worked, what did not, what the measurements actually prove, and what should change in the next iteration.</p>
+  </header>
+
+  <main>
+    <section aria-labelledby="published-title">
+      <div class="section-head">
+        <h2 id="published-title">Published</h2>
+        <p class="section-note">Reports are grounded in measured evidence and preserve negative findings. A systems result is not presented as practical model quality.</p>
+      </div>
+
+      <div class="report-list">
+        <article class="report">
+          <div class="report-number">001</div>
+          <div>
+            <h3>Rolling one block at a time lowers peak residency—but not total unique model transfer</h3>
+            <p>The first P5 slice maps real gradients from four capability-sized workers into a coordinator-owned model. It saves roughly 45% per-worker tensor residency, while exposing the full-coverage transfer limit and a substantial quality gap versus full-model updates.</p>
+            <a class="report-link" href="p5-rolling-block-t0.html">Read report 001 →</a>
+          </div>
+          <div class="report-meta">
+            <strong>Early feasibility</strong>
+            P5 · T0 fixture<br>
+            4 updates<br>
+            Not promoted
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="tracks" aria-labelledby="tracks-title">
+      <h2 id="tracks-title">Two tracks, neither waiting on the other</h2>
+      <ol>
+        <li><strong>P5–P7 method engineering</strong><span>Continue building and measuring partial-model, tiled, and sparse/expert methods through bounded executable studies.</span></li>
+        <li><strong>Human-directed campaigns</strong><span>Manually choose data, inspect examples, define useful behavior, interpret checkpoints, and approve practical findings at a sustainable pace.</span></li>
+      </ol>
+    </section>
+
+    <section class="upcoming" aria-labelledby="upcoming-title">
+      <div class="kicker">Manually directed campaign / selected</div>
+      <h2 id="upcoming-title">Noisy bug reports → triage JSON</h2>
+      <p>The first practical campaign will measure schema validity, field correctness, unsupported claims, completeness, and human-rated actionability. Data and evaluation are not frozen yet; no result is claimed here.</p>
+    </section>
+  </main>
+
+  <footer>
+    <span>OrcaColony reports are self-contained and printable.</span>
+    <span><a href="README.md">Reporting contract</a> · <a href="../PROGRESS_REPORT.md">Project position</a></span>
+  </footer>
+</body>
+</html>

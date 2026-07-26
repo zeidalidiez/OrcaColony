@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>P5 Rolling-block T0 — OrcaColony Report 001</title>
+  <style>
+    :root {
+      --paper: #f4f1e8;
+      --white: #fffefa;
+      --ink: #13282b;
+      --muted: #5e706f;
+      --ocean: #0d5961;
+      --ocean-dark: #073c42;
+      --amber: #bf681f;
+      --green: #356c4c;
+      --red: #9a4935;
+      --line: #c7d0ca;
+      --soft: #e4e8df;
+      --max: 1120px;
+    }
+    * { box-sizing: border-box; }
+    html { color: var(--ink); background: var(--paper); }
+    body { margin: 0; font-family: "Segoe UI", "Aptos", sans-serif; line-height: 1.58; }
+    a { color: var(--ocean-dark); text-underline-offset: 3px; }
+    a:hover { color: var(--amber); }
+    a:focus-visible { outline: 3px solid var(--amber); outline-offset: 4px; }
+    .page { width: min(calc(100% - 40px), var(--max)); margin: 0 auto; }
+    nav { padding: 24px 0; font: 700 .77rem/1 "Consolas", monospace; letter-spacing: .09em; text-transform: uppercase; }
+    header { padding: 58px 0 50px; border-top: 2px solid var(--ink); border-bottom: 1px solid var(--line); }
+    .eyebrow { display: flex; align-items: center; gap: 12px; color: var(--ocean); font: 700 .75rem/1.3 "Consolas", monospace; letter-spacing: .14em; text-transform: uppercase; }
+    .status { padding: 6px 9px; border: 1px solid var(--amber); color: var(--amber); letter-spacing: .07em; }
+    h1, h2, h3 { font-family: Georgia, "Times New Roman", serif; letter-spacing: -.022em; }
+    h1 { max-width: 950px; margin: 20px 0 24px; font-size: clamp(2.6rem, 6vw, 5.8rem); line-height: .98; font-weight: 500; }
+    .standfirst { max-width: 830px; color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.3rem); }
+    .verdict {
+      display: grid;
+      grid-template-columns: 1.4fr .6fr;
+      gap: 42px;
+      padding: 42px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .verdict h2 { margin: 0 0 12px; font-size: clamp(1.8rem, 3.7vw, 3.1rem); font-weight: 500; }
+    .verdict p { margin: 0; color: var(--muted); font-size: 1.05rem; }
+    .decision { border-left: 3px solid var(--amber); padding-left: 22px; }
+    .decision span { display: block; margin-bottom: 7px; color: var(--amber); font: 700 .72rem/1.3 "Consolas", monospace; text-transform: uppercase; letter-spacing: .12em; }
+    .decision strong { font-size: 1.1rem; }
+    main { padding: 8px 0 76px; }
+    section { padding: 56px 0; border-bottom: 1px solid var(--line); }
+    .section-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 54px; }
+    .section-label { font: 700 .75rem/1.4 "Consolas", monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--ocean); }
+    h2 { margin: 0 0 20px; font-size: clamp(1.8rem, 3.6vw, 3rem); font-weight: 500; }
+    h3 { margin: 32px 0 9px; font-size: 1.45rem; }
+    p { margin: 0 0 16px; }
+    .muted { color: var(--muted); }
+    .metrics { border-top: 2px solid var(--ink); }
+    .metric-row { display: grid; grid-template-columns: minmax(210px, 1.3fr) 1fr 1fr; gap: 24px; padding: 18px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+    .metric-row:first-child { color: var(--muted); font: 700 .72rem/1.2 "Consolas", monospace; text-transform: uppercase; letter-spacing: .08em; }
+    .metric-name { font-weight: 650; }
+    .metric-value { font: 700 1.03rem/1.3 "Consolas", monospace; }
+    .metric-value.good { color: var(--green); }
+    .bars { margin-top: 38px; }
+    .bar-set { margin-bottom: 24px; }
+    .bar-label { display: flex; justify-content: space-between; gap: 20px; margin-bottom: 7px; font-size: .88rem; }
+    .bar-label strong { font-family: "Consolas", monospace; }
+    .bar-track { height: 18px; background: var(--soft); overflow: hidden; }
+    .bar { height: 100%; background: var(--ocean); }
+    .bar.baseline { background: var(--ink); }
+    .callout { margin-top: 32px; padding: 25px 28px; background: var(--white); border-top: 3px solid var(--amber); }
+    .callout strong { display: block; margin-bottom: 7px; }
+    .findings { list-style: none; padding: 0; margin: 0; }
+    .findings li { display: grid; grid-template-columns: 28px 1fr; gap: 18px; padding: 18px 0; border-top: 1px solid var(--line); }
+    .mark { font: 700 1rem/1.4 "Consolas", monospace; }
+    .positive .mark { color: var(--green); }
+    .negative .mark { color: var(--red); }
+    .findings strong { display: block; margin-bottom: 4px; }
+    .findings p { color: var(--muted); }
+    code { font-family: "Consolas", monospace; font-size: .9em; }
+    pre { overflow-x: auto; margin: 18px 0; padding: 22px; background: var(--ink); color: #eef2ed; line-height: 1.5; }
+    details { margin-top: 26px; }
+    summary { cursor: pointer; font-weight: 700; color: var(--ocean-dark); }
+    .meta-list { margin: 18px 0 0; padding: 0; list-style: none; }
+    .meta-list li { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+    .meta-list span { color: var(--muted); }
+    footer { padding: 28px 0 44px; display: flex; justify-content: space-between; gap: 28px; color: var(--muted); font-size: .85rem; }
+    @media (max-width: 760px) {
+      .verdict, .section-grid { grid-template-columns: 1fr; }
+      .metric-row { grid-template-columns: 1fr 1fr; }
+      .metric-row > :first-child { grid-column: 1 / -1; }
+      .metric-row:first-child { display: none; }
+      footer { display: block; }
+    }
+    @media print {
+      html, body { background: white; }
+      .page { width: 100%; }
+      nav { display: none; }
+      section { break-inside: avoid; }
+      details[open] summary { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <nav><a href="index.html">← All reports</a></nav>
+
+    <header>
+      <div class="eyebrow"><span>Report 001</span><span class="status">Early feasibility · not promoted</span></div>
+      <h1>Partial workers lower peak residency, but complete coverage still moves the whole model.</h1>
+      <p class="standfirst">A four-step T0 experiment proved that one selected transformer block can train in an executable shallow worker and map a real gradient back into a coordinator-owned full model. The approach reduced worker tensor residency by 44.96% and per-assignment payload by 44.59%, but delivered only 38.02% of the full-model baseline's loss improvement and did not reduce unique model bytes across complete block coverage.</p>
+    </header>
+
+    <div class="verdict">
+      <div>
+        <h2>Promising mechanism, unresolved training method.</h2>
+        <p>The slice advances P5 because it demonstrates real mapped updates and a material peak-memory reduction. It does not yet establish useful partial-model training, persistent transfer savings, or practical language-model quality.</p>
+      </div>
+      <div class="decision">
+        <span>Decision</span>
+        <strong>Continue to T1 held-out testing and shared-state reuse. Do not promote the topology.</strong>
+      </div>
+    </div>
+
+    <main>
+      <section>
+        <div class="section-grid">
+          <div class="section-label">01 / Question</div>
+          <div>
+            <h2>Can a worker train one rotating block without holding the complete coordinator model?</h2>
+            <p>The coordinator retained a four-block, 1,334,016-parameter model. Each assignment copied shared token/position/output components plus one selected transformer block into a shallow executable worker. Only that block was trainable. Its named gradients were mapped into the corresponding coordinator block, and coordinator-owned AdamW applied the update.</p>
+            <p class="muted">The selected sequence was blocks <code>0, 1, 2, 3</code>, one update per block, against the deterministic T0 fixture. A replicated full-model run used the same four batches and optimizer settings as the control.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-grid">
+          <div class="section-label">02 / Measurements</div>
+          <div>
+            <h2>Residency improved; optimization quality lagged.</h2>
+            <div class="metrics" role="table" aria-label="Rolling worker versus full-model baseline">
+              <div class="metric-row" role="row"><div>Measurement</div><div>Rolling worker</div><div>Full baseline</div></div>
+              <div class="metric-row" role="row"><div class="metric-name">Resident tensor bytes</div><div class="metric-value good">2,973,184</div><div class="metric-value">5,401,600</div></div>
+              <div class="metric-row" role="row"><div class="metric-name">Per-assignment payload tensor bytes</div><div class="metric-value good">2,956,800</div><div class="metric-value">5,336,064</div></div>
+              <div class="metric-row" role="row"><div class="metric-name">Parameters updated per assignment</div><div class="metric-value">198,272</div><div class="metric-value">1,334,016</div></div>
+              <div class="metric-row" role="row"><div class="metric-name">Four-step mean-loss improvement</div><div class="metric-value">0.619738</div><div class="metric-value">1.630201</div></div>
+              <div class="metric-row" role="row"><div class="metric-name">Final fixture mean loss</div><div class="metric-value">7.715964</div><div class="metric-value">6.705502</div></div>
+            </div>
+
+            <div class="bars" aria-label="Relative comparisons">
+              <div class="bar-set">
+                <div class="bar-label"><span>Worker resident tensors</span><strong>55.04% of full</strong></div>
+                <div class="bar-track"><div class="bar" style="width:55.04%"></div></div>
+              </div>
+              <div class="bar-set">
+                <div class="bar-label"><span>Per-assignment worker payload</span><strong>55.41% of full</strong></div>
+                <div class="bar-track"><div class="bar" style="width:55.41%"></div></div>
+              </div>
+              <div class="bar-set">
+                <div class="bar-label"><span>Rolling loss improvement</span><strong>38.02% of baseline improvement</strong></div>
+                <div class="bar-track"><div class="bar" style="width:38.02%"></div></div>
+              </div>
+              <div class="bar-set">
+                <div class="bar-label"><span>Full-model baseline</span><strong>100%</strong></div>
+                <div class="bar-track"><div class="bar baseline" style="width:100%"></div></div>
+              </div>
+            </div>
+
+            <div class="callout">
+              <strong>The key negative finding</strong>
+              The worker payload contains 2,163,712 bytes of shared state plus a 793,088-byte selected block. Once one persistent worker has rotated through all four blocks, its unique tensors total 5,336,064 bytes—exactly the full model payload. This lowers peak residency, not unique transfer across complete coverage.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-grid">
+          <div class="section-label">03 / Findings</div>
+          <div>
+            <h2>What worked, and what needs to change.</h2>
+            <ul class="findings">
+              <li class="positive"><span class="mark">+</span><div><strong>Real partial updates reached the canonical model.</strong><p>Every selected block produced a complete 793,088-byte gradient that mapped by exact parameter name into the coordinator-owned model.</p></div></li>
+              <li class="positive"><span class="mark">+</span><div><strong>Peak worker tensor residency fell by 44.96%.</strong><p>The worker executed forward and backward with 2.97 MB of resident tensors instead of 5.40 MB for the full T0 model.</p></div></li>
+              <li class="negative"><span class="mark">−</span><div><strong>Shared embeddings and output state dominate the worker.</strong><p>Only 198,272 of 739,200 worker parameters were trainable. Width/vocabulary reduction or persistent shared-state reuse is needed for a stronger memory/transfer result.</p></div></li>
+              <li class="negative"><span class="mark">−</span><div><strong>The shallow-submodel objective is not the full-model objective.</strong><p>Four rolling updates recovered 38.02% of the control's loss improvement. A selected block's shallow-model gradient is not the corresponding slice of the full-model gradient.</p></div></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-grid">
+          <div class="section-label">04 / Boundaries</div>
+          <div>
+            <h2>This is systems evidence, not useful-model evidence.</h2>
+            <p>The T0 fixture is deterministic and synthetic. Mean-loss movement proves that the mapped updates changed the optimization trajectory in the expected direction; it does not show better stories, extraction, reasoning, or any other practical behavior.</p>
+            <p>The experiment used one Windows CPU process, equal-size blocks, no volunteer network, no retry, no persisted worker cache, and no held-out real-data evaluation. Process RSS and runtime were not measured in this first slice; tensor residency is not the same as total process memory.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-grid">
+          <div class="section-label">05 / Next iteration</div>
+          <div>
+            <h2>Test T1 quality and reuse without blocking later method work.</h2>
+            <p>The next P5 method slice should run the same block rotation on authenticated T1 TinyStories data, evaluate a frozen holdout, and explicitly cache shared worker state so per-round transfer reflects only newly selected blocks. It should compare checkpoint trajectories—not just the final number—with replicated full-model training.</p>
+            <p>In parallel, the manually directed practical campaign will use noisy bug reports → triage JSON. That slower data and rubric review does not gate P5, P6, or P7 implementation.</p>
+
+            <details>
+              <summary>Reproduce and inspect exact evidence</summary>
+              <pre><code>uv run python -m orcacolony.partial_model \
+  --config campaign/t0-smoke.json \
+  --steps 4 \
+  --output .artifacts/p5-rolling-block-t0.json
+
+uv run pytest tests/test_partial_model.py -q</code></pre>
+              <ul class="meta-list">
+                <li><span>Implementation</span><code>57cccebe36fa5b18146d93594907abe5b4755064</code></li>
+                <li><span>Evidence</span><a href="evidence/p5-rolling-block-t0.json"><code>reports/evidence/p5-rolling-block-t0.json</code></a></li>
+                <li><span>Full gate</span><code>202 passed</code></li>
+                <li><span>Numerical mode</span><code>CPU FP32 deterministic T0 fixture</code></li>
+              </ul>
+            </details>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>OrcaColony report 001 · P5 rolling partial-model feasibility</span>
+      <span><a href="index.html">Reports index</a> · <a href="README.md">Reporting contract</a></span>
+    </footer>
+  </div>
+</body>
+</html>
