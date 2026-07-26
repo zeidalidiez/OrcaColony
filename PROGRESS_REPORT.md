@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-07-25
 
-**Current phase:** P3/P4 closeout qualification — P5 paused
+**Current phase:** P5 rolling partial-model feasibility
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -208,17 +208,30 @@ Completed within the first P3 measurement and native-baseline slice:
 - Closed the P3/P4 persisted-authority path with exact current and immediate-predecessor state, lock, assignment, evaluation, and checkpoint schemas; duplicate-key rejection; exact JSON types; exact-FP32-only migration; complete assignment-set authentication; and delayed migration persistence after parent, child, checkpoint, and finalization validation.
 - Split input trajectory authority from completed-result trajectory authority. Input cursor/history continue to reconstruct every assignment and oracle, while separately authenticated result cursor/history, weight identity, and resume-state identity bind completed checkpoints and the next campaign round.
 - Coordinator admission now retains owned model, adapter, layer-bundle, checkpoint, dataset, evaluation, ledger, and release bytes. Finalization, campaign versioning, dashboard aggregation, HTTP serving, and release publication no longer consume mutable admitted source paths.
-- P5 remains paused until this closeout increment is pushed, synchronized, and reviewed against an immutable Git tree; review remains a follow-up workflow event rather than a commit gate.
+- The P3/P4 closeout is published, synchronized, and backed by a 200-test gate. Repeated immutable reviews timed out or reviewed superseded trees, so no independent `passed=true` claim is made; further review-contract polishing is stopped unless a defect blocks a real campaign or P5 experiment.
 
 ### P5 — Explore rolling partial-model training
 
-**Status:** Planned research
+**Status:** Active research — first vertical slice
 
 - Give capability-sized subnetworks or parameter slices to workers.
 - Rotate coverage across a larger coordinator-owned global model.
 - Reconcile updates from one frozen checkpoint round.
 - Compare against replicated full-model training on the same use-case evaluation.
 - Determine whether the quality and convergence tradeoff is acceptable for transformers.
+- First bounded experiment: keep a complete canonical model at the coordinator, give a worker an executable submodel containing shared input/output components plus one selected transformer block, rotate the selected block across rounds, merge only explicitly mapped trainable gradients, and compare memory, transfer, coverage, and fixed-use-case loss movement with replicated full-model training. A negative result is publishable evidence rather than a reason to expand the protocol first.
+- The first T0 rolling-block run is executable and measured. Four assignments selected blocks `0, 1, 2, 3`; each worker retained `2,973,184` tensor bytes versus `5,401,600` for the full model (44.96% lower), received `2,956,800` payload tensor bytes versus `5,336,064` (44.59% lower), and returned `793,088` gradient bytes for `198,272` trainable parameters. Fixed-fixture mean loss improved by `0.6197383403778076`, 38.02% of the `1.6302005052566528` improvement from four replicated full-model updates.
+- The same run exposed the central tradeoff early: shared embedding/output state dominates each worker, and one persistent worker rotating through all four blocks eventually receives `5,336,064` unique tensor bytes—the complete full-model payload. This prototype proves lower peak residency and real mapped updates, not yet a way for one worker to avoid ever receiving the full model across complete coverage. The next experiment must test reuse and quality on held-out T1 data before any protocol promotion.
+
+### Cross-cutting worker reliability — hidden assignment canaries
+
+**Status:** Planned for public untrusted participation; not a P5 prerequisite
+
+- Occasionally issue an ordinary-looking audit assignment whose expected gradient/loss is retained privately by the coordinator.
+- Never expose the expected answer or a distinct public canary flag, and never aggregate audit-only results into the optimizer.
+- Use sampled audit outcomes, duplicate work, and ordinary protocol failures to build bounded worker reliability/reputation evidence once per-assignment oracle computation no longer scales.
+- These are compute-integrity checks, not planted training-data canaries: no synthetic secret examples are inserted into the corpus, learned by the model, or later searched for in model output.
+- The current trusted-participant pilot already verifies every submitted assignment against a coordinator-known oracle, so adding a reputation subsystem now would duplicate existing admission rather than advance the larger-model research.
 
 ### P6 — Explore exact asynchronous tiled computation
 
@@ -241,7 +254,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Pause and reconvene before starting P5. The next decision is whether to prioritize rolling partial-model training, exact asynchronous tiled computation, or an operator-owned remote trusted campaign; no post-P4 architecture has been selected or started.
+Run the same bounded rolling-block experiment on authenticated T1 TinyStories data with held-out evaluation and explicit persistent-worker shared-state reuse. Compare one complete block-coverage cycle with replicated full-model training; do not add distributed protocol or reputation machinery until that evidence shows what is worth preserving.
 
 ## Remaining major work
 
@@ -285,6 +298,9 @@ Pause and reconvene before starting P5. The next decision is whether to prioriti
 - The resulting closeout gate passed `190` tests plus source/test compilation, lock verification, diff validation, all five campaign/release/native-worker/PEFT/research CLI entry-point checks, and a bounded added-line credential/dangerous-execution scan.
 - Processed the delayed immutable review of superseded tree `88151e1b2eebf3c9ff91f4428e80ac2d248bf0f4` as a tree-specific non-approval and reproduced its remaining concrete claims against current code. Obsolete participant, training-method, and result-protocol migration shapes now reject before mutation instead of bypassing current exact schemas; only the explicitly recognized exact numerical-profile and accepted-result predecessors remain migratable. Persisted assignment states now bind exact attempt and lease lifecycle types and participant authority. Completed global-step loss totals and checkpoint metrics are independently recomputed from authenticated assignments, reference tensors, and checkpoint tensors, and campaign restart requires its last-checkpoint metrics to match that validated child authority exactly.
 - The post-review follow-up gate passed `200` tests plus source/test compilation, lock verification, diff validation, all five CLI entry-point checks, and the bounded added-line credential/dangerous-execution scan.
+- Began P5 with a runnable T0 rolling-block worker rather than more P4 contract work. One complete four-block coverage cycle mapped real gradients into a coordinator-owned full model, reduced per-worker tensor residency by 44.96%, and improved fixed-fixture loss, while exposing that complete persistent-worker coverage still transfers the full model's unique tensor bytes and achieves only 38.02% of the four-step full-model baseline improvement.
+- Recorded hidden coordinator-known audit assignments as a future sampled reputation mechanism for public untrusted workers, distinct from planted training-data canaries and explicitly not a prerequisite for P5 or the trusted-participant pilot.
+- The first P5 vertical-slice gate passed `202` tests plus compilation, lock verification, diff validation, the new CLI help path, and a reproducible real four-step experiment.
 
 ### 2026-07-24
 
