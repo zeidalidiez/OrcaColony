@@ -58,3 +58,16 @@ def test_dataset_artifacts_are_deterministic_and_pack_shifted_targets(
     assert targets.dtype == torch.int64
     assert inputs.tolist() == packed["input_ids"][:2].tolist()
     assert targets.tolist() == packed["target_ids"][:2].tolist()
+
+    admitted_train = dataset.artifact_bytes("train.safetensors")
+    replacement = tmp_path / "first" / "replacement-train.safetensors"
+    replacement.write_bytes(b"mutated after dataset admission")
+    replacement.replace(tmp_path / "first" / "train.safetensors")
+    repeated_inputs, repeated_targets = dataset.batch(
+        cursor=0,
+        batch_size=2,
+        sequence_limit=10,
+    )
+    assert repeated_inputs.tolist() == inputs.tolist()
+    assert repeated_targets.tolist() == targets.tolist()
+    assert dataset.artifact_bytes("train.safetensors") == admitted_train

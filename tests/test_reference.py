@@ -7,6 +7,9 @@ import torch
 from safetensors.torch import load, load_file, save
 
 from orcacolony.reference import (
+    _create_optimizer,
+    _save_checkpoint,
+    build_model,
     compute_fixture,
     export_fixture,
     load_campaign,
@@ -85,6 +88,59 @@ def test_dense_checkpoint_requires_exact_trajectory_json_types(
             target_steps=2,
             resume_from=checkpoint,
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("optimizer_step", 0, "optimizer step must equal"),
+        ("dataset_cursor", 0, "dataset cursor differs"),
+        ("loss_history", [], "loss history differs"),
+    ),
+)
+def test_dense_checkpoint_requires_exact_trajectory_relationships(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    checkpoint = tmp_path / "checkpoint"
+    run_training(campaign, output_dir=checkpoint, target_steps=1)
+    state_path = checkpoint / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state[field] = value
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        run_training(
+            campaign,
+            output_dir=tmp_path / "resumed",
+            target_steps=2,
+            resume_from=checkpoint,
+        )
+
+
+def test_dense_checkpoint_save_rejects_missing_optimizer_state_before_writes(
+    tmp_path: Path,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    model = build_model(campaign)
+    optimizer = _create_optimizer(model, campaign.training)
+    output_dir = tmp_path / "checkpoint"
+
+    with pytest.raises(ValueError, match="optimizer parameter state schema"):
+        _save_checkpoint(
+            campaign,
+            model,
+            optimizer,
+            output_dir,
+            step=1,
+            dataset_cursor=campaign.training.batch_size,
+            loss_history=[1.0],
+        )
+
+    assert not output_dir.exists()
 
 
 def test_dense_checkpoint_rejects_duplicate_keys_and_artifact_path_escape(

@@ -231,11 +231,7 @@ class CampaignCoordinator:
         self._checkpoint_snapshots: dict[int, dict[str, bytes]] = {}
         self._dataset_snapshots = (
             {
-                name: _safe_artifact_snapshot(
-                    dataset.root,
-                    name,
-                    "campaign dataset artifact",
-                )
+                name: dataset.artifact_bytes(name)
                 for name in _DATASET_ARTIFACT_NAMES
             }
             if dataset is not None
@@ -771,6 +767,8 @@ class CampaignCoordinator:
 
         expected_profile = str(self._state["numerical_profile"])
         expected_dataset_revision = str(self._state["dataset_revision"])
+        if self.dataset is None:
+            raise ValueError("persisted evaluation dataset authority is unavailable")
         migrated = False
         for entry, (expected_step, relative_path) in zip(
             evaluations,
@@ -830,46 +828,30 @@ class CampaignCoordinator:
                 raise ValueError("persisted evaluation training method differs")
 
             with self._owned_versioned_checkpoint(expected_step) as checkpoint_dir:
-                checkpoint_state = json.loads(
-                    _safe_artifact_snapshot(
-                        checkpoint_dir,
-                        "state.json",
-                        "persisted evaluation checkpoint state",
-                    ),
-                    object_pairs_hook=_reject_duplicate_json_keys,
-                )
-                if not isinstance(checkpoint_state, Mapping):
-                    raise ValueError("persisted evaluation checkpoint state is invalid")
-                if self.lora is not None:
-                    load_lora_checkpoint(
+                recomputed = (
+                    evaluate_lora_checkpoint(
                         self.lora,
                         checkpoint_dir,
-                        expected_numerical_profile=expected_profile,
+                        self.dataset,
                     )
-                    adapter_state = checkpoint_state.get("adapter")
-                    if not isinstance(adapter_state, Mapping) or (
-                        entry.get("base_model_sha256")
-                        != checkpoint_state.get("base_model_sha256")
-                        or entry.get("adapter_sha256")
-                        != adapter_state.get("tensor_sha256")
-                        or entry.get("weight_checkpoint_sha256")
-                        != checkpoint_state.get("weight_checkpoint_sha256")
-                        or entry.get("checkpoint_sha256")
-                        != checkpoint_state.get("checkpoint_sha256")
-                        or entry.get("resume_state_sha256")
-                        != checkpoint_state.get("checkpoint_sha256")
-                    ):
-                        raise ValueError("persisted evaluation checkpoint identity differs")
-                else:
-                    _load_checkpoint(self.campaign, checkpoint_dir)
-                    model_state = checkpoint_state.get("model")
-                    if not isinstance(model_state, Mapping) or entry.get(
-                        "checkpoint_sha256"
-                    ) != model_state.get("sha256"):
-                        raise ValueError("persisted evaluation checkpoint identity differs")
+                    if self.lora is not None
+                    else evaluate_checkpoint(
+                        self.campaign,
+                        checkpoint_dir,
+                        self.dataset,
+                    )
+                )
+            recomputed.setdefault("numerical_profile", expected_profile)
+            if not _exact_json_equal(entry, recomputed):
+                raise ValueError("persisted evaluation differs from recomputation")
         if migrated:
             self._state["last_evaluation"] = dict(evaluations[-1])
         return migrated
+
+    def validate_evaluation_authority(self) -> None:
+        with self._lock:
+            if self._validate_persisted_evaluations():
+                raise ValueError("evaluation authority requires migration")
 
     def _evaluate_versioned_checkpoint(
         self,

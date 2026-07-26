@@ -5,11 +5,12 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Mapping
 from urllib.request import Request, urlopen
 
 import torch
-from safetensors.torch import load_file as load_safetensors_file
+from safetensors.torch import load as load_safetensors
 from safetensors.torch import save_file as save_safetensors_file
 from tokenizers import Tokenizer
 from tokenizers.decoders import ByteLevel as ByteLevelDecoder
@@ -20,6 +21,15 @@ from tokenizers.trainers import BpeTrainer
 
 END_OF_STORY = "<|endoftext|>"
 SPECIAL_TOKENS = ("<pad>", "<unk>", "<bos>", "<eos>")
+DATASET_ARTIFACT_NAMES = frozenset(
+    {
+        "manifest.json",
+        "tokenizer.json",
+        "train.safetensors",
+        "validation.safetensors",
+        "DATASET-NOTICE.md",
+    }
+)
 TINYSTORIES_REVISION = "f54c09fd23315a6f9c86f9dc80f725de7d8f9c64"
 TINYSTORIES_SOURCE = {
     "dataset": "roneneldan/TinyStories",
@@ -40,6 +50,15 @@ TINYSTORIES_SOURCE = {
 }
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate dataset manifest key: {key}")
+        result[key] = value
+    return result
+
+
 @dataclass(frozen=True)
 class PackedDataset:
     root: Path
@@ -49,25 +68,42 @@ class PackedDataset:
     train_targets: torch.Tensor
     validation_inputs: torch.Tensor
     validation_targets: torch.Tensor
+    artifact_snapshots: Mapping[str, bytes]
 
     @classmethod
     def load(cls, root: str | Path) -> PackedDataset:
         root = Path(root)
         manifest_path = root / "manifest.json"
         manifest_bytes = manifest_path.read_bytes()
-        manifest = json.loads(manifest_bytes)
+        manifest = json.loads(
+            manifest_bytes,
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
         if manifest.get("format") != "orcacolony_dataset_artifacts_v1":
             raise ValueError("unsupported dataset artifact format")
         files = manifest.get("files")
-        if not isinstance(files, dict):
+        if (
+            not isinstance(files, dict)
+            or set(files) != DATASET_ARTIFACT_NAMES - {"manifest.json"}
+            or any(
+                not isinstance(expected_sha256, str)
+                or len(expected_sha256) != 64
+                for expected_sha256 in files.values()
+            )
+        ):
             raise ValueError("dataset artifact file manifest is missing")
+        artifact_snapshots = {"manifest.json": manifest_bytes}
         for filename, expected_sha256 in files.items():
             path = root / filename
-            if not path.is_file() or _sha256_file(path) != expected_sha256:
+            if not path.is_file():
+                raise ValueError(f"dataset artifact is missing: {filename}")
+            payload = path.read_bytes()
+            if _sha256_bytes(payload) != expected_sha256:
                 raise ValueError(f"dataset artifact digest mismatch: {filename}")
+            artifact_snapshots[filename] = payload
 
-        train = load_safetensors_file(str(root / "train.safetensors"))
-        validation = load_safetensors_file(str(root / "validation.safetensors"))
+        train = load_safetensors(artifact_snapshots["train.safetensors"])
+        validation = load_safetensors(artifact_snapshots["validation.safetensors"])
         train_inputs, train_targets = _validate_packed_split(train, "train")
         validation_inputs, validation_targets = _validate_packed_split(
             validation, "validation"
@@ -92,7 +128,14 @@ class PackedDataset:
             train_targets=train_targets,
             validation_inputs=validation_inputs,
             validation_targets=validation_targets,
+            artifact_snapshots=MappingProxyType(dict(artifact_snapshots)),
         )
+
+    def artifact_bytes(self, file_name: str) -> bytes:
+        try:
+            return self.artifact_snapshots[file_name]
+        except KeyError as exc:
+            raise ValueError("unknown dataset artifact") from exc
 
     def batch(
         self,
@@ -149,7 +192,10 @@ def _validate_packed_split(
         raise ValueError(f"packed {split} tensors must use int32")
     if not torch.equal(inputs[:, 1:], targets[:, :-1]):
         raise ValueError(f"packed {split} targets are not shifted inputs")
-    return inputs, targets
+    return (
+        inputs.detach().cpu().clone().contiguous(),
+        targets.detach().cpu().clone().contiguous(),
+    )
 
 
 def _canonical_json(payload: Mapping[str, object]) -> str:

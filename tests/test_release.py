@@ -414,7 +414,10 @@ def test_release_bundle_publishes_separate_lora_base_adapter_and_resume_state(
         selected_evaluation[field] = "0" * 64
         last_evaluation[field] = "0" * 64
         try:
-            with pytest.raises(ValueError, match="LoRA provenance"):
+            with pytest.raises(
+                ValueError,
+                match="evaluation differs from recomputation",
+            ):
                 build_release_bundle(
                     lora.campaign,
                     coordinator,
@@ -429,12 +432,39 @@ def test_release_bundle_publishes_separate_lora_base_adapter_and_resume_state(
             selected_evaluation[field] = original_selected
             last_evaluation[field] = original_last
 
+    original_selected = dict(selected_evaluation)
+    original_last = dict(last_evaluation)
+    for evaluation in (selected_evaluation, last_evaluation):
+        evaluation["loss_sum"] = float(evaluation["loss_sum"]) + 1.0
+        evaluation["mean_loss"] = float(evaluation["mean_loss"]) + 0.25
+        evaluation["perplexity"] = float(evaluation["perplexity"]) + 0.5
+    try:
+        with pytest.raises(
+            ValueError,
+            match="evaluation differs from recomputation",
+        ):
+            build_release_bundle(
+                lora.campaign,
+                coordinator,
+                dataset_root=dataset_root,
+                browser_root=browser_root,
+                project_license=project_license,
+                third_party_notice=third_party_notice,
+                public_coordinator_url=None,
+                output_dir=tmp_path / "mutated-evaluation-metrics",
+            )
+    finally:
+        selected_evaluation.clear()
+        selected_evaluation.update(original_selected)
+        last_evaluation.clear()
+        last_evaluation.update(original_last)
+
     baseline_evaluation = coordinator._state["evaluations"][0]
     for mutation, expected_error in (
         ({"unknown_successor": True}, "schema"),
-        ({"step": 0.0}, "provenance"),
-        ({"validation_sequences": True}, "provenance"),
-        ({"loss_sum": 1}, "provenance"),
+        ({"step": 0.0}, "identity"),
+        ({"validation_sequences": True}, "provenance|recomputation"),
+        ({"loss_sum": 1}, "provenance|recomputation"),
     ):
         original_baseline = dict(baseline_evaluation)
         baseline_evaluation.update(mutation)
@@ -498,10 +528,13 @@ def test_release_bundle_publishes_separate_lora_base_adapter_and_resume_state(
                 output_dir=tmp_path / "wrong-campaign-revision-release",
             )
 
-    mixed_profile_evaluation = dict(coordinator._state["evaluations"][0])
-    mixed_profile_evaluation["numerical_profile"] = peft.EXACT_CPU_FP32_PROFILE
-    coordinator._state["evaluations"] = [mixed_profile_evaluation]
-    coordinator._state["last_evaluation"] = mixed_profile_evaluation
+    mixed_profile_evaluations = [
+        dict(evaluation) for evaluation in coordinator._state["evaluations"]
+    ]
+    for evaluation in mixed_profile_evaluations:
+        evaluation["numerical_profile"] = peft.EXACT_CPU_FP32_PROFILE
+    coordinator._state["evaluations"] = mixed_profile_evaluations
+    coordinator._state["last_evaluation"] = mixed_profile_evaluations[-1]
 
     with pytest.raises(ValueError, match="numerical profile"):
         build_release_bundle(
@@ -515,7 +548,8 @@ def test_release_bundle_publishes_separate_lora_base_adapter_and_resume_state(
             output_dir=tmp_path / "mixed-profile-release",
         )
 
-    mixed_profile_evaluation["numerical_profile"] = None
+    for evaluation in mixed_profile_evaluations:
+        evaluation["numerical_profile"] = None
     with pytest.raises(ValueError, match="numerical profile"):
         build_release_bundle(
             lora.campaign,
@@ -528,8 +562,9 @@ def test_release_bundle_publishes_separate_lora_base_adapter_and_resume_state(
             output_dir=tmp_path / "null-profile-release",
         )
 
-    mixed_profile_evaluation.pop("numerical_profile")
-    with pytest.raises(ValueError, match="evaluation schema"):
+    for evaluation in mixed_profile_evaluations:
+        evaluation.pop("numerical_profile")
+    with pytest.raises(ValueError, match="evaluation .*schema"):
         build_release_bundle(
             lora.campaign,
             coordinator,

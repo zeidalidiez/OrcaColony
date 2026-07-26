@@ -490,6 +490,7 @@ def build_release_bundle(
     public_coordinator_url: str | None,
     output_dir: str | Path,
 ) -> dict[str, object]:
+    coordinator.validate_evaluation_authority()
     dashboard = coordinator.dashboard()
     if dashboard["campaign"]["state"] != "campaign_complete":
         raise ValueError("release bundle requires a completed campaign")

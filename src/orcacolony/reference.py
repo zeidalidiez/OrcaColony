@@ -397,6 +397,98 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _validate_checkpoint_trajectory(
+    campaign: CampaignConfig,
+    *,
+    step: object,
+    optimizer_step: object,
+    dataset_cursor: object,
+    loss_history: object,
+) -> tuple[int, int, list[float]]:
+    if type(step) is not int or step < 0:
+        raise ValueError("checkpoint step must be a nonnegative integer")
+    if type(optimizer_step) is not int or optimizer_step < 0:
+        raise ValueError("checkpoint optimizer step must be a nonnegative integer")
+    if optimizer_step != step:
+        raise ValueError("checkpoint optimizer step must equal the training step")
+    expected_cursor = (
+        step * campaign.training.batch_size
+    ) % campaign.training.dataset_sequences
+    if type(dataset_cursor) is not int or dataset_cursor < 0:
+        raise ValueError("checkpoint dataset cursor must be a nonnegative integer")
+    if dataset_cursor != expected_cursor:
+        raise ValueError("checkpoint dataset cursor differs from its trajectory")
+    if (
+        not isinstance(loss_history, list)
+        or any(type(loss) is not float or not math.isfinite(loss) for loss in loss_history)
+    ):
+        raise ValueError("checkpoint loss history must contain finite JSON floats")
+    if len(loss_history) != step:
+        raise ValueError("checkpoint loss history differs from its trajectory")
+    return step, dataset_cursor, list(loss_history)
+
+
+def _optimizer_checkpoint_tensors(
+    model: VolunteerDecoder,
+    optimizer: torch.optim.AdamW,
+    step: int,
+) -> dict[str, Tensor]:
+    named_parameters = list(model.named_parameters())
+    expected_parameters = [parameter for _, parameter in named_parameters]
+    optimizer_parameters = [
+        parameter
+        for group in optimizer.param_groups
+        for parameter in group["params"]
+    ]
+    if (
+        len(optimizer_parameters) != len(expected_parameters)
+        or len({id(parameter) for parameter in optimizer_parameters})
+        != len(optimizer_parameters)
+        or {id(parameter) for parameter in optimizer_parameters}
+        != {id(parameter) for parameter in expected_parameters}
+    ):
+        raise ValueError("optimizer parameter ownership is invalid")
+
+    tensors: dict[str, Tensor] = {}
+    for name, parameter in named_parameters:
+        parameter_state = optimizer.state.get(parameter)
+        if step == 0 and not parameter_state:
+            exp_avg = torch.zeros_like(parameter)
+            exp_avg_sq = torch.zeros_like(parameter)
+        else:
+            if not isinstance(parameter_state, dict) or set(parameter_state) != {
+                "step",
+                "exp_avg",
+                "exp_avg_sq",
+            }:
+                raise ValueError("optimizer parameter state schema is invalid")
+            raw_step = parameter_state["step"]
+            if not isinstance(raw_step, Tensor) or raw_step.numel() != 1:
+                raise ValueError("optimizer parameter step is invalid")
+            step_value = float(raw_step.detach().cpu().item())
+            if not math.isfinite(step_value) or not step_value.is_integer() or int(
+                step_value
+            ) != step:
+                raise ValueError("optimizer parameter steps are inconsistent")
+            exp_avg = parameter_state["exp_avg"]
+            exp_avg_sq = parameter_state["exp_avg_sq"]
+        for prefix, tensor in (("exp_avg", exp_avg), ("exp_avg_sq", exp_avg_sq)):
+            if (
+                not isinstance(tensor, Tensor)
+                or tensor.dtype != parameter.dtype
+                or tensor.shape != parameter.shape
+                or not bool(torch.isfinite(tensor).all())
+            ):
+                raise ValueError("optimizer checkpoint tensor is invalid")
+            tensors[f"{prefix}.{name}"] = tensor.detach().cpu().clone().contiguous()
+        if step == 0 and (
+            bool(torch.count_nonzero(exp_avg))
+            or bool(torch.count_nonzero(exp_avg_sq))
+        ):
+            raise ValueError("step-zero optimizer moments must be zero")
+    return tensors
+
+
 def _save_checkpoint(
     campaign: CampaignConfig,
     model: VolunteerDecoder,
@@ -406,6 +498,26 @@ def _save_checkpoint(
     dataset_cursor: int,
     loss_history: list[float],
 ) -> TrainingResult:
+    step, dataset_cursor, loss_history = _validate_checkpoint_trajectory(
+        campaign,
+        step=step,
+        optimizer_step=step,
+        dataset_cursor=dataset_cursor,
+        loss_history=loss_history,
+    )
+    optimizer_tensors = _optimizer_checkpoint_tensors(model, optimizer, step)
+    model_tensors = {
+        name: tensor.detach().cpu().clone().contiguous()
+        for name, tensor in sorted(model.state_dict().items())
+    }
+    if any(
+        tensor.dtype != torch.float32 or not bool(torch.isfinite(tensor).all())
+        for tensor in model_tensors.values()
+    ):
+        raise ValueError("model checkpoint tensor is invalid")
+    model_bytes = save_safetensors(model_tensors)
+    optimizer_bytes = save_safetensors(optimizer_tensors)
+
     output_dir.mkdir(parents=True, exist_ok=True)
     model_path = output_dir / "model.safetensors"
     optimizer_path = output_dir / "optimizer.safetensors"
@@ -414,31 +526,10 @@ def _save_checkpoint(
     optimizer_tmp = output_dir / "optimizer.safetensors.tmp"
     state_tmp = output_dir / "state.json.tmp"
 
-    model_tensors = {
-        name: tensor.detach().cpu().contiguous()
-        for name, tensor in sorted(model.state_dict().items())
-    }
-    save_safetensors_file(model_tensors, str(model_tmp))
+    model_tmp.write_bytes(model_bytes)
     os.replace(model_tmp, model_path)
 
-    optimizer_tensors: dict[str, Tensor] = {}
-    optimizer_step = step
-    for name, parameter in model.named_parameters():
-        parameter_state = optimizer.state[parameter]
-        optimizer_tensors[f"exp_avg.{name}"] = (
-            parameter_state.get("exp_avg", torch.zeros_like(parameter))
-            .detach()
-            .cpu()
-            .contiguous()
-        )
-        optimizer_tensors[f"exp_avg_sq.{name}"] = (
-            parameter_state.get("exp_avg_sq", torch.zeros_like(parameter))
-            .detach()
-            .cpu()
-            .contiguous()
-        )
-        optimizer_step = int(parameter_state.get("step", torch.tensor(step)).item())
-    save_safetensors_file(optimizer_tensors, str(optimizer_tmp))
+    optimizer_tmp.write_bytes(optimizer_bytes)
     os.replace(optimizer_tmp, optimizer_path)
 
     state = {
@@ -447,21 +538,21 @@ def _save_checkpoint(
         "architecture": campaign.model.architecture,
         "architecture_revision": campaign.model.architecture_revision,
         "step": step,
-        "optimizer_step": optimizer_step,
+        "optimizer_step": step,
         "dataset_cursor": dataset_cursor,
         "dataset_revision": (
             campaign.dataset["manifest_sha256"]
             if campaign.dataset is not None
             else "synthetic-fixture-v1"
         ),
-        "loss_history": loss_history,
+        "loss_history": list(loss_history),
         "model": {
             "file": model_path.name,
-            "sha256": _sha256_file(model_path),
+            "sha256": hashlib.sha256(model_bytes).hexdigest(),
         },
         "optimizer": {
             "file": optimizer_path.name,
-            "sha256": _sha256_file(optimizer_path),
+            "sha256": hashlib.sha256(optimizer_bytes).hexdigest(),
         },
     }
     state_tmp.write_text(
@@ -582,10 +673,11 @@ def _load_checkpoint(
     if state["campaign_id"] != campaign.campaign["id"]:
         raise ValueError("checkpoint campaign does not match configuration")
     if (
-        type(state["architecture_revision"]) is not int
+        state.get("architecture") != campaign.model.architecture
+        or type(state["architecture_revision"]) is not int
         or state["architecture_revision"] != campaign.model.architecture_revision
     ):
-        raise ValueError("checkpoint architecture revision does not match configuration")
+        raise ValueError("checkpoint architecture does not match configuration")
     expected_dataset_revision = (
         campaign.dataset["manifest_sha256"]
         if campaign.dataset is not None
@@ -593,17 +685,13 @@ def _load_checkpoint(
     )
     if state.get("dataset_revision", "synthetic-fixture-v1") != expected_dataset_revision:
         raise ValueError("checkpoint dataset revision does not match configuration")
-    if type(state.get("step")) is not int or state["step"] < 0:
-        raise ValueError("checkpoint step must be a nonnegative integer")
-    if type(state.get("optimizer_step")) is not int or state["optimizer_step"] < 0:
-        raise ValueError("checkpoint optimizer step must be a nonnegative integer")
-    if type(state.get("dataset_cursor")) is not int or state["dataset_cursor"] < 0:
-        raise ValueError("checkpoint dataset cursor must be a nonnegative integer")
-    loss_history = state.get("loss_history")
-    if not isinstance(loss_history, list) or any(
-        type(loss) is not float or not math.isfinite(loss) for loss in loss_history
-    ):
-        raise ValueError("checkpoint loss history must contain finite JSON floats")
+    step, dataset_cursor, loss_history = _validate_checkpoint_trajectory(
+        campaign,
+        step=state.get("step"),
+        optimizer_step=state.get("optimizer_step"),
+        dataset_cursor=state.get("dataset_cursor"),
+        loss_history=state.get("loss_history"),
+    )
 
     model_artifact = state.get("model")
     optimizer_artifact = state.get("optimizer")
@@ -657,7 +745,7 @@ def _load_checkpoint(
     }
     if set(optimizer_tensors) != expected_optimizer_tensors:
         raise ValueError("optimizer checkpoint tensor schema is invalid")
-    optimizer_step = float(state["optimizer_step"])
+    optimizer_step = float(step)
     for name, parameter in model.named_parameters():
         for prefix in ("exp_avg", "exp_avg_sq"):
             tensor = optimizer_tensors[f"{prefix}.{name}"]
@@ -675,8 +763,8 @@ def _load_checkpoint(
     return (
         model,
         optimizer,
-        state["step"],
-        state["dataset_cursor"],
+        step,
+        dataset_cursor,
         list(loss_history),
     )
 

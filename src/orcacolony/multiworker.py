@@ -1892,6 +1892,21 @@ class GlobalStepCoordinator:
                 _RUNTIME_NUMERICAL_PROFILE.get(str(runtime_backend)) != stored_profile
             ):
                 raise ValueError("persisted runtime numerical profile differs")
+            expected_loss_sum = assignment.get("expected_loss_sum")
+            accepted_loss_sum = assignment.get("accepted_loss_sum")
+            if type(expected_loss_sum) is not float or not math.isfinite(
+                expected_loss_sum
+            ):
+                raise ValueError("persisted expected loss must be a finite JSON float")
+            if assignment.get("state") == "accepted":
+                if type(accepted_loss_sum) is not float or not math.isfinite(
+                    accepted_loss_sum
+                ):
+                    raise ValueError(
+                        "persisted accepted loss must be a finite JSON float"
+                    )
+            elif accepted_loss_sum is not None:
+                raise ValueError("unaccepted result loss is not empty")
             recomputed_oracle = coordinator._recomputed_assignment_oracle(
                 assignment,
                 assignment_index,
@@ -2443,7 +2458,10 @@ class GlobalStepCoordinator:
         if recomputed is not None:
             recomputed_loss, recomputed_gradients = recomputed
             if (
-                assignment.get("expected_loss_sum") != recomputed_loss
+                not _exact_json_equal(
+                    assignment.get("expected_loss_sum"),
+                    recomputed_loss,
+                )
                 or set(gradients) != set(recomputed_gradients)
                 or tensor_digest != tensor_sha256(recomputed_gradients)
             ):
@@ -2463,7 +2481,9 @@ class GlobalStepCoordinator:
         gradients: Mapping[str, Tensor],
         expected_gradients: Mapping[str, Tensor],
     ) -> dict[str, float | int | str]:
-        expected_loss = float(assignment["expected_loss_sum"])
+        expected_loss = assignment["expected_loss_sum"]
+        if type(expected_loss) is not float or type(loss_sum) is not float:
+            raise ValueError("loss sums must use exact JSON float values")
         gradient_metrics = _tensor_metrics(expected_gradients, gradients)
         profile = str(self._state["numerical_profile"])
         if profile in {EXACT_CPU_FP32_PROFILE, INT8_FROZEN_LINEAR_PROFILE}:
@@ -2511,11 +2531,7 @@ class GlobalStepCoordinator:
         ):
             raise ValueError("accepted result bytes or tensors changed")
         accepted_loss_sum = assignment.get("accepted_loss_sum")
-        if (
-            isinstance(accepted_loss_sum, bool)
-            or not isinstance(accepted_loss_sum, (int, float))
-            or not math.isfinite(float(accepted_loss_sum))
-        ):
+        if type(accepted_loss_sum) is not float or not math.isfinite(accepted_loss_sum):
             raise ValueError("accepted result loss is invalid")
         expected_gradients, _ = self._validated_oracle_gradients(
             assignment,
@@ -2523,7 +2539,7 @@ class GlobalStepCoordinator:
         )
         metrics = self._validate_profile_result(
             assignment,
-            float(accepted_loss_sum),
+            accepted_loss_sum,
             gradients,
             expected_gradients,
         )
@@ -2922,10 +2938,15 @@ class GlobalStepCoordinator:
                 raise ValueError("stale lease attempt")
             if submission.checkpoint_sha256 != self._state["checkpoint_sha256"]:
                 raise ValueError("checkpoint identity does not match")
-            if submission.loss_weight_sum != assignment["loss_weight_sum"]:
+            if (
+                type(submission.loss_weight_sum) is not int
+                or submission.loss_weight_sum != assignment["loss_weight_sum"]
+            ):
                 raise ValueError("loss weight does not match assignment")
-            if not math.isfinite(submission.loss_sum):
-                raise ValueError("loss sum must be finite")
+            if type(submission.loss_sum) is not float or not math.isfinite(
+                submission.loss_sum
+            ):
+                raise ValueError("loss sum must be a finite JSON float")
             if submission.runtime_backend not in RUNTIME_BACKENDS:
                 raise ValueError("runtime backend is not supported")
             if (

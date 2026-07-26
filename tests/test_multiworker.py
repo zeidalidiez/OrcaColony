@@ -419,6 +419,7 @@ def test_restart_rejects_removed_result_identity_from_current_state(
         ("missing-assignment", "current global-step assignment schema is invalid"),
         ("boolean-lease", "lease duration is invalid"),
         ("float-protocol", "result protocol revision is invalid"),
+        ("integer-expected-loss", "expected loss must be a finite JSON float"),
         ("boolean-result-cursor", "unfinished global-step result authority"),
         ("integer-result-history", "unfinished global-step result authority"),
     ),
@@ -454,6 +455,8 @@ def test_restart_requires_exact_current_global_step_schemas(
     elif mutation == "float-protocol":
         state["result_protocol_revision"] = 3.0
         lock["result_protocol_revision"] = 3.0
+    elif mutation == "integer-expected-loss":
+        state["assignments"][0]["expected_loss_sum"] = 1
     elif mutation == "boolean-result-cursor":
         state["result_dataset_cursor"] = True
         lock["result_dataset_cursor"] = True
