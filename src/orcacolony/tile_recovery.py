@@ -27,6 +27,7 @@ from orcacolony.reference import (
     validate_dataset_artifacts,
 )
 from orcacolony.tile_process import (
+    _await_model_readiness,
     _deserialize_tensors,
     _recv_bytes,
     _recv_json,
@@ -251,6 +252,11 @@ def _start_worker(
                 "block_index": block_index,
                 "seed": campaign.training.seed,
             },
+        )
+        _await_model_readiness(
+            parent_connection,
+            timeout_seconds,
+            label=f"{name} model readiness",
         )
         parent_connection.send_bytes(tile_wire)
         ready, _ = _recv_json(

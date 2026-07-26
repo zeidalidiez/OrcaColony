@@ -16,7 +16,7 @@
   <p class="standfirst">A persistent spawned worker executed T1 block 2 for two different authenticated batches with one model transmission. Every raw gradient, clipped gradient, AdamW tensor, and updated model tensor matched the centralized reference exactly.</p>
   <div class="meta"><span class="pill status">P6 process tracer · continue with caution</span><span class="pill">T1 TinyStories</span><span class="pill">2 assignments · 2 exact repeats</span><span class="pill">trusted local spawn</span></div>
 
-  <section class="decision"><strong>Decision</strong><p>Keep the process boundary. Before adding retry or network transport, measure a matched full-model child under the same launcher: the tile’s 3.16 MB weights are small, but its observed process peak is about 332 MB.</p></section>
+  <section class="decision"><strong>Decision</strong><p>Keep the process boundary. Before adding retry or network transport, measure a matched full-model child under the same launcher: the tile’s 3.16 MB weights are small, but its observed process peak is about 331 MB.</p></section>
 
   <section class="section"><div class="eyebrow">01 / Exact process handoff</div><h2>Two cursors, one cached block, zero numerical drift</h2>
     <p class="lead">The parent sent the block once, then ran forward and backward boundary exchanges for cursors <code>0</code> and <code>2</code>. The child remained alive and exited cleanly after its second assignment.</p>
@@ -38,7 +38,7 @@
       <tr><td>Tile model</td><td>3,159,040 B</td><td>3,160,040 B</td><td>1,000 B</td></tr>
       <tr><td>Warm boundary round trip</td><td>5,256,192 B</td><td>5,257,632 B</td><td>1,440 B</td></tr>
       <tr><td>Cold total</td><td>8,415,232 B</td><td>8,417,672 B</td><td>2,440 B · 0.03%</td></tr>
-      <tr><td>JSON controls, whole run</td><td>—</td><td>1,460 B</td><td>measured separately</td></tr>
+      <tr><td>JSON controls, whole run</td><td>—</td><td>1,487–1,488 B</td><td>includes model-readiness handshake</td></tr>
     </tbody></table>
     <div class="bars">
       <div class="bar-row"><span>Full replica round trip</span><div class="track"><div class="fill warn" style="width:100%"></div></div><span class="bar-value">55,214,080 B</span></div>
@@ -49,21 +49,21 @@
 
   <section class="section"><div class="eyebrow">03 / Time</div><h2>Persistence amortizes a multi-second cold start</h2>
     <table><thead><tr><th>Phase</th><th>Observed range</th><th>Interpretation</th></tr></thead><tbody>
-      <tr><td>Spawn → model ready</td><td>2.90–3.23 s</td><td class="caution">177–222× one forward IPC round trip</td></tr>
-      <tr><td>Forward IPC round trip</td><td>13.10–17.51 ms</td><td>worker compute: 11.20–14.77 ms</td></tr>
-      <tr><td>Backward IPC round trip</td><td>24.90–30.61 ms</td><td>worker compute: 19.97–25.49 ms</td></tr>
-      <tr><td>Forward non-compute overhead</td><td>1.81–2.76 ms</td><td>local serialization + pipe scheduling</td></tr>
-      <tr><td>Backward non-compute overhead</td><td>4.40–6.36 ms</td><td>larger gradient/result payload</td></tr>
+      <tr><td>Spawn → model ready</td><td>2.88–2.93 s</td><td class="caution">167–216× one forward IPC round trip</td></tr>
+      <tr><td>Forward IPC round trip</td><td>13.56–17.23 ms</td><td>worker compute: 11.05–14.91 ms</td></tr>
+      <tr><td>Backward IPC round trip</td><td>25.04–28.16 ms</td><td>worker compute: 20.27–22.42 ms</td></tr>
+      <tr><td>Forward non-compute overhead</td><td>1.97–2.71 ms</td><td>local serialization + pipe scheduling</td></tr>
+      <tr><td>Backward non-compute overhead</td><td>4.31–5.75 ms</td><td>larger gradient/result payload</td></tr>
     </tbody></table>
     <p>These are local-process observations, not network latency or throughput claims.</p>
   </section>
 
   <section class="section"><div class="eyebrow">04 / Isolated worker memory</div><h2>Framework overhead dominates this small tile</h2>
     <div class="metric-grid">
-      <div class="metric"><b>199.4–199.6 MB</b><span>worker RSS after import, before model</span></div>
-      <div class="metric"><b>289.5–290.1 MB</b><span>current RSS after loading tile</span></div>
-      <div class="metric"><b>90.1–90.5 MB</b><span>observed current-RSS increase at model load</span></div>
-      <div class="metric"><b class="caution">331.6 MB</b><span>final peak worker RSS</span></div>
+      <div class="metric"><b>199.1–199.7 MB</b><span>worker RSS after import, before model</span></div>
+      <div class="metric"><b>289.4–290.2 MB</b><span>current RSS after loading tile</span></div>
+      <div class="metric"><b>89.7–91.1 MB</b><span>observed current-RSS increase at model load</span></div>
+      <div class="metric"><b class="caution">330.8–331.8 MB</b><span>final peak worker RSS</span></div>
     </div>
     <div class="split" style="margin-top:28px">
       <div class="callout"><h3>What worked</h3><p>The child never loaded a full model, retained one immutable block for a warm second batch, returned exact gradients, and terminated with exit code 0.</p></div>
@@ -75,7 +75,7 @@
     <ul>
       <li>Trusted local Python child using multiprocessing <code>spawn</code>; no sandbox, Job Object, restricted token, or environment scrubbing.</li>
       <li>Two assignments share one immutable checkpoint. This does not yet prove refreshed weights between optimizer steps.</li>
-      <li>No worker crash, reassignment, persisted boundary transaction, network transport, or hostile payload test.</li>
+      <li>A stalled child before model read now times out cleanly with no live child; there is still no sandbox, hostile-payload safety, or remote transport claim.</li>
       <li>Application bytes exclude multiprocessing’s private framing.</li>
       <li>The coordinator still owns and retains the full model and performs prefix/suffix execution.</li>
     </ul>

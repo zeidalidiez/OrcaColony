@@ -11,25 +11,25 @@
   <h1>A matched process control confirms the tile halves worker peak memory.</h1>
   <p class="standfirst">The same spawn lifecycle, T1 checkpoint, dataset revision, two cursors, safetensors framing, and coordinator-owned AdamW were run with either one transformer block or the complete model in the child process.</p>
   <div class="meta"><span class="pill status">P6 worker-memory feasibility qualified</span><span class="pill">T1 TinyStories</span><span class="pill">tile vs full · 2 exact repeats each</span><span class="pill">trusted local spawn</span></div>
-  <section class="decision"><strong>Decision</strong><p>Advance P6 to persisted boundary transactions and crash/retry. The process tile reduces isolated worker peak RSS by 50.10–50.11% while preserving exact training. Coordinator memory and end-to-end latency remain open.</p></section>
+  <section class="decision"><strong>Decision</strong><p>Advance P6 to persisted boundary transactions and crash/retry. The process tile reduces isolated worker peak RSS by 50.21–50.27% while preserving exact training. Coordinator memory and end-to-end latency remain open.</p></section>
 
   <section class="section"><div class="eyebrow">01 / Matched exactness</div><h2>Both workers reproduce centralized training exactly</h2>
     <p class="lead">For cursors <code>0</code> and <code>2</code>, both child types returned raw gradients that produced byte-identical global clipping, AdamW state, and updated model tensors. Each control repeated deterministically.</p>
     <div class="metric-grid"><div class="metric"><b class="good">0.0</b><span>tile maximum difference</span></div><div class="metric"><b class="good">0.0</b><span>full-worker maximum difference</span></div><div class="metric"><b>4 + 4</b><span>exact assignment observations</span></div><div class="metric"><b>1 each</b><span>model transmission per process</span></div></div>
   </section>
 
-  <section class="section"><div class="eyebrow">02 / Isolated process memory</div><h2>The tile saves about 333 MB at peak</h2>
+  <section class="section"><div class="eyebrow">02 / Isolated process memory</div><h2>The tile saves about 334 MB at peak</h2>
     <div class="bars">
-      <div class="bar-row"><span>Full worker final peak</span><div class="track"><div class="fill full" style="width:100%"></div></div><span class="bar-value">664.60–664.68 MB</span></div>
-      <div class="bar-row"><span>Tile worker final peak</span><div class="track"><div class="fill" style="width:49.9%"></div></div><span class="bar-value">331.60–331.62 MB</span></div>
-      <div class="bar-row"><span>Full after model load</span><div class="track"><div class="fill full" style="width:57.6%"></div></div><span class="bar-value">382.98–383.05 MB</span></div>
-      <div class="bar-row"><span>Tile after model load</span><div class="track"><div class="fill" style="width:43.6%"></div></div><span class="bar-value">289.49–290.05 MB</span></div>
+      <div class="bar-row"><span>Full worker final peak</span><div class="track"><div class="fill full" style="width:100%"></div></div><span class="bar-value">665.17–666.33 MB</span></div>
+      <div class="bar-row"><span>Tile worker final peak</span><div class="track"><div class="fill" style="width:49.8%"></div></div><span class="bar-value">330.76–331.75 MB</span></div>
+      <div class="bar-row"><span>Full after model load</span><div class="track"><div class="fill full" style="width:57.6%"></div></div><span class="bar-value">383.11–383.59 MB</span></div>
+      <div class="bar-row"><span>Tile after model load</span><div class="track"><div class="fill" style="width:43.6%"></div></div><span class="bar-value">289.43–290.20 MB</span></div>
     </div>
     <table><thead><tr><th>Observation</th><th>Tile process</th><th>Full process</th><th>Tile change</th></tr></thead><tbody>
-      <tr><td>Startup RSS before model</td><td>199.39–199.56 MB</td><td>199.36–199.56 MB</td><td>matched baseline</td></tr>
-      <tr><td>Current RSS after model</td><td>289.49–290.05 MB</td><td>382.98–383.05 MB</td><td class="good">24.26–24.43% lower</td></tr>
-      <tr><td>Final process peak RSS</td><td>331.60–331.62 MB</td><td>664.60–664.68 MB</td><td class="good">50.10–50.11% lower</td></tr>
-      <tr><td>Peak bytes saved</td><td colspan="2">332,984,320–333,086,720 B</td><td class="good">~333 MB</td></tr>
+      <tr><td>Startup RSS before model</td><td>199.14–199.73 MB</td><td>198.77–199.14 MB</td><td>matched baseline</td></tr>
+      <tr><td>Current RSS after model</td><td>289.43–290.20 MB</td><td>383.11–383.59 MB</td><td class="good">24.25–24.55% lower</td></tr>
+      <tr><td>Final process peak RSS</td><td>330.76–331.75 MB</td><td>665.17–666.33 MB</td><td class="good">50.21–50.27% lower</td></tr>
+      <tr><td>Peak bytes saved</td><td colspan="2">334,413,824–334,577,664 B</td><td class="good">~334 MB</td></tr>
     </tbody></table>
   </section>
 
@@ -42,12 +42,12 @@
   </section>
 
   <section class="section"><div class="eyebrow">04 / Timing boundary</div><h2>No end-to-end speed claim</h2>
-    <div class="split"><div class="callout"><h3>Measured full worker</h3><p>Full child compute was 332.68–368.88 ms and its input/gradient IPC round trip was 367.71–416.72 ms.</p></div><div class="warning"><h3>Not directly comparable</h3><p>The tile report measures worker compute and IPC phases, but coordinator prefix, suffix, input-adjoint backpropagation, clipping, and optimizer work sit outside those timers. A lower tile IPC time is not an end-to-end speedup.</p></div></div>
-    <p>Cold initialization was similar: 2.90–3.23 s for the tile and 3.06–3.24 s for the full worker. Persistence remains required for both.</p>
+    <div class="split"><div class="callout"><h3>Measured full worker</h3><p>Full child compute was 316.87–332.29 ms and its input/gradient IPC round trip was 345.92–363.77 ms.</p></div><div class="warning"><h3>Not directly comparable</h3><p>The tile report measures worker compute and IPC phases, but coordinator prefix, suffix, input-adjoint backpropagation, clipping, and optimizer work sit outside those timers. A lower tile IPC time is not an end-to-end speedup.</p></div></div>
+    <p>Cold initialization was similar: 2.88–2.93 s for the tile and 3.02–3.05 s for the full worker. Persistence remains required for both.</p>
   </section>
 
   <section class="section"><div class="eyebrow">05 / What this proves</div><h2>Worker-memory feasibility passes; larger goals remain open</h2>
-    <ul><li>A real child process can hold only one T1 block and still contribute exact full-objective gradients.</li><li>Under a matched runtime, the tile cuts isolated worker peak RSS roughly in half.</li><li>The coordinator still retains the full model and performs true prefix/suffix computation.</li><li>The result is trusted-local and same-checkpoint; no network, refreshed weights, retry, hostile input, or larger-than-coordinator proof.</li><li>~332 MB remains a real worker requirement for this Python/PyTorch implementation despite 3.16 MB of weights.</li></ul>
+    <ul><li>A real child process can hold only one T1 block and still contribute exact full-objective gradients.</li><li>Under a matched runtime, the tile cuts isolated worker peak RSS roughly in half.</li><li>The coordinator still retains the full model and performs true prefix/suffix computation.</li><li>The result is trusted-local and same-checkpoint; no network, refreshed weights, retry, hostile input, or larger-than-coordinator proof.</li><li>~331 MB remains a real worker requirement for this Python/PyTorch implementation despite 3.16 MB of weights.</li></ul>
   </section>
 
   <section class="section"><div class="eyebrow">06 / Next bounded experiment</div><h2>Crash after forward; recover exactly on a replacement tile</h2>

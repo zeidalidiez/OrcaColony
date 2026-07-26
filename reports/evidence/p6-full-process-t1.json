@@ -20,11 +20,11 @@
       "process_model_sha256": "9cca12c0dab7952ed258bbea4f6524b8029749be0b29aca6eaf81c77c68498eb",
       "process_optimizer_sha256": "4876e58b8fc9a08ca7a15e0061e4df2dd7f8ff0168d23f4d3644feca400fbdcb",
       "process_raw_gradient_sha256": "716d78894420c7a789d2c8e80b0ed0ea606ab15defe4d714791025e438e1013a",
-      "round_trip_seconds": 0.4167221000243444,
+      "round_trip_seconds": 0.34591880001244135,
       "total_application_wire_bytes": 27623348,
-      "worker_compute_seconds": 0.3688820000097621,
-      "worker_current_rss_bytes": 508067840,
-      "worker_peak_rss_bytes": 545185792
+      "worker_compute_seconds": 0.3168711999896914,
+      "worker_current_rss_bytes": 509194240,
+      "worker_peak_rss_bytes": 545198080
     },
     {
       "assignment_tensor_wire_bytes": 27623160,
@@ -33,7 +33,7 @@
       "centralized_model_sha256": "f2cae5e255b12b20d836ea7601e71ac7197dc1fedf785e582617880895030397",
       "centralized_optimizer_sha256": "4fb8500d443bb59d92c7629fb132b0a2a7352a52a8c3fecfb3f15d74a584075f",
       "centralized_raw_gradient_sha256": "5bfd806f1ab7734b2f71df24650858db8595c1f5c33f84b93a0fed17c31a5815",
-      "control_json_wire_bytes": 189,
+      "control_json_wire_bytes": 190,
       "cursor": 2,
       "gradient_result_wire_bytes": 27614824,
       "input_batch_wire_bytes": 8336,
@@ -45,11 +45,11 @@
       "process_model_sha256": "f2cae5e255b12b20d836ea7601e71ac7197dc1fedf785e582617880895030397",
       "process_optimizer_sha256": "4fb8500d443bb59d92c7629fb132b0a2a7352a52a8c3fecfb3f15d74a584075f",
       "process_raw_gradient_sha256": "5bfd806f1ab7734b2f71df24650858db8595c1f5c33f84b93a0fed17c31a5815",
-      "round_trip_seconds": 0.40545300001394935,
-      "total_application_wire_bytes": 27623349,
-      "worker_compute_seconds": 0.3636582000181079,
-      "worker_current_rss_bytes": 585728000,
-      "worker_peak_rss_bytes": 664682496
+      "round_trip_seconds": 0.36167300000670366,
+      "total_application_wire_bytes": 27623350,
+      "worker_compute_seconds": 0.33228969998890534,
+      "worker_current_rss_bytes": 611098624,
+      "worker_peak_rss_bytes": 666329088
     }
   ],
   "campaign_id": "orcacolony-t1-tinystories-smoke-v1",
@@ -60,15 +60,15 @@
   "full_forward_calls": 2,
   "full_model_wire_bytes": 27614136,
   "full_state_sha256": "6e76ac7cc4919d468b9027650301b0cf7fd49465ff75693486d51cfbb920e175",
-  "initialization_control_json_wire_bytes": 760,
-  "initialization_round_trip_seconds": 3.2398204999917652,
+  "initialization_control_json_wire_bytes": 788,
+  "initialization_round_trip_seconds": 3.0481309999886435,
   "model_transmissions": 1,
   "start_method": "spawn",
   "warm_assignment_tensor_wire_bytes": 27623160,
-  "worker_after_model_current_rss_bytes": 383049728,
-  "worker_after_model_peak_rss_bytes": 387031040,
-  "worker_final_peak_rss_bytes": 664682496,
-  "worker_model_current_rss_delta_bytes": 183492608,
-  "worker_startup_current_rss_bytes": 199557120,
-  "worker_startup_peak_rss_bytes": 199557120
+  "worker_after_model_current_rss_bytes": 383111168,
+  "worker_after_model_peak_rss_bytes": 387088384,
+  "worker_final_peak_rss_bytes": 666329088,
+  "worker_model_current_rss_delta_bytes": 183967744,
+  "worker_startup_current_rss_bytes": 199143424,
+  "worker_startup_peak_rss_bytes": 199143424
 }

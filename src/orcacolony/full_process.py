@@ -27,6 +27,7 @@ from orcacolony.reference import (
     validate_dataset_artifacts,
 )
 from orcacolony.tile_process import (
+    _await_model_readiness,
     _deserialize_tensors,
     _process_memory_bytes,
     _recv_bytes,
@@ -131,6 +132,7 @@ def _full_worker_entry(connection: Connection) -> None:
         configure_determinism(init["seed"])
         model = VolunteerDecoder(config)
         expected_state = model.state_dict()
+        _send_json(connection, {"status": "ready_for_model"})
         model_wire = connection.recv_bytes()
         loaded_state = _deserialize_tensors(model_wire)
         if loaded_state.keys() != expected_state.keys():
@@ -436,6 +438,11 @@ def run_persistent_full_process_control(
                 "model": asdict(campaign.model),
                 "seed": campaign.training.seed,
             },
+        )
+        init_control_bytes += _await_model_readiness(
+            parent_connection,
+            timeout_seconds,
+            label="full-worker model readiness",
         )
         parent_connection.send_bytes(full_model_wire)
         ready, ready_bytes = _recv_json(

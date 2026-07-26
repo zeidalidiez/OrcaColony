@@ -1,13 +1,40 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import re
+import subprocess
+import sys
 
 from orcacolony.full_process import main, run_persistent_full_process_control
 from orcacolony.reference import load_campaign
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
+TIMEOUT_PROBE = Path(__file__).parent / "fixtures" / "stalled_full_worker.py"
+
+
+def test_full_process_times_out_cleanly_before_large_initialization_send() -> None:
+    environment = os.environ.copy()
+    environment["PYTHONFAULTHANDLER"] = "1"
+    result = subprocess.run(
+        [sys.executable, str(TIMEOUT_PROBE)],
+        cwd=CONFIG.parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=15.0,
+        check=False,
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "exception=TimeoutError" in output
+    assert "active_children=0" in output
+    match = re.search(r"elapsed_seconds=([0-9.]+)", output)
+    assert match is not None
+    assert float(match.group(1)) < 4.0
 
 
 def test_persistent_full_process_reproduces_two_centralized_steps() -> None:

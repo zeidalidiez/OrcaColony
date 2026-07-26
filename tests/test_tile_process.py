@@ -1,13 +1,62 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import re
+import subprocess
+import sys
 
 from orcacolony.reference import load_campaign
 from orcacolony.tile_process import main, run_persistent_tile_process_experiment
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
+TIMEOUT_PROBE = Path(__file__).parent / "fixtures" / "stalled_tile_worker.py"
+
+
+def test_tile_process_times_out_cleanly_before_large_initialization_send() -> None:
+    environment = os.environ.copy()
+    environment["PYTHONFAULTHANDLER"] = "1"
+    result = subprocess.run(
+        [sys.executable, str(TIMEOUT_PROBE), "initialization"],
+        cwd=CONFIG.parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=15.0,
+        check=False,
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "exception=TimeoutError" in output
+    assert "active_children=0" in output
+    match = re.search(r"elapsed_seconds=([0-9.]+)", output)
+    assert match is not None
+    assert float(match.group(1)) < 4.0
+
+
+def test_tile_process_times_out_cleanly_before_large_forward_send() -> None:
+    environment = os.environ.copy()
+    environment["PYTHONFAULTHANDLER"] = "1"
+    result = subprocess.run(
+        [sys.executable, str(TIMEOUT_PROBE), "forward"],
+        cwd=CONFIG.parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=15.0,
+        check=False,
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "exception=TimeoutError" in output
+    assert "active_children=0" in output
+    match = re.search(r"elapsed_seconds=([0-9.]+)", output)
+    assert match is not None
+    assert float(match.group(1)) < 4.0
 
 
 def test_persistent_tile_process_reuses_one_block_for_two_exact_assignments() -> None:

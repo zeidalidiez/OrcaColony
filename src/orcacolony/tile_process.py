@@ -193,6 +193,22 @@ def _recv_json(
     return payload, len(raw)
 
 
+def _await_model_readiness(
+    connection: Connection,
+    timeout_seconds: float,
+    *,
+    label: str,
+) -> int:
+    readiness, wire_bytes = _recv_json(
+        connection,
+        timeout_seconds,
+        label=label,
+    )
+    if readiness != {"status": "ready_for_model"}:
+        raise ValueError(f"{label} acknowledgement is invalid")
+    return wire_bytes
+
+
 def _validate_tensor(
     tensor: Tensor,
     *,
@@ -230,6 +246,7 @@ def _tile_worker_entry(connection: Connection) -> None:
         configure_determinism(init["seed"])
         tile = DecoderBlock(config)
         expected_state = tile.state_dict()
+        _send_json(connection, {"status": "ready_for_model"})
         model_wire = connection.recv_bytes()
         loaded_state = _deserialize_tensors(model_wire)
         if loaded_state.keys() != expected_state.keys():
@@ -643,6 +660,12 @@ def run_persistent_tile_process_experiment(
                 "seed": campaign.training.seed,
             },
         )
+        readiness_bytes = _await_model_readiness(
+            parent_connection,
+            timeout_seconds,
+            label="tile model readiness",
+        )
+        init_control_bytes += readiness_bytes
         parent_connection.send_bytes(tile_model_wire)
         ready, ready_bytes = _recv_json(
             parent_connection,
