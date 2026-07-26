@@ -243,7 +243,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P6 — Explore exact asynchronous tiled computation
 
-**Status:** Active research — exact authenticated T1 all-block parity proven
+**Status:** Active research — exact process-separated T1 tile measured
 
 - Divide one representative transformer layer into retryable matrix or tensor tasks.
 - Persist dependency state at the coordinator.
@@ -257,6 +257,10 @@ Completed within the first P3 measurement and native-baseline slice:
 - The authenticated T1 sweep substituted every block position `0..5` independently. First, middle, and final tiles all matched centralized raw/clipped gradients, complete AdamW state, and post-step model identity with `0.0` maximum differences; two complete sweeps repeated every deterministic nested field under dataset revision `99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af`.
 - Each T1 tile retained `789,760` parameters, 11.44% of the `6,901,760`-parameter model, and its `3,159,040` model bytes were 88.56% below full. From T0 to T1 the full payload grew 5.17x while four `524,288`-byte boundaries made `2,097,152` activation/adjoint bytes—only 2x the T0 boundary and 7.60% of a T1 full-model payload. Per-block cold/warm accounted round trips were `8,415,232`/`5,256,192` bytes, 84.76%/90.48% below full; all six positions totaled `50,491,392`/`31,537,152` bytes versus `331,284,480` for six full round trips.
 - T1 timing still overlaps locally—centralized `0.358`–`0.417` seconds versus tiled `0.360`–`0.391`—and combined process peak RSS of `1,059,287,040`–`1,090,740,224` bytes remains contaminated by repeated full-model/optimizer allocation. Process-separated worker memory and transport are now the next evidence boundary.
+- A persistent trusted-local `spawn` child now executes T1 block 2 across two different same-checkpoint cursors with one model transmission. Safetensors/JSON frames validate exact schemas, shapes, dtypes, finiteness, assignment order, and tile-state identity; finite polling and forced termination bound the child lifecycle. Both independent runs reproduced every deterministic field, raw/clipped gradient, AdamW state, and updated model exactly.
+- Serialized cold/warm tile tensor payloads were `8,417,672`/`5,257,632` bytes, 84.75%/90.48% below a replicated-full round trip. Safetensors overhead was only `2,440` cold bytes (0.03%), and all JSON controls totaled `1,460` bytes; private multiprocessing frame headers are excluded explicitly. Local forward/backward IPC round trips measured `13.10`–`17.51`/`24.90`–`30.61` ms.
+- Cold spawn-to-ready took `2.90`–`3.23` seconds. Isolated worker RSS was `199,393,280`–`199,561,216` bytes before model load, `289,488,896`–`290,054,144` after load, and `331,595,776`–`331,620,352` final peak. Runtime/autograd overhead therefore dominates the `3,160,040`-byte tile; no resident-memory saving may be claimed until a full-model child is measured under the same harness.
+- The launcher is trusted-local research only: no sandbox, Job Object, restricted token, environment scrubbing, persisted boundary transaction, crash/reassignment proof, network transport, or refreshed-weight trajectory. Report 006 makes those boundaries explicit.
 
 ### P7 — Explore sparse experts and other advanced topologies
 
@@ -269,7 +273,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Run one authenticated T1 block in a persistent process separate from the coordinator. Serialize all four activation/adjoint boundaries and the block gradient, measure isolated cold/warm worker RSS and critical-path latency, prove a second warm assignment remains exact without retransmitting block weights, and retain enough coordinator boundary state to define a retry after worker exit.
+Run a matched full-model T1 child through the same trusted-local spawn harness for the same two cursors. Measure cold startup, current/peak RSS, serialized payload, and forward/backward latency, then compare process-tile savings using real process observations rather than tensor counts. Only if the process tile retains useful memory economics should P6 advance to persisted boundary transactions and crash/retry.
 
 ## Remaining major work
 
@@ -329,6 +333,9 @@ Run one authenticated T1 block in a persistent process separate from the coordin
 - Generalized exact boundary substitution to authenticated packed data and added a dataset-bound all-block sweep envelope. Every T1 position independently reproduces the same centralized gradient, optimizer, and model identities while the envelope binds complete block coverage to the exact campaign and manifest.
 - Repeated both six-block sweeps exactly and published Report 005. T1 reduces tile parameter share to 11.44%, cold/warm accounted round trips to 15.24%/9.52% of full, and boundary traffic to 7.60% of one full payload; process separation is now the explicit next gate.
 - The authenticated all-block P6 gate passed `213` tests, including warning-strict tiled tests, plus source/test compilation, lock and CLI verification, exact nested sweep repetition, report-claim recomputation, local-link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
+- Added a bounded persistent tile child protocol with exact safetensors tensor frames, JSON controls, deterministic child configuration, finite lifecycle, one cold model transfer, and two warm-compatible same-checkpoint assignments. The first process run exposed and fixed a `4.66e-9` gradient drift caused by missing child thread/determinism configuration.
+- Repeated the authenticated T1 process run exactly and published Report 006. Serialized overhead is negligible and local IPC is tens of milliseconds, but cold startup is about three seconds and isolated worker peak RSS is about 332 MB, so a matched full-process control is now required before any memory-savings claim.
+- The process-separated P6 gate passed `215` tests, including warning-strict child-process tests, plus source/test compilation, lock and CLI verification, exact evidence-copy and report-link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
 
 ### 2026-07-24
 
