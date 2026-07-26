@@ -243,7 +243,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P6 — Explore exact asynchronous tiled computation
 
-**Status:** Active research — exact T0 boundary parity proven
+**Status:** Active research — exact authenticated T1 all-block parity proven
 
 - Divide one representative transformer layer into retryable matrix or tensor tasks.
 - Persist dependency state at the coordinator.
@@ -254,6 +254,9 @@ Completed within the first P3 measurement and native-baseline slice:
 - Raw gradients, globally clipped gradients, complete AdamW tensor state, and the post-step model all matched the centralized CPU FP32 reference exactly with maximum absolute differences of `0.0`. Two isolated CLI runs repeated every deterministic field and digest.
 - The tile retained `198,272` parameters, 14.86% of the `1,334,016`-parameter T0 model. Its `793,088` model bytes were 85.14% below full; those weights plus `793,088` gradient bytes and four `262,144`-byte activation/adjoint boundaries produced a `2,634,752`-byte cold round trip (75.31% below replicated full) and `1,841,664` warm bytes (82.74% below full). Boundary traffic alone was `1,048,576` bytes, 19.65% of one full-model payload.
 - This does not yet establish worker peak RSS, coordinator memory reduction, connected latency, asynchronous retryability, or a model larger than coordinator memory. Exactness restores a live forward/backward dependency chain whose volunteer reliability cost must be measured explicitly.
+- The authenticated T1 sweep substituted every block position `0..5` independently. First, middle, and final tiles all matched centralized raw/clipped gradients, complete AdamW state, and post-step model identity with `0.0` maximum differences; two complete sweeps repeated every deterministic nested field under dataset revision `99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af`.
+- Each T1 tile retained `789,760` parameters, 11.44% of the `6,901,760`-parameter model, and its `3,159,040` model bytes were 88.56% below full. From T0 to T1 the full payload grew 5.17x while four `524,288`-byte boundaries made `2,097,152` activation/adjoint bytes—only 2x the T0 boundary and 7.60% of a T1 full-model payload. Per-block cold/warm accounted round trips were `8,415,232`/`5,256,192` bytes, 84.76%/90.48% below full; all six positions totaled `50,491,392`/`31,537,152` bytes versus `331,284,480` for six full round trips.
+- T1 timing still overlaps locally—centralized `0.358`–`0.417` seconds versus tiled `0.360`–`0.391`—and combined process peak RSS of `1,059,287,040`–`1,090,740,224` bytes remains contaminated by repeated full-model/optimizer allocation. Process-separated worker memory and transport are now the next evidence boundary.
 
 ### P7 — Explore sparse experts and other advanced topologies
 
@@ -266,7 +269,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Run one authenticated T1 boundary-tiled step at every one of the six block positions. Require exact raw/clipped gradients, optimizer tensors, and post-step model bytes for first, middle, and final boundaries; report how model-tile bytes and activation/adjoint traffic scale before separating tile and coordinator into distinct processes.
+Run one authenticated T1 block in a persistent process separate from the coordinator. Serialize all four activation/adjoint boundaries and the block gradient, measure isolated cold/warm worker RSS and critical-path latency, prove a second warm assignment remains exact without retransmitting block weights, and retain enough coordinator boundary state to define a retry after worker exit.
 
 ## Remaining major work
 
@@ -323,6 +326,9 @@ Run one authenticated T1 boundary-tiled step at every one of the six block posit
 - Began P6 with a real exact boundary substitution rather than another shallow objective. Block 2 executes only on the tile while true prefix/suffix activations and adjoints reconstruct byte-identical full-model gradients, clipping, AdamW state, and model update.
 - Repeated the T0 boundary tracer exactly and published Report 004. The tile uses 14.86% of model parameters and the accounted cold/warm round trips are 75.31%/82.74% below a replicated-full round trip, while autograd intermediates, process-separated worker RSS, coordinator residency, network latency, and retry state remain explicit open gates.
 - The first P6 gate passed `210` tests, including warning-strict tiled tests, plus source/test compilation, lock and CLI verification, two exact deterministic runs, report-claim recomputation, local-link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
+- Generalized exact boundary substitution to authenticated packed data and added a dataset-bound all-block sweep envelope. Every T1 position independently reproduces the same centralized gradient, optimizer, and model identities while the envelope binds complete block coverage to the exact campaign and manifest.
+- Repeated both six-block sweeps exactly and published Report 005. T1 reduces tile parameter share to 11.44%, cold/warm accounted round trips to 15.24%/9.52% of full, and boundary traffic to 7.60% of one full payload; process separation is now the explicit next gate.
+- The authenticated all-block P6 gate passed `213` tests, including warning-strict tiled tests, plus source/test compilation, lock and CLI verification, exact nested sweep repetition, report-claim recomputation, local-link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
 
 ### 2026-07-24
 

@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>P6 T1 All-Block Boundary Sweep · OrcaColony</title>
+  <style>
+    :root { --paper:#f5f2ea; --sheet:#fffdf7; --ink:#142326; --muted:#5e6b69; --ocean:#0e5a63; --amber:#c97325; --green:#31684a; --red:#9a4938; --line:#cbd3cf; --soft:#e8ece7; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:"Segoe UI",Aptos,system-ui,sans-serif; line-height:1.55; }
+    body::before { content:""; display:block; height:7px; background:var(--ocean); }
+    a { color:var(--ocean); text-underline-offset:3px; }
+    main { max-width:1180px; margin:auto; padding:42px 42px 80px; }
+    .back { display:inline-block; margin-bottom:34px; font-size:.83rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+    .eyebrow { color:var(--ocean); font-size:.76rem; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
+    h1,h2,h3 { font-family:Georgia,"Times New Roman",serif; font-weight:500; line-height:1.08; }
+    h1 { max-width:980px; margin:14px 0 21px; font-size:clamp(2.7rem,6vw,5.5rem); letter-spacing:-.045em; }
+    .standfirst { max-width:870px; margin:0; color:var(--muted); font-size:1.22rem; line-height:1.7; }
+    .meta { display:flex; flex-wrap:wrap; gap:10px 24px; margin-top:28px; padding-top:19px; border-top:1px solid var(--line); color:var(--muted); font-size:.84rem; }
+    .status { color:var(--green); font-weight:800; text-transform:uppercase; letter-spacing:.08em; }
+    .decision { display:grid; grid-template-columns:150px 1fr; gap:28px; margin:52px 0 68px; padding:30px 0; border-top:4px solid var(--green); border-bottom:1px solid var(--line); }
+    .decision .label { color:var(--green); font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+    .decision strong { display:block; max-width:840px; font-family:Georgia,"Times New Roman",serif; font-size:clamp(1.55rem,3vw,2.5rem); font-weight:500; line-height:1.22; }
+    section { display:grid; grid-template-columns:120px minmax(0,1fr); gap:36px; padding:48px 0; border-top:1px solid var(--line); }
+    .section-no { color:var(--ocean); font-family:Georgia,serif; font-size:2rem; }
+    section h2 { max-width:830px; margin:0 0 26px; font-size:clamp(1.8rem,3vw,2.7rem); }
+    section p { max-width:810px; color:var(--muted); }
+    .metric-table { width:100%; border-collapse:collapse; margin:24px 0; background:var(--sheet); }
+    .metric-table th,.metric-table td { padding:14px 16px; border-bottom:1px solid var(--line); text-align:right; vertical-align:top; }
+    .metric-table th:first-child,.metric-table td:first-child { text-align:left; }
+    .metric-table th { color:var(--muted); font-size:.72rem; letter-spacing:.09em; text-transform:uppercase; }
+    .metric-table td:first-child { font-weight:700; }
+    .good { color:var(--green); font-weight:800; } .bad { color:var(--red); font-weight:800; }
+    .block-strip { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; margin:26px 0; }
+    .block { padding:18px 8px; text-align:center; color:white; background:var(--ocean); }
+    .block strong { display:block; font-family:Georgia,serif; font-size:1.55rem; }
+    .block span { font-size:.7rem; letter-spacing:.08em; text-transform:uppercase; }
+    .scale { margin:28px 0; padding:24px; background:var(--sheet); border:1px solid var(--line); }
+    .scale-row { display:grid; grid-template-columns:190px 1fr 90px; gap:14px; align-items:center; margin:16px 0; }
+    .bar { height:18px; background:#e4e8e3; }
+    .bar i { display:block; height:100%; background:var(--ocean); }
+    .scale-row:nth-child(3) .bar i { background:var(--green); }
+    .scale-row:nth-child(4) .bar i { background:var(--amber); }
+    .scale-row strong:last-child { text-align:right; }
+    .findings { display:grid; gap:0; margin:20px 0 0; padding:0; list-style:none; }
+    .findings li { display:grid; grid-template-columns:38px 1fr; gap:12px; padding:19px 0; border-bottom:1px solid var(--line); }
+    .findings .mark { display:grid; place-items:center; width:29px; height:29px; border-radius:50%; color:white; font-weight:900; }
+    .positive .mark { background:var(--green); } .negative .mark { background:var(--red); } .neutral .mark { background:var(--amber); }
+    .findings strong { font-size:1.02rem; } .findings p { margin:5px 0 0; }
+    .callout { margin:26px 0; padding:22px 24px; border-top:3px solid var(--ocean); background:var(--soft); }
+    .callout strong { color:var(--ocean); }
+    .next { margin-top:28px; counter-reset:item; }
+    .next li { list-style:none; position:relative; padding:0 0 22px 48px; color:var(--muted); }
+    .next li::before { counter-increment:item; content:counter(item); position:absolute; left:0; top:-2px; width:29px; height:29px; display:grid; place-items:center; border:1px solid var(--ocean); color:var(--ocean); font-weight:800; border-radius:50%; }
+    code { padding:.12rem .35rem; background:#e8ebe6; border-radius:3px; font-family:"Cascadia Code",Consolas,monospace; font-size:.88em; }
+    pre { overflow:auto; padding:18px; color:#eef5f3; background:#173034; border-radius:2px; font-size:.82rem; }
+    details { margin-top:22px; } summary { cursor:pointer; color:var(--ocean); font-weight:800; }
+    footer { margin-top:56px; padding-top:24px; border-top:1px solid var(--line); color:var(--muted); font-size:.82rem; }
+    @media(max-width:760px) { main{padding:30px 20px 60px}.decision,section{grid-template-columns:1fr;gap:14px}.decision{margin-top:38px}.metric-table{font-size:.8rem}.metric-table th,.metric-table td{padding:10px 7px}.block-strip{grid-template-columns:repeat(3,1fr)}.scale-row{grid-template-columns:1fr}.meta{display:grid}.section-no{font-size:1.25rem} }
+    @media print { body{background:white} body::before{display:none} main{max-width:none;padding:0}.back{display:none}.metric-table,.block-strip,.scale{break-inside:avoid} }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="back" href="index.html">← All reports</a>
+    <header>
+      <div class="eyebrow">OrcaColony / Report 005 / P6 authenticated sweep</div>
+      <h1>Every T1 block remains exact—and boundary cost shrinks in proportion.</h1>
+      <p class="standfirst">All six first, middle, and final transformer positions reproduced the authenticated centralized gradient, clipping, AdamW state, and model update byte-for-byte. Each tile held 11.44% of model parameters; warm accounted transfer was 90.48% below a replicated-full round trip.</p>
+      <div class="meta">
+        <span class="status">Six-position exact parity · continue P6</span>
+        <span>Authenticated T1 TinyStories</span>
+        <span>6 blocks · 2 sweeps</span>
+        <span>Recorded: 2026-07-25</span>
+      </div>
+    </header>
+
+    <div class="decision">
+      <div class="label">Decision</div>
+      <strong>The boundary mathematics scale across the complete T1 stack. Stop repeating in-process parity; separate tile and coordinator processes next to measure real worker memory, serialization, latency, warm reuse, and failure boundaries.</strong>
+    </div>
+
+    <section>
+      <div class="section-no">01</div>
+      <div>
+        <h2>Was exactness specific to one middle block?</h2>
+        <p><strong>No.</strong> Each position independently rebuilt the same authenticated first batch and centralized reference, substituted only that selected block, and completed the full optimizer step. Every selected coordinator block executed zero times; every tile executed once.</p>
+        <div class="block-strip" aria-label="All six T1 block positions exact">
+          <div class="block"><strong>0</strong><span>exact</span></div><div class="block"><strong>1</strong><span>exact</span></div><div class="block"><strong>2</strong><span>exact</span></div><div class="block"><strong>3</strong><span>exact</span></div><div class="block"><strong>4</strong><span>exact</span></div><div class="block"><strong>5</strong><span>exact</span></div>
+        </div>
+        <table class="metric-table">
+          <thead><tr><th>Authority</th><th>Shared identity across all blocks</th><th>Difference</th></tr></thead>
+          <tbody>
+            <tr><td>Loss</td><td>9.0759382248</td><td class="good">0.0</td></tr>
+            <tr><td>Raw gradients</td><td><code>716d7889…e1013a</code></td><td class="good">0.0</td></tr>
+            <tr><td>Clipped gradients</td><td><code>49020e33…b41904</code></td><td class="good">0.0</td></tr>
+            <tr><td>AdamW tensors</td><td><code>4876e58b…0fbdcb</code></td><td class="good">Exact</td></tr>
+            <tr><td>Post-step model</td><td><code>9cca12c0…498eb</code></td><td class="good">0.0</td></tr>
+          </tbody>
+        </table>
+        <p>Two isolated six-block sweeps matched every deterministic nested field. Timing and combined process peak RSS were the only varying observations.</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-no">02</div>
+      <div>
+        <h2>The larger model improves the ratio, even though boundaries double.</h2>
+        <p>T1 doubles each activation or adjoint from 262,144 to 524,288 bytes, but the full model payload grows from 5,336,064 to 27,607,040 bytes. Boundary traffic therefore becomes a smaller share of the model.</p>
+        <div class="scale">
+          <div class="scale-row"><strong>Tile parameter share</strong><div class="bar"><i style="width:11.44%"></i></div><strong>11.44%</strong></div>
+          <div class="scale-row"><strong>Boundary / full payload</strong><div class="bar"><i style="width:7.60%"></i></div><strong>7.60%</strong></div>
+          <div class="scale-row"><strong>Warm / full round trip</strong><div class="bar"><i style="width:9.52%"></i></div><strong>9.52%</strong></div>
+        </div>
+        <table class="metric-table">
+          <thead><tr><th>Per block</th><th>T0</th><th>T1</th><th>T1 finding</th></tr></thead>
+          <tbody>
+            <tr><td>Tile parameters</td><td>14.86%</td><td class="good">11.44%</td><td>789,760 of 6,901,760</td></tr>
+            <tr><td>Tile model payload</td><td>793,088 B</td><td>3,159,040 B</td><td class="good">88.56% below full</td></tr>
+            <tr><td>Four boundary tensors</td><td>1,048,576 B</td><td>2,097,152 B</td><td>7.60% of full payload</td></tr>
+            <tr><td>Cold round trip</td><td>2,634,752 B</td><td class="good">8,415,232 B</td><td>15.24% of full · 84.76% lower</td></tr>
+            <tr><td>Warm round trip</td><td>1,841,664 B</td><td class="good">5,256,192 B</td><td>90.48% below full</td></tr>
+          </tbody>
+        </table>
+        <div class="callout"><strong>Scaling direction:</strong> model bytes grew about 5.17× while boundary bytes grew 2×. This single T0→T1 comparison is favorable, not a general law; context length and batch size can grow faster than model width or tile size.</div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-no">03</div>
+      <div>
+        <h2>Six exact substitutions still have aggregate costs.</h2>
+        <table class="metric-table">
+          <thead><tr><th>Complete six-position sweep</th><th>Tiled accounted bytes</th><th>Six replicated-full round trips</th><th>Reduction</th></tr></thead>
+          <tbody>
+            <tr><td>Cold tiles</td><td>50,491,392 B</td><td>331,284,480 B</td><td class="good">84.76%</td></tr>
+            <tr><td>Warm tiles</td><td>31,537,152 B</td><td>331,284,480 B</td><td class="good">90.48%</td></tr>
+          </tbody>
+        </table>
+        <ul class="findings">
+          <li class="positive"><span class="mark">+</span><div><strong>Exact tile transfer remains far below six full replicas.</strong><p>Weights, block gradients, and four boundary tensors are all counted. This is a stronger accounting basis than P5's model-download-only headline.</p></div></li>
+          <li class="neutral"><span class="mark">→</span><div><strong>The sweep runs six independent reference steps.</strong><p>It proves each boundary location separately. It is not one six-tile pipeline step and must not be interpreted as aggregate campaign throughput.</p></div></li>
+          <li class="negative"><span class="mark">!</span><div><strong>8,415,232 accounted bytes are still not tile peak RSS.</strong><p>Attention scores, MLP intermediates, autograd storage, allocator overhead, and framework state remain outside tensor accounting.</p></div></li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-no">04</div>
+      <div>
+        <h2>Timing remains local parity evidence.</h2>
+        <p>Across both sweeps, centralized steps took 0.358–0.417 seconds and tiled steps took 0.360–0.391 seconds. The ranges overlap, and no process serialization, IPC/network transport, queueing, or retry delay exists. No speedup is claimed.</p>
+        <p>Combined-process peak RSS ranged from 1,059,287,040 to 1,090,740,224 bytes as repeated models and optimizer allocations raised the process high-water mark. That is neither worker-only memory nor a per-block peak.</p>
+        <div class="callout"><strong>The next measurement must use process boundaries.</strong> In-process tensor accounting has now done its job: it proved exactness and supplied a byte contract. Repeating more local blocks would not answer the remaining worker-memory or reliability questions.</div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-no">05</div>
+      <div>
+        <h2>Next P6 slice: an authenticated persistent tile process.</h2>
+        <ol class="next">
+          <li><strong>Spawn a separate worker process.</strong> Load one exact block from authenticated bytes and report isolated cold and warm RSS.</li>
+          <li><strong>Serialize every boundary.</strong> Measure actual wire-format sizes for input activation, output activation, output adjoint, input adjoint, and block gradients.</li>
+          <li><strong>Keep the tile warm.</strong> Reuse authenticated block weights for a second assignment and prove identical results without retransmitting them.</li>
+          <li><strong>Measure critical path and failure states.</strong> Record forward and backward latency separately, then persist enough coordinator boundary state to retry after a worker exits.</li>
+        </ol>
+        <p>Only after that connected local proof should P6 expand to multiple tiles or volunteer-facing scheduling.</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-no">06</div>
+      <div>
+        <h2>Evidence boundary and reproduction</h2>
+        <p>This report covers one authenticated T1 training batch, six independent one-step block substitutions, CPU FP32, and local in-process boundaries. It proves every block location can reproduce the centralized authority and measures tensor transfer; it does not prove connected execution, restart, or held-out campaign trajectories.</p>
+        <details>
+          <summary>Exact command and evidence files</summary>
+          <pre>unset PYTHONPATH &amp;&amp; uv run python -m orcacolony.tiled_model \
+  --config campaign/t1-tinystories-smoke.json \
+  --dataset .artifacts/tinystories-t1-v2 \
+  --all-blocks \
+  --output &lt;outside-repository-output.json&gt;</pre>
+          <p><a href="evidence/p6-boundary-tile-t1-all-blocks.json">Primary sweep JSON</a> · <a href="evidence/p6-boundary-tile-t1-all-blocks-repeat.json">Independent repeat JSON</a> · <a href="p6-exact-boundary-tile-t0.html">Report 004 T0 oracle</a></p>
+        </details>
+      </div>
+    </section>
+
+    <footer>OrcaColony human-readable finding · authenticated all-position parity advances exactness, not connected-profile qualification.</footer>
+  </main>
+</body>
+</html>

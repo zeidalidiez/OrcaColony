@@ -14,6 +14,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from orcacolony.artifacts import PackedDataset
 from orcacolony.reference import (
     CampaignConfig,
     VolunteerDecoder,
@@ -22,6 +23,7 @@ from orcacolony.reference import (
     fixture_batch,
     load_campaign,
     tensor_sha256,
+    validate_dataset_artifacts,
 )
 
 
@@ -63,6 +65,22 @@ class TiledBlockEvidence:
     centralized_step_seconds: float
     tiled_step_seconds: float
     combined_process_peak_rss_bytes: int | None
+
+
+@dataclass(frozen=True)
+class TiledBlockSweepEvidence:
+    format: str
+    campaign_id: str
+    dataset_revision: str
+    block_indices: tuple[int, ...]
+    blocks: tuple[TiledBlockEvidence, ...]
+    all_raw_gradients_exact: bool
+    all_clipped_gradients_exact: bool
+    all_optimizers_exact: bool
+    all_models_exact: bool
+    total_cold_assignment_transfer_tensor_bytes: int
+    total_warm_assignment_transfer_tensor_bytes: int
+    total_replicated_full_round_trip_tensor_bytes: int
 
 
 def _module_tensor_bytes(module: nn.Module) -> int:
@@ -196,9 +214,9 @@ def run_tiled_block_experiment(
     campaign: CampaignConfig,
     *,
     block_index: int,
+    dataset: PackedDataset | None = None,
 ) -> TiledBlockEvidence:
-    if campaign.dataset is not None:
-        raise ValueError("the first tiled-block experiment supports the T0 fixture only")
+    validate_dataset_artifacts(campaign, dataset)
     if block_index < 0 or block_index >= campaign.model.layers:
         raise ValueError("block index is outside the configured model")
 
@@ -207,7 +225,7 @@ def run_tiled_block_experiment(
     tile = copy.deepcopy(tiled.blocks[block_index])
     centralized_optimizer = _create_optimizer(centralized, campaign.training)
     tiled_optimizer = _create_optimizer(tiled, campaign.training)
-    inputs, targets = fixture_batch(campaign, 0)
+    inputs, targets = fixture_batch(campaign, 0, dataset)
 
     centralized.train()
     centralized_optimizer.zero_grad(set_to_none=True)
@@ -394,22 +412,96 @@ def run_tiled_block_experiment(
     )
 
 
+def run_tiled_block_sweep(
+    campaign: CampaignConfig,
+    dataset: PackedDataset,
+) -> TiledBlockSweepEvidence:
+    if campaign.dataset is None:
+        raise ValueError("tiled block sweep requires authenticated dataset artifacts")
+    validate_dataset_artifacts(campaign, dataset)
+    block_indices = tuple(range(campaign.model.layers))
+    blocks = tuple(
+        run_tiled_block_experiment(
+            campaign,
+            block_index=block_index,
+            dataset=dataset,
+        )
+        for block_index in block_indices
+    )
+    return TiledBlockSweepEvidence(
+        format="orcacolony_tiled_block_sweep_evidence_v1",
+        campaign_id=str(campaign.campaign["id"]),
+        dataset_revision=dataset.revision,
+        block_indices=block_indices,
+        blocks=blocks,
+        all_raw_gradients_exact=all(
+            block.centralized_raw_gradient_sha256
+            == block.tiled_raw_gradient_sha256
+            and block.max_abs_raw_gradient_difference == 0.0
+            for block in blocks
+        ),
+        all_clipped_gradients_exact=all(
+            block.centralized_clipped_gradient_sha256
+            == block.tiled_clipped_gradient_sha256
+            and block.max_abs_clipped_gradient_difference == 0.0
+            for block in blocks
+        ),
+        all_optimizers_exact=all(
+            block.centralized_optimizer_sha256 == block.tiled_optimizer_sha256
+            for block in blocks
+        ),
+        all_models_exact=all(
+            block.centralized_model_sha256 == block.tiled_model_sha256
+            and block.max_abs_model_difference == 0.0
+            for block in blocks
+        ),
+        total_cold_assignment_transfer_tensor_bytes=sum(
+            block.cold_assignment_transfer_tensor_bytes for block in blocks
+        ),
+        total_warm_assignment_transfer_tensor_bytes=sum(
+            block.warm_assignment_transfer_tensor_bytes for block in blocks
+        ),
+        total_replicated_full_round_trip_tensor_bytes=sum(
+            block.full_replica_round_trip_tensor_bytes for block in blocks
+        ),
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run an exact OrcaColony boundary-tiled block experiment"
     )
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--block-index", type=int, required=True)
+    parser.add_argument("--dataset", type=Path)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--block-index", type=int)
+    mode.add_argument("--all-blocks", action="store_true")
     parser.add_argument("--output", type=Path)
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
-    args = _build_parser().parse_args(argv)
-    evidence = run_tiled_block_experiment(
-        load_campaign(args.config),
-        block_index=args.block_index,
-    )
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    campaign = load_campaign(args.config)
+    if campaign.dataset is None:
+        if args.dataset is not None:
+            parser.error("--dataset is only valid for data-backed campaign configs")
+        if args.all_blocks:
+            parser.error("--all-blocks requires a data-backed campaign config")
+        evidence = run_tiled_block_experiment(
+            campaign,
+            block_index=args.block_index,
+        )
+    else:
+        if args.dataset is None:
+            parser.error("data-backed campaign configs require --dataset")
+        if not args.all_blocks:
+            parser.error("data-backed tiled evidence requires --all-blocks")
+        evidence = run_tiled_block_sweep(
+            campaign,
+            PackedDataset.load(args.dataset),
+        )
     payload = json.dumps(asdict(evidence), indent=2, sort_keys=True) + "\n"
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
