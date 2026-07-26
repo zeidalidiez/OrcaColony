@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>P6 Exact Boundary Tile · OrcaColony</title>
+  <style>
+    :root { --paper:#f5f2ea; --sheet:#fffdf7; --ink:#142326; --muted:#5e6b69; --ocean:#0e5a63; --amber:#c97325; --green:#31684a; --red:#9a4938; --line:#cbd3cf; --soft:#e8ece7; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:"Segoe UI",Aptos,system-ui,sans-serif; line-height:1.55; }
+    body::before { content:""; display:block; height:7px; background:var(--ocean); }
+    a { color:var(--ocean); text-underline-offset:3px; }
+    main { max-width:1180px; margin:auto; padding:42px 42px 80px; }
+    .back { display:inline-block; margin-bottom:34px; font-size:.83rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+    .eyebrow { color:var(--ocean); font-size:.76rem; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
+    h1,h2,h3 { font-family:Georgia,"Times New Roman",serif; font-weight:500; line-height:1.08; }
+    h1 { max-width:970px; margin:14px 0 21px; font-size:clamp(2.7rem,6vw,5.5rem); letter-spacing:-.045em; }
+    .standfirst { max-width:850px; margin:0; color:var(--muted); font-size:1.22rem; line-height:1.7; }
+    .meta { display:flex; flex-wrap:wrap; gap:10px 24px; margin-top:28px; padding-top:19px; border-top:1px solid var(--line); color:var(--muted); font-size:.84rem; }
+    .status { color:var(--green); font-weight:800; text-transform:uppercase; letter-spacing:.08em; }
+    .decision { display:grid; grid-template-columns:150px 1fr; gap:28px; margin:52px 0 68px; padding:30px 0; border-top:4px solid var(--green); border-bottom:1px solid var(--line); }
+    .decision .label { color:var(--green); font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+    .decision strong { display:block; max-width:820px; font-family:Georgia,"Times New Roman",serif; font-size:clamp(1.55rem,3vw,2.5rem); font-weight:500; line-height:1.22; }
+    section { display:grid; grid-template-columns:120px minmax(0,1fr); gap:36px; padding:48px 0; border-top:1px solid var(--line); }
+    .section-no { color:var(--ocean); font-family:Georgia,serif; font-size:2rem; }
+    section h2 { max-width:820px; margin:0 0 26px; font-size:clamp(1.8rem,3vw,2.7rem); }
+    section p { max-width:800px; color:var(--muted); }
+    .metric-table { width:100%; border-collapse:collapse; margin:24px 0; background:var(--sheet); }
+    .metric-table th,.metric-table td { padding:14px 16px; border-bottom:1px solid var(--line); text-align:right; vertical-align:top; }
+    .metric-table th:first-child,.metric-table td:first-child { text-align:left; }
+    .metric-table th { color:var(--muted); font-size:.72rem; letter-spacing:.09em; text-transform:uppercase; }
+    .metric-table td:first-child { font-weight:700; }
+    .good { color:var(--green); font-weight:800; } .bad { color:var(--red); font-weight:800; }
+    .flow { margin:28px 0; padding:18px; overflow:auto; background:var(--sheet); border:1px solid var(--line); }
+    .flow svg { display:block; min-width:760px; width:100%; height:auto; }
+    .hash-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; margin:24px 0; background:var(--line); border:1px solid var(--line); }
+    .hash-grid div { padding:20px; background:var(--sheet); }
+    .hash-grid strong { display:block; color:var(--green); font-size:1.25rem; }
+    .hash-grid span { color:var(--muted); font-size:.82rem; }
+    .findings { display:grid; gap:0; margin:20px 0 0; padding:0; list-style:none; }
+    .findings li { display:grid; grid-template-columns:38px 1fr; gap:12px; padding:19px 0; border-bottom:1px solid var(--line); }
+    .findings .mark { display:grid; place-items:center; width:29px; height:29px; border-radius:50%; color:white; font-weight:900; }
+    .positive .mark { background:var(--green); } .negative .mark { background:var(--red); } .neutral .mark { background:var(--amber); }
+    .findings strong { font-size:1.02rem; } .findings p { margin:5px 0 0; }
+    .callout { margin:26px 0; padding:22px 24px; border-top:3px solid var(--ocean); background:var(--soft); }
+    .callout strong { color:var(--ocean); }
+    .next { margin-top:28px; counter-reset:item; }
+    .next li { list-style:none; position:relative; padding:0 0 22px 48px; color:var(--muted); }
+    .next li::before { counter-increment:item; content:counter(item); position:absolute; left:0; top:-2px; width:29px; height:29px; display:grid; place-items:center; border:1px solid var(--ocean); color:var(--ocean); font-weight:800; border-radius:50%; }
+    code { padding:.12rem .35rem; background:#e8ebe6; border-radius:3px; font-family:"Cascadia Code",Consolas,monospace; font-size:.88em; }
+    pre { overflow:auto; padding:18px; color:#eef5f3; background:#173034; border-radius:2px; font-size:.82rem; }
+    details { margin-top:22px; } summary { cursor:pointer; color:var(--ocean); font-weight:800; }
+    footer { margin-top:56px; padding-top:24px; border-top:1px solid var(--line); color:var(--muted); font-size:.82rem; }
+    @media(max-width:760px) { main{padding:30px 20px 60px}.decision,section{grid-template-columns:1fr;gap:14px}.decision{margin-top:38px}.metric-table{font-size:.8rem}.metric-table th,.metric-table td{padding:10px 7px}.hash-grid{grid-template-columns:1fr}.meta{display:grid}.section-no{font-size:1.25rem} }
+    @media print { body{background:white} body::before{display:none} main{max-width:none;padding:0}.back{display:none}.flow,.metric-table,.hash-grid{break-inside:avoid} }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="back" href="index.html">← All reports</a>
+    <header>
+      <div class="eyebrow">OrcaColony / Report 004 / P6 exact tracer</div>
+      <h1>One boundary tile preserves the full training step exactly.</h1>
+      <p class="standfirst">Block 2 executed outside the coordinator's forward graph, exchanged true activations and adjoints, and reproduced every centralized gradient, AdamW tensor, and post-step model byte. The tile held 14.86% of model parameters; connected latency and worker peak memory remain open.</p>
+      <div class="meta">
+        <span class="status">Exact parity · continue P6</span>
+        <span>T0 fixture · CPU FP32</span>
+        <span>Block 2 of 4</span>
+        <span>Recorded: 2026-07-25</span>
+      </div>
+    </header>
+
+    <div class="decision">
+      <div class="label">Decision</div>
+      <strong>Proceed from the local oracle to authenticated T1 tiles across every block. Preserve exact boundary mathematics; do not reintroduce P5's independent shallow objective.</strong>
+    </div>
+
+    <section>
+      <div class="section-no">01</div>
+      <div>
+        <h2>What crossed the boundary?</h2>
+        <p>The coordinator executed the real embedding and prefix. A block-only tile received that hidden activation, executed block 2 once, and returned its output. After the coordinator executed the real suffix and loss, it sent the exact output adjoint back; the tile returned block gradients and the input adjoint so prefix backpropagation could finish.</p>
+        <div class="flow">
+          <svg viewBox="0 0 940 420" role="img" aria-labelledby="flow-title flow-desc">
+            <title id="flow-title">Exact forward and backward boundary exchange</title>
+            <desc id="flow-desc">Coordinator prefix sends input activation to block tile, tile sends output activation to coordinator suffix, then output adjoint and input adjoint flow backward. Tile weights and gradients are also exchanged.</desc>
+            <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#0e5a63"/></marker><marker id="amber-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#c97325"/></marker></defs>
+            <rect x="35" y="145" width="235" height="120" rx="4" fill="#e8ece7" stroke="#0e5a63" stroke-width="2"/>
+            <rect x="352" y="120" width="235" height="170" rx="4" fill="#fff7e9" stroke="#c97325" stroke-width="3"/>
+            <rect x="670" y="145" width="235" height="120" rx="4" fill="#e8ece7" stroke="#0e5a63" stroke-width="2"/>
+            <g font-family="Georgia, serif" fill="#142326" text-anchor="middle"><text x="152" y="188" font-size="23">Coordinator</text><text x="152" y="218" font-size="18">embedding + prefix</text><text x="470" y="170" font-size="23">Worker tile</text><text x="470" y="201" font-size="18">transformer block 2</text><text x="470" y="236" font-size="15">198,272 parameters</text><text x="787" y="188" font-size="23">Coordinator</text><text x="787" y="218" font-size="18">suffix + loss</text></g>
+            <line x1="270" y1="165" x2="350" y2="165" stroke="#0e5a63" stroke-width="3" marker-end="url(#arrow)"/><text x="310" y="147" fill="#5e6b69" text-anchor="middle" font-size="13">input activation</text>
+            <line x1="588" y1="185" x2="668" y2="185" stroke="#0e5a63" stroke-width="3" marker-end="url(#arrow)"/><text x="628" y="167" fill="#5e6b69" text-anchor="middle" font-size="13">output activation</text>
+            <line x1="670" y1="235" x2="590" y2="235" stroke="#c97325" stroke-width="3" marker-end="url(#amber-arrow)"/><text x="630" y="258" fill="#5e6b69" text-anchor="middle" font-size="13">output adjoint</text>
+            <line x1="352" y1="255" x2="272" y2="255" stroke="#c97325" stroke-width="3" marker-end="url(#amber-arrow)"/><text x="312" y="279" fill="#5e6b69" text-anchor="middle" font-size="13">input adjoint</text>
+            <path d="M210,125 C280,55 390,55 425,110" fill="none" stroke="#0e5a63" stroke-width="2" marker-end="url(#arrow)"/><text x="320" y="55" fill="#5e6b69" text-anchor="middle" font-size="13">tile weights · 793,088 B cold</text>
+            <path d="M515,300 C470,375 300,375 210,276" fill="none" stroke="#c97325" stroke-width="2" marker-end="url(#amber-arrow)"/><text x="360" y="390" fill="#5e6b69" text-anchor="middle" font-size="13">block gradients · 793,088 B</text>
+          </svg>
+        </div>
+        <div class="callout"><strong>This is not a surrogate loss.</strong> The tile receives the selected block's true full-model input and the suffix's true loss adjoint. Prefix, tied output/input embedding accumulation, global clipping, and coordinator AdamW all remain part of one exact step.</div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-no">02</div>
+      <div>
+        <h2>Exact means every authority-bearing tensor matched.</h2>
+        <div class="hash-grid">
+          <div><strong>0.0</strong><span>maximum raw gradient difference</span></div>
+          <div><strong>0.0</strong><span>maximum clipped gradient difference</span></div>
+          <div><strong>0.0</strong><span>maximum post-step model difference</span></div>
+        </div>
+        <table class="metric-table">
+          <thead><tr><th>Identity</th><th>Centralized</th><th>Tiled</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr><td>Loss</td><td>8.3353624344</td><td>8.3353624344</td><td class="good">Exact</td></tr>
+            <tr><td>Raw gradient SHA-256</td><td colspan="2"><code>76d67741…caaf68</code></td><td class="good">Equal</td></tr>
+            <tr><td>Clipped gradient SHA-256</td><td colspan="2"><code>2e79af00…1319d</code></td><td class="good">Equal</td></tr>
+            <tr><td>AdamW state SHA-256</td><td colspan="2"><code>9ba48512…947ec8</code></td><td class="good">Equal</td></tr>
+            <tr><td>Post-step model SHA-256</td><td colspan="2"><code>dd7f27fc…ecbce3</code></td><td class="good">Equal</td></tr>
+            <tr><td>Selected-block forwards</td><td>1 centralized</td><td>0 coordinator + 1 tile</td><td class="good">Substituted</td></tr>
+          </tbody>
+        </table>
+        <p>Two isolated CLI runs repeated every deterministic field and digest exactly. This establishes a local CPU FP32 boundary oracle for the next P6 slices; it does not qualify other numerical profiles.</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-no">03</div>
+      <div>
+        <h2>The tile is small; activation traffic is now visible.</h2>
+        <table class="metric-table">
+          <thead><tr><th>Measurement</th><th>Bytes / share</th><th>Interpretation</th></tr></thead>
+          <tbody>
+            <tr><td>Tile parameters</td><td class="good">198,272 · 14.86%</td><td>of 1,334,016 full parameters</td></tr>
+            <tr><td>Tile model payload</td><td class="good">793,088 B · 85.14% lower</td><td>than 5,336,064 B full weights</td></tr>
+            <tr><td>Forward boundaries</td><td>524,288 B</td><td>input + output activations</td></tr>
+            <tr><td>Backward boundaries</td><td>524,288 B</td><td>output + input adjoints</td></tr>
+            <tr><td>Boundary traffic</td><td>1,048,576 B · 19.65%</td><td>of one full-model payload</td></tr>
+            <tr><td>Cold assignment round trip</td><td class="good">2,634,752 B · 75.31% lower</td><td>versus 10,672,128 B replicated-full weights + gradients</td></tr>
+            <tr><td>Warm assignment round trip</td><td class="good">1,841,664 B · 82.74% lower</td><td>tile weights already cached</td></tr>
+          </tbody>
+        </table>
+        <ul class="findings">
+          <li class="positive"><span class="mark">+</span><div><strong>The worker does useful exact block compute with 14.86% of model parameters.</strong><p>Unlike P5, quality mathematics do not need to be traded away to reduce the worker's model slice.</p></div></li>
+          <li class="neutral"><span class="mark">→</span><div><strong>Activation traffic scales with batch × sequence × width.</strong><p>At this T0 boundary each activation or adjoint is 262,144 bytes. Larger contexts can erase model-payload savings, so P6 must report both.</p></div></li>
+          <li class="negative"><span class="mark">!</span><div><strong>2,634,752 accounted bytes are not worker peak RSS.</strong><p>The total covers tile weights, tile gradients, and four boundary tensors. Attention matrices, MLP intermediates, autograd storage, allocator overhead, and framework memory are omitted.</p></div></li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-no">04</div>
+      <div>
+        <h2>Exactness restores a live dependency chain.</h2>
+        <ul class="findings">
+          <li class="negative"><span class="mark">!</span><div><strong>The coordinator still holds the complete model.</strong><p>This tracer proves a weak worker can execute one exact block. It does not prove a model larger than coordinator RAM or VRAM can train.</p></div></li>
+          <li class="negative"><span class="mark">!</span><div><strong>The worker becomes a required forward/backward stage.</strong><p>The suffix cannot run until block output arrives, and prefix backward waits for the input adjoint. Volunteer latency, disconnects, leases, retries, and persisted boundary state are not represented.</p></div></li>
+          <li class="neutral"><span class="mark">→</span><div><strong>Local timing is parity evidence, not speed evidence.</strong><p>Centralized steps took 0.088–0.118 seconds and tiled steps 0.086–0.101 seconds. No transport or process separation exists, and the ranges overlap.</p></div></li>
+          <li class="negative"><span class="mark">!</span><div><strong>Combined-process peak RSS is 433,377,280–433,528,832 bytes.</strong><p>That process retains two full models, two optimizers, and the tile. It is neither worker-only nor coordinator-only memory.</p></div></li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-no">05</div>
+      <div>
+        <h2>Next P6 slice: every T1 block, one authenticated step.</h2>
+        <ol class="next">
+          <li><strong>Use the exact authenticated T1 dataset.</strong> Keep the same frozen model/data identity used by P5 so boundary scaling is comparable.</li>
+          <li><strong>Exercise all six block positions.</strong> Prove raw/clipped gradients, optimizer tensors, and post-step model bytes for first, middle, and final boundaries.</li>
+          <li><strong>Separate worker and coordinator processes.</strong> Measure actual worker RSS, serialization, transport bytes, critical-path latency, and warm tile reuse.</li>
+          <li><strong>Persist retryable boundary state.</strong> Only then test reassignment after a worker disappears between forward output and backward adjoint.</li>
+        </ol>
+        <p>That sequence tests the exactness and reliability costs before attempting a complete multi-tile model or a connected campaign.</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-no">06</div>
+      <div>
+        <h2>Evidence boundary and reproduction</h2>
+        <p>This report covers one T0 batch, block 2 of 4, CPU FP32, one optimizer step, and local in-process boundaries. It establishes exact numerical substitution and explicit tensor accounting only.</p>
+        <details>
+          <summary>Exact command and evidence files</summary>
+          <pre>unset PYTHONPATH &amp;&amp; uv run python -m orcacolony.tiled_model \
+  --config campaign/t0-smoke.json \
+  --block-index 2 \
+  --output &lt;outside-repository-output.json&gt;</pre>
+          <p><a href="evidence/p6-boundary-tile-t0.json">Primary evidence JSON</a> · <a href="evidence/p6-boundary-tile-t0-repeat.json">Independent repeat JSON</a> · <a href="p5-block-sharded-conclusion.html">Report 003 P5 conclusion</a></p>
+        </details>
+      </div>
+    </section>
+
+    <footer>OrcaColony human-readable finding · exact local parity is a prerequisite, not a connected-profile qualification.</footer>
+  </main>
+</body>
+</html>

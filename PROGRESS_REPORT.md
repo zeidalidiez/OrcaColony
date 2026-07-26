@@ -243,13 +243,17 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P6 — Explore exact asynchronous tiled computation
 
-**Status:** Active research — exact boundary-preserving tracer next
+**Status:** Active research — exact T0 boundary parity proven
 
 - Divide one representative transformer layer into retryable matrix or tensor tasks.
 - Persist dependency state at the coordinator.
 - Reassign failed tiles without requiring permanent peer pipelines.
 - Reconstruct exact forward and backward results.
 - Measure worker memory, network transfer, cache reuse, latency, and compute-to-transfer ratio before expanding to a complete model.
+- The first exact tracer replaced block 2 inside the real full-model graph. The coordinator produced the true prefix activation, the tile returned the block output, the coordinator suffix produced the true output adjoint, and the tile returned both exact block gradients and the input adjoint needed for prefix backpropagation. The coordinator's selected block executed zero times while the tile executed once.
+- Raw gradients, globally clipped gradients, complete AdamW tensor state, and the post-step model all matched the centralized CPU FP32 reference exactly with maximum absolute differences of `0.0`. Two isolated CLI runs repeated every deterministic field and digest.
+- The tile retained `198,272` parameters, 14.86% of the `1,334,016`-parameter T0 model. Its `793,088` model bytes were 85.14% below full; those weights plus `793,088` gradient bytes and four `262,144`-byte activation/adjoint boundaries produced a `2,634,752`-byte cold round trip (75.31% below replicated full) and `1,841,664` warm bytes (82.74% below full). Boundary traffic alone was `1,048,576` bytes, 19.65% of one full-model payload.
+- This does not yet establish worker peak RSS, coordinator memory reduction, connected latency, asynchronous retryability, or a model larger than coordinator memory. Exactness restores a live forward/backward dependency chain whose volunteer reliability cost must be measured explicitly.
 
 ### P7 — Explore sparse experts and other advanced topologies
 
@@ -262,7 +266,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Build the smallest exact boundary-preserving tiled tracer for one representative transformer block. Preserve the block's true input activation and downstream gradient, reconstruct its parameter gradients without a shallow surrogate objective, and compare every gradient plus one coordinator AdamW update against centralized FP32. Measure model-tile bytes, activation and adjoint transfer, individual and aggregate residency, recomputation, and wall time before extending beyond one block.
+Run one authenticated T1 boundary-tiled step at every one of the six block positions. Require exact raw/clipped gradients, optimizer tensors, and post-step model bytes for first, middle, and final boundaries; report how model-tile bytes and activation/adjoint traffic scale before separating tile and coordinator into distinct processes.
 
 ## Remaining major work
 
@@ -316,6 +320,9 @@ Build the smallest exact boundary-preserving tiled tracer for one representative
 - Repeated the twelve-step T1 run exactly. Schedule normalization improved loss progress 82.78% over sequential rotation but reached only 39.28% of the full control and plateaued after step 8; per-worker exposure stayed low while cold colony transfer and aggregate residency reached 2.57x and 2.55x the full-model values.
 - Published Report 003 and closed P5 without promotion. The negative result advances P6 toward exact boundary-preserving tiled execution instead of further scaling the shallow surrogate objective.
 - The P5 conclusion gate passed `208` tests plus source/test compilation, lock and CLI verification, two exact deterministic block-sharded runs, report-claim recomputation, local-link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
+- Began P6 with a real exact boundary substitution rather than another shallow objective. Block 2 executes only on the tile while true prefix/suffix activations and adjoints reconstruct byte-identical full-model gradients, clipping, AdamW state, and model update.
+- Repeated the T0 boundary tracer exactly and published Report 004. The tile uses 14.86% of model parameters and the accounted cold/warm round trips are 75.31%/82.74% below a replicated-full round trip, while autograd intermediates, process-separated worker RSS, coordinator residency, network latency, and retry state remain explicit open gates.
+- The first P6 gate passed `210` tests, including warning-strict tiled tests, plus source/test compilation, lock and CLI verification, two exact deterministic runs, report-claim recomputation, local-link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
 
 ### 2026-07-24
 
