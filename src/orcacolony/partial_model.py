@@ -101,6 +101,69 @@ class DatasetRollingBlockEvidence:
     full_baseline_model_sha256: str
 
 
+@dataclass(frozen=True)
+class BlockShardedEvaluationPoint:
+    step: int
+    sharded_mean_loss: float
+    full_baseline_mean_loss: float
+
+
+@dataclass(frozen=True)
+class BlockShardedEvidence:
+    format: str
+    campaign_id: str
+    dataset_revision: str
+    global_steps: int
+    evaluation_interval: int
+    evaluation_sequences: int
+    workers_per_global_step: int
+    worker_assignments: int
+    assignment_block_sequence: tuple[int, ...]
+    block_update_counts: tuple[int, ...]
+    coordinator_optimizer_steps: int
+    block_optimizer_steps: tuple[int, ...]
+    shared_optimizer_state_parameter_count: int
+    full_parameter_count: int
+    worker_parameter_count: int
+    worker_trainable_parameter_count: int
+    full_payload_tensor_bytes: int
+    worker_payload_tensor_bytes: int
+    full_resident_tensor_bytes: int
+    worker_resident_tensor_bytes: int
+    aggregate_worker_resident_tensor_bytes: int
+    selected_block_payload_tensor_bytes: int
+    shared_payload_tensor_bytes: int
+    mapped_gradient_bytes_per_assignment: int
+    shared_state_loads: int
+    block_state_loads: int
+    cold_aggregate_download_tensor_bytes: int
+    warm_aggregate_download_per_step_tensor_bytes: int
+    persistent_aggregate_download_tensor_bytes: int
+    individual_worker_persistent_download_tensor_bytes: int
+    individual_worker_unique_payload_tensor_bytes: int
+    colony_unique_payload_tensor_bytes: int
+    mapped_gradient_upload_tensor_bytes: int
+    persistent_aggregate_round_trip_tensor_bytes: int
+    replicated_full_download_tensor_bytes: int
+    replicated_full_round_trip_tensor_bytes: int
+    initial_shared_state_sha256: str
+    final_shared_state_sha256: str
+    updated_block_count: int
+    evaluation_history: tuple[BlockShardedEvaluationPoint, ...]
+    initial_validation_mean_loss: float
+    sharded_final_validation_mean_loss: float
+    full_baseline_final_validation_mean_loss: float
+    sharded_validation_loss_improvement: float
+    full_baseline_validation_loss_improvement: float
+    experiment_wall_seconds: float
+    sharded_training_seconds: float
+    full_baseline_training_seconds: float
+    evaluation_seconds: float
+    combined_process_peak_rss_bytes: int | None
+    sharded_model_sha256: str
+    full_baseline_model_sha256: str
+
+
 class RollingBlockWorker(nn.Module):
     """Executable shallow worker containing one mapped block from a full model."""
 
@@ -333,6 +396,303 @@ def _held_out_mean_loss(
             loss_weight_sum += targets.numel()
             cursor += current_batch_size
     return loss_sum / loss_weight_sum
+
+
+def run_block_sharded_experiment(
+    campaign: CampaignConfig,
+    dataset: PackedDataset,
+    *,
+    steps: int | None = None,
+    evaluation_interval: int | None = None,
+) -> BlockShardedEvidence:
+    """Train every block shard from one snapshot before one global optimizer step."""
+    if campaign.dataset is None:
+        raise ValueError("block-sharded training requires dataset artifacts")
+    validate_dataset_artifacts(campaign, dataset)
+    if campaign.evaluation is None:
+        raise ValueError("block-sharded training requires held-out evaluation")
+    if campaign.model.layers <= 1:
+        raise ValueError("block-sharded training requires at least two model blocks")
+    steps = campaign.training.steps if steps is None else steps
+    evaluation_interval = (
+        campaign.model.layers
+        if evaluation_interval is None
+        else evaluation_interval
+    )
+    if steps <= 0:
+        raise ValueError("steps must be positive")
+    if evaluation_interval <= 0:
+        raise ValueError("evaluation interval must be positive")
+
+    experiment_started = time.perf_counter()
+    coordinator = build_model(campaign)
+    baseline = build_model(campaign)
+    coordinator_optimizer = _create_optimizer(coordinator, campaign.training)
+    baseline_optimizer = _create_optimizer(baseline, campaign.training)
+    sessions = [
+        RollingBlockWorkerSession(coordinator, block_index)
+        for block_index in range(campaign.model.layers)
+    ]
+
+    full_payload_bytes = _tensor_bytes(coordinator)
+    full_resident_bytes = _resident_tensor_bytes(coordinator)
+    worker_payload_bytes = _tensor_bytes(sessions[0])
+    worker_resident_bytes = _resident_tensor_bytes(sessions[0])
+    selected_block_payload_bytes = _tensor_bytes(sessions[0].block)
+    shared_payload_bytes = worker_payload_bytes - selected_block_payload_bytes
+    for session in sessions[1:]:
+        if _tensor_bytes(session) != worker_payload_bytes:
+            raise ValueError("block worker payload changed across equal-size blocks")
+        if _resident_tensor_bytes(session) != worker_resident_bytes:
+            raise ValueError("block worker residency changed across equal-size blocks")
+        if _tensor_bytes(session.block) != selected_block_payload_bytes:
+            raise ValueError("selected block payload changed across equal-size blocks")
+
+    initial_shared_state_sha256 = _shared_state_sha256(coordinator)
+    initial_block_sha256 = tuple(
+        tensor_sha256(block.state_dict()) for block in coordinator.blocks
+    )
+    mapped_gradient_bytes: int | None = None
+    assignment_block_sequence: list[int] = []
+    block_update_counts = [0] * campaign.model.layers
+    evaluation_history: list[BlockShardedEvaluationPoint] = []
+    sharded_training_seconds = 0.0
+    full_baseline_training_seconds = 0.0
+    evaluation_seconds = 0.0
+
+    evaluation_started = time.perf_counter()
+    initial_mean_loss = _held_out_mean_loss(coordinator, campaign, dataset)
+    baseline_initial_mean_loss = _held_out_mean_loss(baseline, campaign, dataset)
+    evaluation_seconds += time.perf_counter() - evaluation_started
+    if initial_mean_loss != baseline_initial_mean_loss:
+        raise AssertionError("sharded and baseline models must share initial evaluation")
+    evaluation_history.append(
+        BlockShardedEvaluationPoint(
+            step=0,
+            sharded_mean_loss=initial_mean_loss,
+            full_baseline_mean_loss=baseline_initial_mean_loss,
+        )
+    )
+
+    block_state_loads = campaign.model.layers
+    for step in range(steps):
+        sharded_started = time.perf_counter()
+        cursor = (
+            step * campaign.training.batch_size
+        ) % campaign.training.dataset_sequences
+        inputs, targets = fixture_batch(campaign, cursor, dataset)
+
+        if step > 0:
+            for block_index, session in enumerate(sessions):
+                current_block_payload_bytes = session.select_block(
+                    coordinator,
+                    block_index,
+                )
+                if current_block_payload_bytes != selected_block_payload_bytes:
+                    raise ValueError(
+                        "selected block payload changed across equal-size blocks"
+                    )
+                block_state_loads += 1
+
+        coordinator_optimizer.zero_grad(set_to_none=True)
+        for block_index, session in enumerate(sessions):
+            assignment_block_sequence.append(block_index)
+            session.zero_grad(set_to_none=True)
+            session.train()
+            loss = F.cross_entropy(
+                session(inputs).reshape(-1, campaign.model.vocabulary_size),
+                targets.reshape(-1),
+                reduction="sum",
+            )
+            loss.backward()
+            for parameter in session.block.parameters():
+                if parameter.grad is not None:
+                    parameter.grad.div_(targets.numel())
+            current_gradient_bytes = _map_worker_gradient(session, coordinator)
+            if mapped_gradient_bytes is None:
+                mapped_gradient_bytes = current_gradient_bytes
+            elif mapped_gradient_bytes != current_gradient_bytes:
+                raise ValueError("mapped gradient size changed across equal-size blocks")
+            block_update_counts[block_index] += 1
+
+        torch.nn.utils.clip_grad_norm_(
+            coordinator.blocks.parameters(),
+            campaign.training.max_gradient_norm,
+        )
+        coordinator_optimizer.step()
+        sharded_training_seconds += time.perf_counter() - sharded_started
+
+        baseline_started = time.perf_counter()
+        _train_full_step(
+            baseline,
+            baseline_optimizer,
+            campaign,
+            cursor,
+            dataset,
+        )
+        full_baseline_training_seconds += time.perf_counter() - baseline_started
+
+        completed_step = step + 1
+        if (
+            completed_step % evaluation_interval == 0
+            or completed_step == steps
+        ):
+            evaluation_started = time.perf_counter()
+            evaluation_history.append(
+                BlockShardedEvaluationPoint(
+                    step=completed_step,
+                    sharded_mean_loss=_held_out_mean_loss(
+                        coordinator,
+                        campaign,
+                        dataset,
+                    ),
+                    full_baseline_mean_loss=_held_out_mean_loss(
+                        baseline,
+                        campaign,
+                        dataset,
+                    ),
+                )
+            )
+            evaluation_seconds += time.perf_counter() - evaluation_started
+
+    if mapped_gradient_bytes is None:
+        raise AssertionError("positive steps must produce worker evidence")
+    final_shared_state_sha256 = _shared_state_sha256(coordinator)
+    if final_shared_state_sha256 != initial_shared_state_sha256:
+        raise AssertionError("block-sharded training changed shared model state")
+    final_block_sha256 = tuple(
+        tensor_sha256(block.state_dict()) for block in coordinator.blocks
+    )
+    updated_block_count = sum(
+        initial != final
+        for initial, final in zip(
+            initial_block_sha256,
+            final_block_sha256,
+            strict=True,
+        )
+    )
+    block_optimizer_steps: list[int] = []
+    for block in coordinator.blocks:
+        parameter_steps: set[int] = set()
+        for parameter in block.parameters():
+            state = coordinator_optimizer.state.get(parameter)
+            if state is None or "step" not in state:
+                raise AssertionError("updated block parameter lacks AdamW step state")
+            raw_step = state["step"]
+            step_value = (
+                int(raw_step.item())
+                if isinstance(raw_step, Tensor)
+                else int(raw_step)
+            )
+            parameter_steps.add(step_value)
+        if len(parameter_steps) != 1:
+            raise AssertionError("block parameters have inconsistent AdamW steps")
+        block_optimizer_steps.append(parameter_steps.pop())
+    if tuple(block_optimizer_steps) != tuple(block_update_counts):
+        raise AssertionError("AdamW block steps do not match mapped update counts")
+    shared_optimizer_state_parameter_count = sum(
+        parameter in coordinator_optimizer.state
+        for module in (
+            coordinator.token_embedding,
+            coordinator.position_embedding,
+            coordinator.final_norm,
+        )
+        for parameter in module.parameters()
+    )
+    if shared_optimizer_state_parameter_count != 0:
+        raise AssertionError("frozen shared parameters acquired AdamW state")
+    final_evaluation = evaluation_history[-1]
+    worker_parameter_count = sum(
+        parameter.numel() for parameter in sessions[0].parameters()
+    )
+    worker_trainable_parameter_count = sum(
+        parameter.numel()
+        for parameter in sessions[0].parameters()
+        if parameter.requires_grad
+    )
+    workers_per_step = campaign.model.layers
+    worker_assignments = steps * workers_per_step
+    cold_aggregate_download = worker_payload_bytes * workers_per_step
+    warm_aggregate_download = selected_block_payload_bytes * workers_per_step
+    persistent_aggregate_download = (
+        cold_aggregate_download + warm_aggregate_download * (steps - 1)
+    )
+    mapped_gradient_upload = mapped_gradient_bytes * worker_assignments
+    replicated_full_download = full_payload_bytes * steps
+    combined_process_peak_rss_bytes = _peak_process_rss_bytes()
+    experiment_wall_seconds = time.perf_counter() - experiment_started
+    return BlockShardedEvidence(
+        format="orcacolony_block_sharded_evidence_v1",
+        campaign_id=str(campaign.campaign["id"]),
+        dataset_revision=dataset.revision,
+        global_steps=steps,
+        evaluation_interval=evaluation_interval,
+        evaluation_sequences=int(campaign.evaluation["validation_sequences"]),
+        workers_per_global_step=workers_per_step,
+        worker_assignments=worker_assignments,
+        assignment_block_sequence=tuple(assignment_block_sequence),
+        block_update_counts=tuple(block_update_counts),
+        coordinator_optimizer_steps=steps,
+        block_optimizer_steps=tuple(block_optimizer_steps),
+        shared_optimizer_state_parameter_count=(
+            shared_optimizer_state_parameter_count
+        ),
+        full_parameter_count=sum(
+            parameter.numel() for parameter in coordinator.parameters()
+        ),
+        worker_parameter_count=worker_parameter_count,
+        worker_trainable_parameter_count=worker_trainable_parameter_count,
+        full_payload_tensor_bytes=full_payload_bytes,
+        worker_payload_tensor_bytes=worker_payload_bytes,
+        full_resident_tensor_bytes=full_resident_bytes,
+        worker_resident_tensor_bytes=worker_resident_bytes,
+        aggregate_worker_resident_tensor_bytes=(
+            worker_resident_bytes * workers_per_step
+        ),
+        selected_block_payload_tensor_bytes=selected_block_payload_bytes,
+        shared_payload_tensor_bytes=shared_payload_bytes,
+        mapped_gradient_bytes_per_assignment=mapped_gradient_bytes,
+        shared_state_loads=workers_per_step,
+        block_state_loads=block_state_loads,
+        cold_aggregate_download_tensor_bytes=cold_aggregate_download,
+        warm_aggregate_download_per_step_tensor_bytes=warm_aggregate_download,
+        persistent_aggregate_download_tensor_bytes=persistent_aggregate_download,
+        individual_worker_persistent_download_tensor_bytes=(
+            worker_payload_bytes + selected_block_payload_bytes * (steps - 1)
+        ),
+        individual_worker_unique_payload_tensor_bytes=worker_payload_bytes,
+        colony_unique_payload_tensor_bytes=cold_aggregate_download,
+        mapped_gradient_upload_tensor_bytes=mapped_gradient_upload,
+        persistent_aggregate_round_trip_tensor_bytes=(
+            persistent_aggregate_download + mapped_gradient_upload
+        ),
+        replicated_full_download_tensor_bytes=replicated_full_download,
+        replicated_full_round_trip_tensor_bytes=(
+            2 * replicated_full_download
+        ),
+        initial_shared_state_sha256=initial_shared_state_sha256,
+        final_shared_state_sha256=final_shared_state_sha256,
+        updated_block_count=updated_block_count,
+        evaluation_history=tuple(evaluation_history),
+        initial_validation_mean_loss=initial_mean_loss,
+        sharded_final_validation_mean_loss=final_evaluation.sharded_mean_loss,
+        full_baseline_final_validation_mean_loss=(
+            final_evaluation.full_baseline_mean_loss
+        ),
+        sharded_validation_loss_improvement=(
+            initial_mean_loss - final_evaluation.sharded_mean_loss
+        ),
+        full_baseline_validation_loss_improvement=(
+            initial_mean_loss - final_evaluation.full_baseline_mean_loss
+        ),
+        experiment_wall_seconds=experiment_wall_seconds,
+        sharded_training_seconds=sharded_training_seconds,
+        full_baseline_training_seconds=full_baseline_training_seconds,
+        evaluation_seconds=evaluation_seconds,
+        combined_process_peak_rss_bytes=combined_process_peak_rss_bytes,
+        sharded_model_sha256=tensor_sha256(coordinator.state_dict()),
+        full_baseline_model_sha256=tensor_sha256(baseline.state_dict()),
+    )
 
 
 def run_dataset_rolling_block_experiment(
@@ -688,6 +1048,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--steps", type=int)
     parser.add_argument(
+        "--topology",
+        choices=("sequential", "block-sharded"),
+        default="sequential",
+        help="partial-model assignment topology for data-backed experiments",
+    )
+    parser.add_argument(
         "--evaluation-interval",
         type=int,
         help="held-out evaluation cadence for data-backed experiments",
@@ -701,6 +1067,8 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     campaign = load_campaign(args.config)
     if campaign.dataset is None:
+        if args.topology != "sequential":
+            parser.error("--topology block-sharded requires a data-backed config")
         if args.dataset is not None:
             parser.error("--dataset is only valid for data-backed campaign configs")
         if args.evaluation_interval is not None:
@@ -714,12 +1082,21 @@ def main(argv: list[str] | None = None) -> None:
     else:
         if args.dataset is None:
             parser.error("data-backed campaign configs require --dataset")
-        evidence = run_dataset_rolling_block_experiment(
-            campaign,
-            PackedDataset.load(args.dataset),
-            steps=args.steps,
-            evaluation_interval=args.evaluation_interval,
-        )
+        dataset = PackedDataset.load(args.dataset)
+        if args.topology == "block-sharded":
+            evidence = run_block_sharded_experiment(
+                campaign,
+                dataset,
+                steps=args.steps,
+                evaluation_interval=args.evaluation_interval,
+            )
+        else:
+            evidence = run_dataset_rolling_block_experiment(
+                campaign,
+                dataset,
+                steps=args.steps,
+                evaluation_interval=args.evaluation_interval,
+            )
     payload = json.dumps(asdict(evidence), indent=2, sort_keys=True) + "\n"
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)

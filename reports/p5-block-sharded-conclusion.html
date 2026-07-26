@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>P5 Block-Sharded Conclusion · OrcaColony</title>
+  <style>
+    :root { --paper:#f5f2ea; --sheet:#fffdf7; --ink:#142326; --muted:#5e6b69; --ocean:#0e5a63; --amber:#c97325; --green:#31684a; --red:#9a4938; --line:#cbd3cf; --soft:#e8ece7; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:"Segoe UI",Aptos,system-ui,sans-serif; line-height:1.55; }
+    body::before { content:""; display:block; height:7px; background:var(--ocean); }
+    a { color:var(--ocean); text-underline-offset:3px; }
+    main { max-width:1180px; margin:auto; padding:42px 42px 80px; }
+    .back { display:inline-block; margin-bottom:34px; font-size:.83rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+    .eyebrow { color:var(--ocean); font-size:.76rem; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
+    h1,h2,h3 { font-family:Georgia,"Times New Roman",serif; font-weight:500; line-height:1.08; }
+    h1 { max-width:950px; margin:14px 0 21px; font-size:clamp(2.7rem,6vw,5.5rem); letter-spacing:-.045em; }
+    .standfirst { max-width:850px; margin:0; color:var(--muted); font-size:1.22rem; line-height:1.7; }
+    .meta { display:flex; flex-wrap:wrap; gap:10px 24px; margin-top:28px; padding-top:19px; border-top:1px solid var(--line); color:var(--muted); font-size:.84rem; }
+    .status { color:var(--red); font-weight:800; text-transform:uppercase; letter-spacing:.08em; }
+    .decision { display:grid; grid-template-columns:150px 1fr; gap:28px; margin:52px 0 68px; padding:30px 0; border-top:4px solid var(--amber); border-bottom:1px solid var(--line); }
+    .decision .label { color:var(--amber); font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+    .decision strong { display:block; max-width:820px; font-family:Georgia,"Times New Roman",serif; font-size:clamp(1.55rem,3vw,2.5rem); font-weight:500; line-height:1.22; }
+    section { display:grid; grid-template-columns:120px minmax(0,1fr); gap:36px; padding:48px 0; border-top:1px solid var(--line); }
+    .section-no { color:var(--ocean); font-family:Georgia,serif; font-size:2rem; }
+    section h2 { max-width:800px; margin:0 0 26px; font-size:clamp(1.8rem,3vw,2.7rem); }
+    section h3 { margin:28px 0 10px; font-size:1.32rem; }
+    section p { max-width:790px; color:var(--muted); }
+    .metric-table,.comparison { width:100%; border-collapse:collapse; margin:24px 0; background:var(--sheet); }
+    .metric-table th,.metric-table td,.comparison th,.comparison td { padding:14px 16px; border-bottom:1px solid var(--line); text-align:right; vertical-align:top; }
+    .metric-table th:first-child,.metric-table td:first-child,.comparison th:first-child,.comparison td:first-child { text-align:left; }
+    .metric-table th,.comparison th { color:var(--muted); font-size:.72rem; letter-spacing:.09em; text-transform:uppercase; }
+    .metric-table td:first-child,.comparison td:first-child { font-weight:700; }
+    .good { color:var(--green); font-weight:800; }
+    .bad { color:var(--red); font-weight:800; }
+    .chart { margin:28px 0; padding:20px 20px 12px; background:var(--sheet); border:1px solid var(--line); overflow-x:auto; }
+    .chart svg { display:block; min-width:670px; width:100%; height:auto; }
+    .legend { display:flex; flex-wrap:wrap; gap:10px 24px; margin:8px 0 0 48px; color:var(--muted); font-size:.84rem; }
+    .swatch { display:inline-block; width:18px; height:3px; margin:0 7px 3px 0; }
+    .findings { display:grid; gap:0; margin:20px 0 0; padding:0; list-style:none; }
+    .findings li { display:grid; grid-template-columns:38px 1fr; gap:12px; padding:19px 0; border-bottom:1px solid var(--line); }
+    .findings .mark { display:grid; place-items:center; width:29px; height:29px; border-radius:50%; color:white; font-weight:900; }
+    .positive .mark { background:var(--green); } .negative .mark { background:var(--red); } .neutral .mark { background:var(--amber); }
+    .findings strong { font-size:1.02rem; } .findings p { margin:5px 0 0; }
+    .callout { margin:26px 0; padding:22px 24px; border-top:3px solid var(--ocean); background:var(--soft); }
+    .callout strong { color:var(--ocean); }
+    .next { margin-top:28px; counter-reset:item; }
+    .next li { list-style:none; position:relative; padding:0 0 22px 48px; color:var(--muted); }
+    .next li::before { counter-increment:item; content:counter(item); position:absolute; left:0; top:-2px; width:29px; height:29px; display:grid; place-items:center; border:1px solid var(--ocean); color:var(--ocean); font-weight:800; border-radius:50%; }
+    code { padding:.12rem .35rem; background:#e8ebe6; border-radius:3px; font-family:"Cascadia Code",Consolas,monospace; font-size:.88em; }
+    pre { overflow:auto; padding:18px; color:#eef5f3; background:#173034; border-radius:2px; font-size:.82rem; }
+    details { margin-top:22px; } summary { cursor:pointer; color:var(--ocean); font-weight:800; }
+    footer { margin-top:56px; padding-top:24px; border-top:1px solid var(--line); color:var(--muted); font-size:.82rem; }
+    @media(max-width:760px) { main{padding:30px 20px 60px}.decision,section{grid-template-columns:1fr;gap:14px}.decision{margin-top:38px}.comparison{font-size:.78rem}.comparison th,.comparison td{padding:10px 7px}.meta{display:grid}.section-no{font-size:1.25rem} }
+    @media print { body{background:white} body::before{display:none} main{max-width:none;padding:0}.back{display:none}.chart,.metric-table,.comparison{break-inside:avoid} }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="back" href="index.html">← All reports</a>
+    <header>
+      <div class="eyebrow">OrcaColony / Report 003 / P5 conclusion</div>
+      <h1>Sharding every block fixes update coverage—not the objective.</h1>
+      <p class="standfirst">Six block-affine workers lowered held-out loss 82.78% more than sequential rotation and kept each worker below full-model exposure. But progress reached only 39.28% of the full control, nearly stopped after step 8, and required unfavorable colony-wide aggregate resources.</p>
+      <div class="meta">
+        <span class="status">P5 concluded · not promoted</span>
+        <span>Campaign: orcacolony-t1-tinystories-smoke-v1</span>
+        <span>12 global steps · 72 assignments</span>
+        <span>Recorded: 2026-07-25</span>
+      </div>
+    </header>
+
+    <div class="decision">
+      <div class="label">Decision</div>
+      <strong>Close direct shallow block training as a negative P5 result. Carry its per-worker memory lesson into P6, where tiled execution must preserve the model's true activation and gradient boundaries.</strong>
+    </div>
+
+    <section>
+      <div class="section-no">01</div>
+      <div>
+        <h2>Did normalizing block update coverage close the quality gap?</h2>
+        <p><strong>It closed part of it, then plateaued.</strong> Each global step used one worker for every block against one coordinator snapshot and one training batch. The coordinator mapped all six gradients, clipped the combined block gradient, and performed one AdamW step. Every block's live optimizer state reached exactly step 12; frozen shared tensors acquired no optimizer state.</p>
+        <div class="chart">
+          <svg viewBox="0 0 800 340" role="img" aria-labelledby="chart-title chart-desc">
+            <title id="chart-title">Held-out loss trajectories for full, block-sharded, and sequential training</title>
+            <desc id="chart-desc">Lower is better. Block-sharded training improves faster than sequential rolling but flattens near 8.49, while the full baseline continues to 7.64.</desc>
+            <g stroke="#d8ded9" stroke-width="1">
+              <line x1="70" y1="46.9" x2="760" y2="46.9"/><line x1="70" y1="131.3" x2="760" y2="131.3"/><line x1="70" y1="215.6" x2="760" y2="215.6"/><line x1="70" y1="300" x2="760" y2="300"/>
+              <line x1="70" y1="30" x2="70" y2="300"/><line x1="70" y1="300" x2="760" y2="300"/>
+            </g>
+            <g fill="#5e6b69" font-family="Segoe UI, sans-serif" font-size="13">
+              <text x="35" y="51">9.0</text><text x="35" y="136">8.5</text><text x="35" y="220">8.0</text><text x="35" y="305">7.5</text>
+              <text x="66" y="325">0</text><text x="181" y="325">2</text><text x="296" y="325">4</text><text x="411" y="325">6</text><text x="526" y="325">8</text><text x="638" y="325">10</text><text x="752" y="325">12</text>
+            </g>
+            <polyline fill="none" stroke="#0e5a63" stroke-width="4" points="70.0,39.8 185.0,95.8 300.0,120.4 415.0,127.9 530.0,131.4 645.0,132.5 760.0,132.7"/>
+            <polyline fill="none" stroke="#c97325" stroke-width="3" stroke-dasharray="7 5" points="70.0,39.8 185.0,51.4 300.0,56.1 415.0,61.5 530.0,78.4 645.0,85.3 760.0,90.6"/>
+            <polyline fill="none" stroke="#31684a" stroke-width="4" points="70.0,39.8 185.0,128.8 300.0,163.4 415.0,189.8 530.0,217.3 645.0,246.9 760.0,276.3"/>
+          </svg>
+          <div class="legend"><span><i class="swatch" style="background:#0e5a63"></i>Block-sharded</span><span><i class="swatch" style="background:#c97325"></i>Sequential rolling</span><span><i class="swatch" style="background:#31684a"></i>Full control</span><span>Lower loss is better</span></div>
+        </div>
+        <table class="comparison">
+          <thead><tr><th>12-step outcome</th><th>Sequential</th><th>Block-sharded</th><th>Full control</th></tr></thead>
+          <tbody>
+            <tr><td>Worker assignments</td><td>12</td><td>72</td><td>12 full replicas</td></tr>
+            <tr><td>Final held-out loss</td><td>8.740711</td><td class="good">8.491444</td><td>7.640471</td></tr>
+            <tr><td>Loss improvement</td><td>0.301125</td><td class="good">0.550392</td><td>1.401365</td></tr>
+            <tr><td>Share of full progress</td><td>21.49%</td><td class="good">39.28%</td><td>100%</td></tr>
+            <tr><td>Shared tensors updated</td><td>No</td><td>No</td><td>Yes</td></tr>
+          </tbody>
+        </table>
+        <div class="callout"><strong>The plateau matters more than the final ratio.</strong> From step 8 to 12, block-sharded loss improved only 0.007923—1.44% of its total gain—while the control improved another 0.349365. More identical shallow assignments are unlikely to repair the missing full-model context.</div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-no">02</div>
+      <div>
+        <h2>Per-worker exposure improved; aggregate economics did not.</h2>
+        <table class="metric-table">
+          <thead><tr><th>Measurement</th><th>Block-sharded</th><th>Reference</th><th>Interpretation</th></tr></thead>
+          <tbody>
+            <tr><td>Individual worker residency</td><td class="good">11,877,376 B</td><td>28,000,256 B full</td><td>57.58% lower</td></tr>
+            <tr><td>Individual unique tensor positions</td><td class="good">11,811,840 B</td><td>27,607,040 B full</td><td>57.21% lower; one fixed block</td></tr>
+            <tr><td>Cold colony download</td><td class="bad">70,871,040 B</td><td>27,607,040 B full</td><td>2.57× full from duplicated shared state</td></tr>
+            <tr><td>Warm colony download / step</td><td>18,954,240 B</td><td>27,607,040 B full</td><td>31.34% lower</td></tr>
+            <tr><td>12-step persistent download</td><td>279,367,680 B</td><td>331,284,480 B full</td><td>15.67% lower</td></tr>
+            <tr><td>12-step round trip</td><td>506,818,560 B</td><td>662,568,960 B full</td><td>23.51% lower</td></tr>
+            <tr><td>Aggregate worker residency</td><td class="bad">71,264,256 B</td><td>28,000,256 B full</td><td>2.55× full across six machines</td></tr>
+          </tbody>
+        </table>
+        <ul class="findings">
+          <li class="positive"><span class="mark">+</span><div><strong>No individual worker receives every block.</strong><p>Affinity keeps one worker's unique parameter-position exposure at its shared path plus one block, unlike a single rotating worker that cumulatively covers the full model.</p></div></li>
+          <li class="positive"><span class="mark">+</span><div><strong>Downloads plus mapped-gradient uploads are still 23.51% below a replicated-full round trip.</strong><p>This is a real aggregate reduction when all six workers stay warm. It is much smaller than the per-worker percentage.</p></div></li>
+          <li class="negative"><span class="mark">!</span><div><strong>Cold start duplicates 8,652,800 shared bytes six times.</strong><p>The first global step downloads 2.57 full-model equivalents across the colony. Opportunistic churn would repeatedly pay this cost.</p></div></li>
+          <li class="negative"><span class="mark">!</span><div><strong>The CPU simulator does not prove distributed speedup.</strong><p>Six workers execute serially in one process: sharded training took 12.004–12.016 seconds versus 5.891–5.935 seconds for the full control. Parallel critical path, networking, stragglers, and retries remain unmeasured.</p></div></li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-no">03</div>
+      <div>
+        <h2>Why P5 closes without promotion.</h2>
+        <p>Report 002 showed that sequential rotation unfairly updates one block where the control updates the whole model. This experiment removed that schedule mismatch for all six blocks. Quality improved substantially, so schedule coverage was a real problem—but the new plateau demonstrates that it was not the only problem.</p>
+        <ul class="findings">
+          <li class="negative"><span class="mark">!</span><div><strong>Each block still solves the wrong local task.</strong><p>The shallow worker receives token embeddings directly and predicts through the shared output path directly. It does not receive the selected block's true prefix activation or downstream gradient from the full stack.</p></div></li>
+          <li class="negative"><span class="mark">!</span><div><strong>Shared embeddings, position embeddings, and final normalization stay frozen.</strong><p>The exact shared SHA-256 remained unchanged and zero shared parameters acquired AdamW state, while the full control trained them.</p></div></li>
+          <li class="neutral"><span class="mark">→</span><div><strong>The negative result is useful.</strong><p>It rejects “just dispatch every shallow block” before a connected protocol, larger model, or volunteer campaign makes the same mistake more expensive.</p></div></li>
+        </ul>
+        <div class="callout"><strong>P5 conclusion:</strong> shallow block workers are a valid memory-reduction mechanism and an invalid quality-preserving training method under the tested objective. Do not promote this topology into supported campaigns.</div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-no">04</div>
+      <div>
+        <h2>P6 starts with exact boundary-preserving tiled execution.</h2>
+        <ol class="next">
+          <li><strong>Preserve the full-model objective.</strong> A tile receives its true input activation and returns an output/gradient boundary so prefixes and suffixes remain part of the same computation graph.</li>
+          <li><strong>Prove one-step numerical parity first.</strong> Compare every mapped parameter gradient and post-AdamW tensor with centralized FP32 before measuring scale.</li>
+          <li><strong>Account for activation traffic.</strong> Report per-tile model bytes, activation/adjoint bytes, individual residency, colony totals, cold/warm transfer, and recomputation.</li>
+          <li><strong>Then test held-out trajectories.</strong> Only after exact local parity should T1 compare tiled and centralized checkpoint paths.</li>
+        </ol>
+        <p>This moves from an independent shallow surrogate objective to distributed execution of the actual objective. It may reduce memory without reducing aggregate compute or transfer; P6 must measure that tradeoff rather than assume it.</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-no">05</div>
+      <div>
+        <h2>Evidence boundary and reproduction</h2>
+        <p>This is a CPU FP32 feasibility experiment on a randomly initialized 6.9M-parameter decoder, 12 training batches, and 16 held-out TinyStories sequences. Six workers are simulated serially in one process. Combined-process peak RSS was 797,249,536–801,521,664 bytes and includes coordinator, baseline, six worker sessions, optimizers, and dataset tensors. It is not individual-worker RSS or connected-network evidence.</p>
+        <p>Two isolated runs matched every deterministic field exactly: all seven loss pairs, 72-assignment order, six block optimizer trajectories, shared-state identity, model hashes, and byte accounting. Only timing and process RSS varied.</p>
+        <details>
+          <summary>Exact command and evidence files</summary>
+          <pre>unset PYTHONPATH &amp;&amp; uv run python -m orcacolony.partial_model \
+  --config campaign/t1-tinystories-smoke.json \
+  --dataset .artifacts/tinystories-t1-v2 \
+  --topology block-sharded \
+  --steps 12 \
+  --evaluation-interval 2 \
+  --output &lt;outside-repository-output.json&gt;</pre>
+          <p><a href="evidence/p5-block-sharded-t1-12step.json">Primary evidence JSON</a> · <a href="evidence/p5-block-sharded-t1-12step-repeat.json">Independent repeat JSON</a> · <a href="p5-rolling-block-t1.html">Report 002 sequential comparison</a></p>
+        </details>
+      </div>
+    </section>
+
+    <footer>OrcaColony human-readable finding · machine JSON remains the numerical authority · important negative results are preserved rather than hidden.</footer>
+  </main>
+</body>
+</html>

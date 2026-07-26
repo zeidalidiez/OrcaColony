@@ -215,7 +215,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P5 — Explore rolling partial-model training
 
-**Status:** Active research — authenticated T1 trajectory measured
+**Status:** Completed research — shallow block training not promoted
 
 - Give capability-sized subnetworks or parameter slices to workers.
 - Rotate coverage across a larger coordinator-owned global model.
@@ -224,11 +224,12 @@ Completed within the first P3 measurement and native-baseline slice:
 - Determine whether the quality and convergence tradeoff is acceptable for transformers.
 - First bounded experiment: keep a complete canonical model at the coordinator, give a worker an executable submodel containing shared input/output components plus one selected transformer block, rotate the selected block across rounds, merge only explicitly mapped trainable gradients, and compare memory, transfer, coverage, and fixed-use-case loss movement with replicated full-model training. A negative result is publishable evidence rather than a reason to expand the protocol first.
 - The first T0 rolling-block run is executable and measured. Four assignments selected blocks `0, 1, 2, 3`; each worker retained `2,973,184` tensor bytes versus `5,401,600` for the full model (44.96% lower), received `2,956,800` payload tensor bytes versus `5,336,064` (44.59% lower), and returned `793,088` gradient bytes for `198,272` trainable parameters. Fixed-fixture mean loss improved by `0.6197383403778076`, 38.02% of the `1.6302005052566528` improvement from four replicated full-model updates.
-- The same run exposed the central tradeoff early: shared embedding/output state dominates each worker, and one persistent worker rotating through all four blocks eventually receives `5,336,064` unique tensor bytes—the complete full-model payload. This prototype proves lower peak residency and real mapped updates, not yet a way for one worker to avoid ever receiving the full model across complete coverage. The next experiment must test reuse and quality on held-out T1 data before any protocol promotion.
+- The same run exposed the central tradeoff early: shared embedding/output state dominates each worker, and one persistent worker rotating through all four blocks eventually receives `5,336,064` unique tensor bytes—the complete full-model payload. This prototype proved lower peak residency and real mapped updates, not a way for one rotating worker to avoid complete-model exposure.
 - The authenticated T1 experiment now provides that next evidence. Across twelve assignments and two complete six-block rotations, worker tensor residency was `11,877,376` bytes versus `28,000,256` for the full model (57.58% lower). Cold worker payload was 57.21% lower, and retaining shared state once reduced twelve-step model download from `141,742,080` transient-worker bytes to `46,561,280` persistent-session bytes: 67.15% below transient workers and 85.95% below twelve replicated full-model downloads. Each assignment separately returned `3,159,040` mapped gradient bytes.
 - Held-out TinyStories mean loss improved monotonically from `9.041835904121399` to `8.740711331367493`, but the full-model control reached `7.6404712200164795`. Rolling improvement was `0.30112457275390625`, only 21.49% of the control's `1.4013646841049194`. An independent repeat matched every deterministic field exactly, including all seven evaluation pairs and both final model hashes; isolated-process wall time was 26.972–27.927 seconds and combined-process peak RSS was 700,350,464–705,372,160 bytes.
-- This is not a fair production-quality contest: one rolling step trains only `789,760` parameters (11.44% of the full model), while one control step trains all `6,901,760`; the shallow worker also bypasses the block's true prefix and suffix. P5 therefore stays active without promoting sequential rotation. The next slice will assemble one coordinator step from a complete set of block-affine workers against one checkpoint and batch, preserving low individual residency while normalizing per-block update coverage.
-- P5, P6, and P7 implementation do not wait on the slower practical-campaign review loop. The first owner-directed campaign target is noisy bug reports to validated triage JSON; its data, rubric, baseline examples, checkpoints, and final interpretation remain manual approval points.
+- The schedule-normalized block-sharded control assigned all six blocks from one checkpoint and batch before one coordinator AdamW step. All six live optimizer trajectories reached step 12, frozen shared tensors acquired no optimizer state, and every deterministic field repeated exactly. Held-out improvement rose to `0.5503915548324585`, 82.78% above sequential rotation but only 39.28% of the full control; only `0.007922887802124023` additional improvement—1.44% of the sharded total—occurred from step 8 to 12, showing a shallow-objective plateau.
+- Block affinity kept each worker's unique tensor-position exposure at `11,811,840` bytes, 57.21% below full. Warm colony download per step was 31.34% below a full replica, but the colony paid `70,871,040` cold bytes (2.57 full-model equivalents), `279,367,680` persistent download bytes (only 15.67% below full), `506,818,560` round-trip bytes (23.51% below full), and `71,264,256` aggregate resident tensor bytes across six workers. Direct shallow block training is therefore preserved as a useful negative result and is not promoted.
+- P6 and P7 implementation do not wait on the slower practical-campaign review loop. The first owner-directed campaign target is noisy bug reports to validated triage JSON; its data, rubric, baseline examples, checkpoints, and final interpretation remain manual approval points.
 
 ### Cross-cutting worker reliability — hidden assignment canaries
 
@@ -242,7 +243,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P6 — Explore exact asynchronous tiled computation
 
-**Status:** Planned research
+**Status:** Active research — exact boundary-preserving tracer next
 
 - Divide one representative transformer layer into retryable matrix or tensor tasks.
 - Persist dependency state at the coordinator.
@@ -261,11 +262,10 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Build a schedule-normalized block-sharded global step: assign all six blocks from one frozen checkpoint and training batch to block-affine persistent workers, map every block gradient, and apply one coordinator AdamW step. Compare identical batches and global-step counts against the full-model control while reporting individual versus aggregate cold/warm download, gradient upload, tensor residency, runtime, and held-out trajectories. If the normalized topology still lags, test exact boundary supervision as the next single-variable control.
+Build the smallest exact boundary-preserving tiled tracer for one representative transformer block. Preserve the block's true input activation and downstream gradient, reconstruct its parameter gradients without a shallow surrogate objective, and compare every gradient plus one coordinator AdamW update against centralized FP32. Measure model-tile bytes, activation and adjoint transfer, individual and aggregate residency, recomputation, and wall time before extending beyond one block.
 
 ## Remaining major work
 
-- Rolling-submodel feasibility study.
 - Exact tiled-computation feasibility study.
 - Later sparse-expert investigation.
 - Operator-owned remote trusted campaign when deployment inputs are available.
@@ -312,6 +312,10 @@ Build a schedule-normalized block-sharded global step: assign all six blocks fro
 - Added persistent rolling-worker sessions, authenticated external-dataset execution, held-out trajectory capture, download accounting, timing partitions, and combined-process peak-RSS evidence. Two independent twelve-step T1 runs reproduced every deterministic result exactly while exposing the sequential topology's 21.49% quality-progress ratio.
 - Published Report 002 with both raw evidence files. It preserves the 57.58% worker-residency and 85.95% repeated-download improvements alongside the full-coverage transfer limit, widening quality gap, non-equivalent update schedule, and the block-sharded next experiment.
 - The P5 T1 gate passed `206` tests plus source/test compilation, lock verification, diff validation, CLI help, exact Report 001 reproduction, two exact deterministic T1 repetitions, report-claim recomputation, local-link validation, and browser inspection.
+- Added a schedule-normalized block-sharded topology: six persistent block-affine workers load one shared checkpoint/batch, map every block gradient, and advance one coordinator AdamW step only after complete coverage. Live optimizer-state checks bind all block steps and prove frozen shared parameters retain no optimizer state.
+- Repeated the twelve-step T1 run exactly. Schedule normalization improved loss progress 82.78% over sequential rotation but reached only 39.28% of the full control and plateaued after step 8; per-worker exposure stayed low while cold colony transfer and aggregate residency reached 2.57x and 2.55x the full-model values.
+- Published Report 003 and closed P5 without promotion. The negative result advances P6 toward exact boundary-preserving tiled execution instead of further scaling the shallow surrogate objective.
+- The P5 conclusion gate passed `208` tests plus source/test compilation, lock and CLI verification, two exact deterministic block-sharded runs, report-claim recomputation, local-link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
 
 ### 2026-07-24
 

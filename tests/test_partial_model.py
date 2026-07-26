@@ -12,6 +12,7 @@ from orcacolony.partial_model import (
     RollingBlockWorker,
     RollingBlockWorkerSession,
     main,
+    run_block_sharded_experiment,
     run_dataset_rolling_block_experiment,
     run_rolling_block_experiment,
 )
@@ -242,6 +243,100 @@ def test_dataset_rolling_block_experiment_records_persistent_transfer_and_evalua
     assert evidence.rolling_model_sha256 != evidence.full_baseline_model_sha256
 
 
+def test_block_sharded_experiment_maps_every_block_before_one_global_step(
+    tmp_path: Path,
+) -> None:
+    campaign, dataset = _evaluated_dataset_campaign(tmp_path)
+
+    evidence = run_block_sharded_experiment(
+        campaign,
+        dataset,
+        steps=2,
+        evaluation_interval=1,
+    )
+
+    layers = campaign.model.layers
+    assert evidence.format == "orcacolony_block_sharded_evidence_v1"
+    assert evidence.dataset_revision == dataset.revision
+    assert evidence.global_steps == 2
+    assert evidence.worker_assignments == 2 * layers
+    assert evidence.workers_per_global_step == layers
+    assert evidence.assignment_block_sequence == tuple(range(layers)) * 2
+    assert evidence.block_update_counts == (2,) * layers
+    assert evidence.coordinator_optimizer_steps == 2
+    assert evidence.block_optimizer_steps == (2,) * layers
+    assert evidence.shared_optimizer_state_parameter_count == 0
+    assert tuple(point.step for point in evidence.evaluation_history) == (0, 1, 2)
+    assert evidence.evaluation_history[0].sharded_mean_loss == (
+        evidence.evaluation_history[0].full_baseline_mean_loss
+    )
+    assert evidence.initial_shared_state_sha256 == evidence.final_shared_state_sha256
+    assert evidence.updated_block_count == layers
+    assert evidence.shared_state_loads == layers
+    assert evidence.block_state_loads == 2 * layers
+    assert evidence.individual_worker_unique_payload_tensor_bytes == (
+        evidence.worker_payload_tensor_bytes
+    )
+    assert evidence.individual_worker_unique_payload_tensor_bytes < (
+        evidence.full_payload_tensor_bytes
+    )
+    assert evidence.aggregate_worker_resident_tensor_bytes == (
+        evidence.worker_resident_tensor_bytes * layers
+    )
+    assert evidence.cold_aggregate_download_tensor_bytes == (
+        evidence.worker_payload_tensor_bytes * layers
+    )
+    assert evidence.colony_unique_payload_tensor_bytes == (
+        evidence.cold_aggregate_download_tensor_bytes
+    )
+    assert evidence.warm_aggregate_download_per_step_tensor_bytes == (
+        evidence.selected_block_payload_tensor_bytes * layers
+    )
+    assert evidence.persistent_aggregate_download_tensor_bytes == (
+        evidence.cold_aggregate_download_tensor_bytes
+        + evidence.warm_aggregate_download_per_step_tensor_bytes
+    )
+    assert evidence.individual_worker_persistent_download_tensor_bytes == (
+        evidence.worker_payload_tensor_bytes
+        + evidence.selected_block_payload_tensor_bytes
+    )
+    assert evidence.mapped_gradient_upload_tensor_bytes == (
+        evidence.mapped_gradient_bytes_per_assignment * 2 * layers
+    )
+    assert evidence.persistent_aggregate_round_trip_tensor_bytes == (
+        evidence.persistent_aggregate_download_tensor_bytes
+        + evidence.mapped_gradient_upload_tensor_bytes
+    )
+    assert evidence.replicated_full_download_tensor_bytes == (
+        evidence.full_payload_tensor_bytes * 2
+    )
+    assert evidence.replicated_full_round_trip_tensor_bytes == (
+        2 * evidence.replicated_full_download_tensor_bytes
+    )
+    assert evidence.sharded_validation_loss_improvement == (
+        evidence.initial_validation_mean_loss
+        - evidence.sharded_final_validation_mean_loss
+    )
+    assert evidence.full_baseline_validation_loss_improvement == (
+        evidence.initial_validation_mean_loss
+        - evidence.full_baseline_final_validation_mean_loss
+    )
+    assert evidence.experiment_wall_seconds > 0
+    assert evidence.sharded_training_seconds > 0
+    assert evidence.full_baseline_training_seconds > 0
+    assert evidence.evaluation_seconds > 0
+    assert evidence.experiment_wall_seconds >= (
+        evidence.sharded_training_seconds
+        + evidence.full_baseline_training_seconds
+        + evidence.evaluation_seconds
+    )
+    assert (
+        evidence.combined_process_peak_rss_bytes is None
+        or evidence.combined_process_peak_rss_bytes > 0
+    )
+    assert evidence.sharded_model_sha256 != evidence.full_baseline_model_sha256
+
+
 def test_partial_model_cli_runs_authenticated_dataset_experiment(
     tmp_path: Path,
 ) -> None:
@@ -272,3 +367,36 @@ def test_partial_model_cli_runs_authenticated_dataset_experiment(
     assert payload["format"] == "orcacolony_dataset_rolling_block_evidence_v1"
     assert payload["dataset_revision"] == dataset.revision
     assert [point["step"] for point in payload["evaluation_history"]] == [0, 1, 2]
+
+
+def test_partial_model_cli_selects_block_sharded_topology(tmp_path: Path) -> None:
+    campaign, dataset = _evaluated_dataset_campaign(tmp_path)
+    config_path = tmp_path / "campaign.json"
+    output_path = tmp_path / "evidence.json"
+    config_path.write_text(
+        json.dumps(asdict(campaign)),
+        encoding="utf-8",
+    )
+
+    main(
+        [
+            "--config",
+            str(config_path),
+            "--dataset",
+            str(dataset.root),
+            "--topology",
+            "block-sharded",
+            "--steps",
+            "2",
+            "--evaluation-interval",
+            "1",
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["format"] == "orcacolony_block_sharded_evidence_v1"
+    assert payload["dataset_revision"] == dataset.revision
+    assert payload["global_steps"] == 2
+    assert payload["worker_assignments"] == 2 * campaign.model.layers
