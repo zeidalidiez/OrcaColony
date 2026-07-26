@@ -563,7 +563,13 @@ def build_lora_model(
     campaign: CampaignConfig,
     config: LoRAConfig,
 ) -> VolunteerDecoder:
-    model = build_model(campaign)
+    return _apply_lora_to_model(build_model(campaign), config)
+
+
+def _apply_lora_to_model(
+    model: VolunteerDecoder,
+    config: LoRAConfig,
+) -> VolunteerDecoder:
     actual_base_sha256 = tensor_sha256(model.state_dict())
     if actual_base_sha256 != config.base_model_sha256:
         raise ValueError(
@@ -624,11 +630,25 @@ def build_profiled_lora_model(
     campaign: CampaignConfig,
     config: LoRAConfig,
     numerical_profile: str,
+    *,
+    base_state: Mapping[str, Tensor] | None = None,
 ) -> VolunteerDecoder:
     profile = _validated_lora_numerical_profile(numerical_profile)
+    if base_state is None:
+        model = build_model(campaign)
+    else:
+        model = build_model(campaign)
+        model.load_state_dict(
+            {
+                name: tensor.detach().cpu().clone().contiguous()
+                for name, tensor in base_state.items()
+            },
+            strict=True,
+        )
+    model = _apply_lora_to_model(model, config)
     if profile == INT8_FROZEN_LINEAR_PROFILE:
-        return build_int8_lora_model(campaign, config)
-    return build_lora_model(campaign, config)
+        return quantize_lora_frozen_base(model)
+    return model
 
 
 def build_streamed_lora_model(
@@ -1957,12 +1977,12 @@ def _validated_lora_trajectory(
         )
     normalized_history: list[float] = []
     for index, loss in enumerate(loss_history):
-        if isinstance(loss, bool) or not isinstance(loss, (int, float)):
+        if type(loss) is not float:
             raise ValueError(
-                "LoRA checkpoint loss history values must be finite numbers: "
+                "LoRA checkpoint loss history values must be finite numbers encoded as JSON floats: "
                 f"index={index}"
             )
-        normalized_loss = float(loss)
+        normalized_loss = loss
         if not math.isfinite(normalized_loss):
             raise ValueError(
                 "LoRA checkpoint loss history values must be finite: "
@@ -2252,14 +2272,12 @@ def load_lora_checkpoint(
     if state.get("dataset_revision") != expected_dataset_revision:
         raise ValueError("LoRA checkpoint dataset revision mismatch")
 
-    checkpoint_step = _nonnegative_integral_step(
-        state.get("step"),
-        "LoRA checkpoint training step",
-    )
-    optimizer_step = _nonnegative_integral_step(
-        state.get("optimizer_step"),
-        "LoRA checkpoint optimizer step",
-    )
+    checkpoint_step = state.get("step")
+    optimizer_step = state.get("optimizer_step")
+    if type(checkpoint_step) is not int or checkpoint_step < 0:
+        raise ValueError("LoRA checkpoint training step must be an integer")
+    if type(optimizer_step) is not int or optimizer_step < 0:
+        raise ValueError("LoRA checkpoint optimizer step must be an integer")
     if optimizer_step != checkpoint_step:
         raise ValueError("LoRA checkpoint optimizer step does not match training step")
     dataset_cursor, loss_history = _validated_lora_trajectory(

@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
 from urllib.parse import urlencode, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -404,25 +405,38 @@ def _cached_base_layer_bundle(
         artifact_downloaded = 0
         hasher = hashlib.sha256()
         try:
-            with os.fdopen(descriptor, "wb") as output, opener.open(
-                request,
-                timeout=180,
-            ) as response:
-                if _origin(response.geturl()) != _origin(origin):
-                    raise ValueError("bundle artifact response crossed the pinned origin")
-                content_length = response.headers.get("Content-Length")
-                if content_length is not None and int(content_length) != expected_bytes:
-                    raise ValueError("bundle artifact length does not match assignment")
-                while chunk := response.read(
-                    min(1024 * 1024, expected_bytes - artifact_downloaded + 1)
-                ):
-                    artifact_downloaded += len(chunk)
-                    if artifact_downloaded > expected_bytes:
-                        raise ValueError("bundle artifact exceeds the assigned byte count")
-                    hasher.update(chunk)
-                    output.write(chunk)
-                output.flush()
-                os.fsync(output.fileno())
+            try:
+                with os.fdopen(descriptor, "wb") as output, opener.open(
+                    request,
+                    timeout=180,
+                ) as response:
+                    if _origin(response.geturl()) != _origin(origin):
+                        raise ValueError("bundle artifact response crossed the pinned origin")
+                    content_length = response.headers.get("Content-Length")
+                    if content_length is not None and int(content_length) != expected_bytes:
+                        raise ValueError("bundle artifact length does not match assignment")
+                    while chunk := response.read(
+                        min(1024 * 1024, expected_bytes - artifact_downloaded + 1)
+                    ):
+                        artifact_downloaded += len(chunk)
+                        if artifact_downloaded > expected_bytes:
+                            raise ValueError("bundle artifact exceeds the assigned byte count")
+                        hasher.update(chunk)
+                        output.write(chunk)
+                    output.flush()
+                    os.fsync(output.fileno())
+            except HTTPError as exc:
+                try:
+                    failure = json.loads(exc.read())
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    failure = None
+                detail = (
+                    failure.get("error")
+                    if isinstance(failure, Mapping)
+                    and isinstance(failure.get("error"), str)
+                    else f"HTTP {exc.code}"
+                )
+                raise ValueError(f"bundle artifact fetch failed: {detail}") from exc
             if artifact_downloaded != expected_bytes:
                 raise ValueError("bundle artifact length does not match assignment")
             if hasher.hexdigest() != digest:

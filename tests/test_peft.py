@@ -1418,6 +1418,9 @@ def test_lora_checkpoint_save_rejects_invalid_trajectory_metadata(
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
+        ("step", 1.0, "training step must be an integer"),
+        ("dataset_cursor", 4.0, "dataset cursor"),
+        ("loss_history", [1], "JSON floats"),
         ("dataset_cursor", -1, "dataset cursor"),
         ("dataset_cursor", 5, "dataset cursor"),
         ("loss_history", [], "loss history"),

@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, cast
@@ -17,6 +18,35 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 from .artifacts import PackedDataset
+
+
+def _reject_duplicate_json_keys(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate checkpoint JSON key: {key}")
+        result[key] = value
+    return result
+
+
+_CHECKPOINT_STATE_FIELDS = frozenset(
+    {
+        "format",
+        "campaign_id",
+        "architecture",
+        "architecture_revision",
+        "step",
+        "optimizer_step",
+        "dataset_revision",
+        "dataset_cursor",
+        "loss_history",
+        "model",
+        "optimizer",
+    }
+)
+_CHECKPOINT_ARTIFACT_FIELDS = frozenset({"file", "sha256"})
 
 
 @dataclass(frozen=True)
@@ -451,12 +481,20 @@ def _load_checkpoint(
     campaign: CampaignConfig,
     checkpoint_dir: Path,
 ) -> tuple[VolunteerDecoder, torch.optim.AdamW, int, int, list[float]]:
-    state = json.loads((checkpoint_dir / "state.json").read_text(encoding="utf-8"))
+    state = json.loads(
+        (checkpoint_dir / "state.json").read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_json_keys,
+    )
+    if not isinstance(state, dict) or frozenset(state) != _CHECKPOINT_STATE_FIELDS:
+        raise ValueError("checkpoint state schema is invalid")
     if state["format"] != "orcacolony_checkpoint_v1":
         raise ValueError("unsupported checkpoint format")
     if state["campaign_id"] != campaign.campaign["id"]:
         raise ValueError("checkpoint campaign does not match configuration")
-    if state["architecture_revision"] != campaign.model.architecture_revision:
+    if (
+        type(state["architecture_revision"]) is not int
+        or state["architecture_revision"] != campaign.model.architecture_revision
+    ):
         raise ValueError("checkpoint architecture revision does not match configuration")
     expected_dataset_revision = (
         campaign.dataset["manifest_sha256"]
@@ -465,20 +503,67 @@ def _load_checkpoint(
     )
     if state.get("dataset_revision", "synthetic-fixture-v1") != expected_dataset_revision:
         raise ValueError("checkpoint dataset revision does not match configuration")
+    if type(state.get("step")) is not int or state["step"] < 0:
+        raise ValueError("checkpoint step must be a nonnegative integer")
+    if type(state.get("optimizer_step")) is not int or state["optimizer_step"] < 0:
+        raise ValueError("checkpoint optimizer step must be a nonnegative integer")
+    if type(state.get("dataset_cursor")) is not int or state["dataset_cursor"] < 0:
+        raise ValueError("checkpoint dataset cursor must be a nonnegative integer")
+    loss_history = state.get("loss_history")
+    if not isinstance(loss_history, list) or any(
+        type(loss) is not float or not math.isfinite(loss) for loss in loss_history
+    ):
+        raise ValueError("checkpoint loss history must contain finite JSON floats")
 
-    model_path = checkpoint_dir / state["model"]["file"]
-    optimizer_path = checkpoint_dir / state["optimizer"]["file"]
-    if _sha256_file(model_path) != state["model"]["sha256"]:
+    model_artifact = state.get("model")
+    optimizer_artifact = state.get("optimizer")
+    if (
+        not isinstance(model_artifact, dict)
+        or frozenset(model_artifact) != _CHECKPOINT_ARTIFACT_FIELDS
+        or model_artifact.get("file") != "model.safetensors"
+        or not isinstance(optimizer_artifact, dict)
+        or frozenset(optimizer_artifact) != _CHECKPOINT_ARTIFACT_FIELDS
+        or optimizer_artifact.get("file") != "optimizer.safetensors"
+    ):
+        raise ValueError("checkpoint artifact schema is invalid")
+    model_path = checkpoint_dir / model_artifact["file"]
+    optimizer_path = checkpoint_dir / optimizer_artifact["file"]
+    checkpoint_root = checkpoint_dir.resolve(strict=True)
+    for artifact_path in (model_path, optimizer_path):
+        metadata = artifact_path.lstat()
+        if (
+            artifact_path.is_symlink()
+            or not stat.S_ISREG(metadata.st_mode)
+            or int(getattr(metadata, "st_file_attributes", 0)) & 0x400
+            or not artifact_path.resolve(strict=True).is_relative_to(checkpoint_root)
+        ):
+            raise ValueError("checkpoint artifact path is unsafe")
+    if _sha256_file(model_path) != model_artifact["sha256"]:
         raise ValueError("model checkpoint digest mismatch")
-    if _sha256_file(optimizer_path) != state["optimizer"]["sha256"]:
+    if _sha256_file(optimizer_path) != optimizer_artifact["sha256"]:
         raise ValueError("optimizer checkpoint digest mismatch")
 
     model = build_model(campaign)
     model.load_state_dict(load_safetensors_file(str(model_path)))
     optimizer = _create_optimizer(model, campaign.training)
     optimizer_tensors = load_safetensors_file(str(optimizer_path))
+    expected_optimizer_tensors = {
+        f"{prefix}.{name}"
+        for name, _ in model.named_parameters()
+        for prefix in ("exp_avg", "exp_avg_sq")
+    }
+    if set(optimizer_tensors) != expected_optimizer_tensors:
+        raise ValueError("optimizer checkpoint tensor schema is invalid")
     optimizer_step = float(state["optimizer_step"])
     for name, parameter in model.named_parameters():
+        for prefix in ("exp_avg", "exp_avg_sq"):
+            tensor = optimizer_tensors[f"{prefix}.{name}"]
+            if (
+                tensor.dtype != parameter.dtype
+                or tensor.shape != parameter.shape
+                or not bool(torch.isfinite(tensor).all())
+            ):
+                raise ValueError("optimizer checkpoint tensor is invalid")
         optimizer.state[parameter] = {
             "step": torch.tensor(optimizer_step),
             "exp_avg": optimizer_tensors[f"exp_avg.{name}"].clone(),
@@ -487,9 +572,9 @@ def _load_checkpoint(
     return (
         model,
         optimizer,
-        int(state["step"]),
-        int(state["dataset_cursor"]),
-        [float(loss) for loss in state["loss_history"]],
+        state["step"],
+        state["dataset_cursor"],
+        list(loss_history),
     )
 
 

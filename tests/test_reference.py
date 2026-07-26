@@ -52,6 +52,77 @@ def test_checkpoint_resume_matches_an_uninterrupted_training_run(tmp_path: Path)
     assert (split_dir / "state.json").is_file()
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("unexpected", None, "state schema is invalid"),
+        ("step", 1.0, "step must be a nonnegative integer"),
+        ("optimizer_step", 1.0, "optimizer step must be a nonnegative integer"),
+        ("dataset_cursor", 4.0, "dataset cursor must be a nonnegative integer"),
+        ("loss_history", [1], "loss history must contain finite JSON floats"),
+    ),
+)
+def test_dense_checkpoint_requires_exact_trajectory_json_types(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    checkpoint = tmp_path / "checkpoint"
+    run_training(campaign, output_dir=checkpoint, target_steps=1)
+    state_path = checkpoint / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state[field] = value
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        run_training(
+            campaign,
+            output_dir=tmp_path / "resumed",
+            target_steps=2,
+            resume_from=checkpoint,
+        )
+
+
+def test_dense_checkpoint_rejects_duplicate_keys_and_artifact_path_escape(
+    tmp_path: Path,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    checkpoint = tmp_path / "checkpoint"
+    run_training(campaign, output_dir=checkpoint, target_steps=1)
+    state_path = checkpoint / "state.json"
+    original = state_path.read_text(encoding="utf-8")
+    duplicate_state = original.replace(
+        '"step": 1\n',
+        '"step": 1,\n  "step": 1\n',
+        1,
+    )
+    assert duplicate_state != original
+    state_path.write_text(
+        duplicate_state,
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="duplicate checkpoint JSON key"):
+        run_training(
+            campaign,
+            output_dir=tmp_path / "duplicate-resume",
+            target_steps=2,
+            resume_from=checkpoint,
+        )
+
+    state = json.loads(original)
+    state["model"]["file"] = "../model.safetensors"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    with pytest.raises(ValueError, match="artifact schema is invalid"):
+        run_training(
+            campaign,
+            output_dir=tmp_path / "escaped-resume",
+            target_steps=2,
+            resume_from=checkpoint,
+        )
+
+
 def test_t1_fixture_exports_the_dynamic_browser_model_contract(tmp_path: Path) -> None:
     campaign = load_campaign(T1_CONFIG)
     fixture = export_fixture(campaign, tmp_path / "t1-fixture")

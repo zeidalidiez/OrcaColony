@@ -230,6 +230,7 @@ def test_public_dataset_manifest_rejects_unreviewed_fields() -> None:
 
 def test_release_bundle_publishes_separate_lora_base_adapter_and_resume_state(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     campaign_payload = json.loads(CONFIG.read_text(encoding="utf-8"))
     corpus = (
@@ -345,6 +346,26 @@ def test_release_bundle_publishes_separate_lora_base_adapter_and_resume_state(
     )
 
     assert first_manifest == second_manifest
+    train_path = dataset_root / "train.safetensors"
+    train_bytes = train_path.read_bytes()
+    replacement_train = dataset_root / "replacement-train.safetensors"
+    replacement_train.write_bytes(b"mutated-after-campaign-admission")
+    replacement_train.replace(train_path)
+    try:
+        retained_dataset_manifest = build_release_bundle(
+            lora.campaign,
+            coordinator,
+            dataset_root=dataset_root,
+            browser_root=browser_root,
+            project_license=project_license,
+            third_party_notice=third_party_notice,
+            public_coordinator_url=None,
+            output_dir=tmp_path / "release-retained-dataset",
+        )
+    finally:
+        replacement_train.write_bytes(train_bytes)
+        replacement_train.replace(train_path)
+    assert retained_dataset_manifest == first_manifest
     checkpoint = first_manifest["checkpoint"]
     assert checkpoint["training_method"] == "frozen-base-lora"
     assert first_manifest["numerical_profile"] == peft.INT8_FROZEN_LINEAR_PROFILE
@@ -379,3 +400,143 @@ def test_release_bundle_publishes_separate_lora_base_adapter_and_resume_state(
     assert dashboard["checkpoint"]["adapter_sha256"] == checkpoint[
         "adapter_sha256"
     ]
+
+    selected_evaluation = coordinator._state["evaluations"][-1]
+    last_evaluation = coordinator._state["last_evaluation"]
+    for field in (
+        "base_model_sha256",
+        "adapter_sha256",
+        "weight_checkpoint_sha256",
+        "resume_state_sha256",
+    ):
+        original_selected = selected_evaluation[field]
+        original_last = last_evaluation[field]
+        selected_evaluation[field] = "0" * 64
+        last_evaluation[field] = "0" * 64
+        try:
+            with pytest.raises(ValueError, match="LoRA provenance"):
+                build_release_bundle(
+                    lora.campaign,
+                    coordinator,
+                    dataset_root=dataset_root,
+                    browser_root=browser_root,
+                    project_license=project_license,
+                    third_party_notice=third_party_notice,
+                    public_coordinator_url=None,
+                    output_dir=tmp_path / f"wrong-evaluation-{field}",
+                )
+        finally:
+            selected_evaluation[field] = original_selected
+            last_evaluation[field] = original_last
+
+    baseline_evaluation = coordinator._state["evaluations"][0]
+    for mutation, expected_error in (
+        ({"unknown_successor": True}, "schema"),
+        ({"step": 0.0}, "provenance"),
+        ({"validation_sequences": True}, "provenance"),
+        ({"loss_sum": 1}, "provenance"),
+    ):
+        original_baseline = dict(baseline_evaluation)
+        baseline_evaluation.update(mutation)
+        try:
+            with pytest.raises(ValueError, match=expected_error):
+                build_release_bundle(
+                    lora.campaign,
+                    coordinator,
+                    dataset_root=dataset_root,
+                    browser_root=browser_root,
+                    project_license=project_license,
+                    third_party_notice=third_party_notice,
+                    public_coordinator_url=None,
+                    output_dir=tmp_path / f"malformed-evaluation-{next(iter(mutation))}",
+                )
+        finally:
+            baseline_evaluation.clear()
+            baseline_evaluation.update(original_baseline)
+
+    checkpoint_state_path = coordinator.checkpoint_dir / "state.json"
+    checkpoint_state_bytes = checkpoint_state_path.read_bytes()
+    checkpoint_state = json.loads(checkpoint_state_bytes)
+    checkpoint_state["format"] = "orcacolony_lora_checkpoint_v1"
+    checkpoint_state.pop("numerical_profile")
+    checkpoint_state_path.write_text(json.dumps(checkpoint_state), encoding="utf-8")
+    try:
+        retained_release_dir = tmp_path / "profileless-checkpoint-release"
+        build_release_bundle(
+            lora.campaign,
+            coordinator,
+            dataset_root=dataset_root,
+            browser_root=browser_root,
+            project_license=project_license,
+            third_party_notice=third_party_notice,
+            public_coordinator_url=None,
+            output_dir=retained_release_dir,
+        )
+        retained_state = json.loads(
+            (retained_release_dir / "checkpoint" / "state.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert retained_state["format"] == "orcacolony_lora_checkpoint_v2"
+        assert retained_state["numerical_profile"] == peft.INT8_FROZEN_LINEAR_PROFILE
+    finally:
+        checkpoint_state_path.write_bytes(checkpoint_state_bytes)
+
+    wrong_lock = coordinator._lock_payload()
+    wrong_lock["campaign_revision"] = "0" * 64
+    with monkeypatch.context() as patcher:
+        patcher.setattr(coordinator, "_lock_payload", lambda: wrong_lock)
+        with pytest.raises(ValueError, match="campaign revision differs"):
+            build_release_bundle(
+                lora.campaign,
+                coordinator,
+                dataset_root=dataset_root,
+                browser_root=browser_root,
+                project_license=project_license,
+                third_party_notice=third_party_notice,
+                public_coordinator_url=None,
+                output_dir=tmp_path / "wrong-campaign-revision-release",
+            )
+
+    mixed_profile_evaluation = dict(coordinator._state["evaluations"][0])
+    mixed_profile_evaluation["numerical_profile"] = peft.EXACT_CPU_FP32_PROFILE
+    coordinator._state["evaluations"] = [mixed_profile_evaluation]
+    coordinator._state["last_evaluation"] = mixed_profile_evaluation
+
+    with pytest.raises(ValueError, match="numerical profile"):
+        build_release_bundle(
+            lora.campaign,
+            coordinator,
+            dataset_root=dataset_root,
+            browser_root=browser_root,
+            project_license=project_license,
+            third_party_notice=third_party_notice,
+            public_coordinator_url=None,
+            output_dir=tmp_path / "mixed-profile-release",
+        )
+
+    mixed_profile_evaluation["numerical_profile"] = None
+    with pytest.raises(ValueError, match="numerical profile"):
+        build_release_bundle(
+            lora.campaign,
+            coordinator,
+            dataset_root=dataset_root,
+            browser_root=browser_root,
+            project_license=project_license,
+            third_party_notice=third_party_notice,
+            public_coordinator_url=None,
+            output_dir=tmp_path / "null-profile-release",
+        )
+
+    mixed_profile_evaluation.pop("numerical_profile")
+    with pytest.raises(ValueError, match="evaluation schema"):
+        build_release_bundle(
+            lora.campaign,
+            coordinator,
+            dataset_root=dataset_root,
+            browser_root=browser_root,
+            project_license=project_license,
+            third_party_notice=third_party_notice,
+            public_coordinator_url=None,
+            output_dir=tmp_path / "missing-profile-release",
+        )

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 import threading
@@ -265,6 +266,993 @@ def test_exact_fp32_profile_rejects_bit_level_gradient_changes(
             replace(submission, safetensors=save_safetensors(gradients)),
             now=101,
         )
+
+
+@pytest.mark.parametrize(
+    ("numerical_profile", "runtime_backend"),
+    (
+        (peft.EXACT_CPU_FP32_PROFILE, "python-oracle-f32"),
+        (
+            peft.INT8_FROZEN_LINEAR_PROFILE,
+            "python-oracle-int8-f32-dequant",
+        ),
+    ),
+)
+def test_restart_rejects_an_accepted_result_mutated_after_admission(
+    tmp_path: Path,
+    numerical_profile: str,
+    runtime_backend: str,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+        numerical_profile=numerical_profile,
+    )
+    accepted_assignments = []
+    for worker_id in ("worker-a", "worker-b"):
+        assignment = coordinator.lease(
+            worker_id,
+            worker_token="test-token",
+            now=100,
+        )
+        coordinator.accept(
+            submission_for(
+                coordinator,
+                assignment,
+                runtime_backend=runtime_backend,
+            ),
+            now=101,
+            finalize=False,
+        )
+        accepted_assignments.append(assignment)
+
+    result_path = state_dir / "results" / (
+        f"{accepted_assignments[0]['assignment_id']}.safetensors"
+    )
+    gradients = load_safetensors(result_path.read_bytes())
+    for name in sorted(gradients):
+        changed = gradients[name].clone()
+        flat = changed.reshape(-1)
+        zero_indices = (flat == 0).nonzero(as_tuple=False)
+        if zero_indices.numel() == 0:
+            continue
+        flat[int(zero_indices[0])] = torch.tensor(-0.0, dtype=flat.dtype)
+        gradients[name] = changed
+        break
+    else:
+        raise AssertionError("accepted result did not contain a signed-zero probe site")
+    result_path.write_bytes(save_safetensors(gradients))
+
+    with pytest.raises(ValueError, match="accepted result.*changed"):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+            numerical_profile=numerical_profile,
+        )
+
+
+@pytest.mark.parametrize(
+    "identity_field",
+    (
+        "result_file_sha256",
+        "result_tensor_sha256",
+        "oracle_file_sha256",
+        "oracle_tensor_sha256",
+        "oracle_file_size",
+    ),
+)
+def test_restart_rejects_removed_result_identity_from_current_state(
+    tmp_path: Path,
+    identity_field: str,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    assignment = coordinator.lease(
+        "worker-a",
+        worker_token="test-token",
+        now=100,
+    )
+    coordinator.accept(
+        submission_for(coordinator, assignment),
+        now=101,
+        finalize=False,
+    )
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    accepted = next(
+        value for value in state["assignments"] if value["state"] == "accepted"
+    )
+    accepted.pop(identity_field)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="current accepted-result assignment schema is incomplete",
+    ):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+        )
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("accepted_result_identity_revision")
+    for field in multiworker._RESULT_STATE_IDENTITY_FIELDS:
+        state.pop(field)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    state_before_partial_migration = state_path.read_bytes()
+    with pytest.raises(
+        ValueError,
+        match="legacy accepted-result assignment schema is invalid",
+    ):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+        )
+    assert state_path.read_bytes() == state_before_partial_migration
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("extra-state", "current global-step state schema is invalid"),
+        ("extra-assignment", "current global-step assignment schema is invalid"),
+        ("missing-assignment", "current global-step assignment schema is invalid"),
+        ("boolean-lease", "lease duration is invalid"),
+        ("float-protocol", "result protocol revision is invalid"),
+        ("boolean-result-cursor", "unfinished global-step result authority"),
+        ("integer-result-history", "unfinished global-step result authority"),
+    ),
+)
+def test_restart_requires_exact_current_global_step_schemas(
+    tmp_path: Path,
+    mutation: str,
+    message: str,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    lock_path = state_dir / "campaign-lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    if mutation == "extra-state":
+        state["unexpected"] = None
+    elif mutation == "extra-assignment":
+        state["assignments"][0]["unexpected"] = None
+    elif mutation == "missing-assignment":
+        state["assignments"][0].pop("parameter_count")
+    elif mutation == "boolean-lease":
+        state["lease_seconds"] = True
+        lock["lease_seconds"] = True
+    elif mutation == "float-protocol":
+        state["result_protocol_revision"] = 3.0
+        lock["result_protocol_revision"] = 3.0
+    elif mutation == "boolean-result-cursor":
+        state["result_dataset_cursor"] = True
+        lock["result_dataset_cursor"] = True
+    else:
+        state["result_loss_history"] = [1]
+        lock["result_loss_history"] = [1]
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    lock_path.write_text(json.dumps(lock), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+        )
+
+
+def test_legacy_result_identity_migration_rejects_partial_assignment_schema(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    assignment = coordinator.lease(
+        "worker-a",
+        worker_token="test-token",
+        now=100,
+    )
+    coordinator.accept(
+        submission_for(coordinator, assignment),
+        now=101,
+        finalize=False,
+    )
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("accepted_result_identity_revision")
+    for field in multiworker._RESULT_STATE_IDENTITY_FIELDS:
+        state.pop(field)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    lock_path = state_dir / "campaign-lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock.pop("accepted_result_identity_revision")
+    lock.pop("dataset_cursor")
+    lock.pop("worker_count")
+    lock.pop("assignment_ids")
+    lock_path.write_text(json.dumps(lock), encoding="utf-8")
+    state_before = state_path.read_bytes()
+    lock_before = lock_path.read_bytes()
+
+    with pytest.raises(ValueError, match="legacy accepted-result assignment schema"):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+        )
+    assert state_path.read_bytes() == state_before
+    assert lock_path.read_bytes() == lock_before
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("extra-state-field", "extra-assignment-field", "missing-assignment-field"),
+)
+def test_legacy_result_identity_migration_requires_exact_predecessor_shapes(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / mutation
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    assignment = coordinator.lease(
+        "worker-a",
+        worker_token="test-token",
+        now=100,
+    )
+    coordinator.accept(
+        submission_for(coordinator, assignment),
+        now=101,
+        finalize=False,
+    )
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("accepted_result_identity_revision")
+    for field in multiworker._RESULT_STATE_IDENTITY_FIELDS:
+        state.pop(field)
+    for persisted_assignment in state["assignments"]:
+        for field in multiworker._ASSIGNMENT_IDENTITY_FIELDS:
+            persisted_assignment.pop(field)
+    if mutation == "extra-state-field":
+        state["unknown_successor"] = "present"
+        expected_error = "legacy accepted-result state schema"
+    elif mutation == "extra-assignment-field":
+        state["assignments"][0]["unknown_successor"] = "present"
+        expected_error = "legacy accepted-result assignment schema"
+    else:
+        state["assignments"][0].pop("parameter_count")
+        expected_error = "legacy accepted-result assignment schema"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    lock_path = state_dir / "campaign-lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock.pop("accepted_result_identity_revision")
+    lock.pop("dataset_cursor")
+    lock.pop("worker_count")
+    lock.pop("assignment_ids")
+    for field in multiworker._RESULT_STATE_IDENTITY_FIELDS:
+        lock.pop(field)
+    lock_path.write_text(json.dumps(lock), encoding="utf-8")
+    state_before = state_path.read_bytes()
+    lock_before = lock_path.read_bytes()
+
+    with pytest.raises(ValueError, match=expected_error):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+        )
+    assert state_path.read_bytes() == state_before
+    assert lock_path.read_bytes() == lock_before
+
+
+def test_restart_rejects_state_and_lock_cursor_different_from_checkpoint(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["dataset_cursor"] = 1
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    lock_path = state_dir / "campaign-lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock["dataset_cursor"] = 1
+    lock_path.write_text(json.dumps(lock), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="base checkpoint progress mismatch"):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+        )
+
+
+def test_restart_rejects_truncated_assignment_set_before_finalization(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    assignment = coordinator.lease(
+        "worker-a",
+        worker_token="test-token",
+        now=100,
+    )
+    coordinator.accept(
+        submission_for(coordinator, assignment),
+        now=101,
+        finalize=False,
+    )
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    lock = json.loads(
+        (state_dir / "campaign-lock.json").read_text(encoding="utf-8")
+    )
+    assert lock["worker_count"] == 2
+    assert lock["assignment_ids"] == [
+        persisted["assignment_id"] for persisted in state["assignments"]
+    ]
+    state["assignments"] = [
+        persisted
+        for persisted in state["assignments"]
+        if persisted["state"] == "accepted"
+    ]
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    state_before = state_path.read_bytes()
+
+    with pytest.raises(ValueError, match="assignment coverage is incomplete"):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+        )
+    assert state_path.read_bytes() == state_before
+    assert not (state_dir / "checkpoint").exists()
+
+
+def test_oracle_recomputation_uses_the_authenticated_adapter_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    assignment = coordinator.lease(
+        "worker-a",
+        worker_token="test-token",
+        now=100,
+    )
+    coordinator.accept(
+        submission_for(coordinator, assignment),
+        now=101,
+        finalize=False,
+    )
+    adapter_path = state_dir / "adapter.safetensors"
+    original_bytes = adapter_path.read_bytes()
+    changed = load_safetensors(original_bytes)
+    name = sorted(changed)[0]
+    changed[name] = changed[name].clone()
+    changed[name].reshape(-1)[0] += 1.0
+    changed_bytes = save_safetensors(changed)
+    real_recompute = GlobalStepCoordinator._recomputed_assignment_oracle
+    recomputations = 0
+
+    def mutate_path_during_recomputation(self, *args, **kwargs):
+        nonlocal recomputations
+        recomputations += 1
+        adapter_path.write_bytes(changed_bytes)
+        try:
+            return real_recompute(self, *args, **kwargs)
+        finally:
+            adapter_path.write_bytes(original_bytes)
+
+    monkeypatch.setattr(
+        GlobalStepCoordinator,
+        "_recomputed_assignment_oracle",
+        mutate_path_during_recomputation,
+    )
+    recovered = GlobalStepCoordinator.load(
+        loaded.campaign,
+        state_dir,
+        participants=participants,
+        lora=loaded,
+    )
+
+    assert recomputations == 2
+    assert sum(
+        assignment["state"] == "accepted" for assignment in recovered.assignments
+    ) == 1
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    (
+        ("state-step", "base checkpoint progress mismatch"),
+        ("assignment-step", "assignment identity differs"),
+    ),
+)
+def test_restart_rejects_boolean_aliases_for_progress_identities(
+    tmp_path: Path,
+    mutation: str,
+    expected_error: str,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / mutation
+    GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if mutation == "state-step":
+        state["step"] = False
+    else:
+        state["assignments"][0]["global_step"] = False
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=expected_error):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+        )
+
+
+@pytest.mark.parametrize("stored_value", (True, 1.0, "1", 2))
+@pytest.mark.parametrize("location", ("state", "lock"))
+def test_restart_rejects_malformed_result_identity_revision_type(
+    tmp_path: Path,
+    stored_value: object,
+    location: str,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / f"coordinator-{location}-{stored_value!s}"
+    GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    state_path = state_dir / "global-state.json"
+    lock_path = state_dir / "campaign-lock.json"
+    target_path = state_path if location == "state" else lock_path
+    payload = json.loads(target_path.read_text(encoding="utf-8"))
+    payload["accepted_result_identity_revision"] = stored_value
+    target_path.write_text(json.dumps(payload), encoding="utf-8")
+    state_before = state_path.read_bytes()
+    lock_before = lock_path.read_bytes()
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "unsupported accepted-result identity revision"
+            if location == "state"
+            else "campaign lock mismatch"
+        ),
+    ):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+        )
+    assert state_path.read_bytes() == state_before
+    assert lock_path.read_bytes() == lock_before
+
+
+def test_restart_rejects_result_and_oracle_path_escape(tmp_path: Path) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    assignment = coordinator.lease(
+        "worker-a",
+        worker_token="test-token",
+        now=100,
+    )
+    coordinator.accept(
+        submission_for(coordinator, assignment),
+        now=101,
+        finalize=False,
+    )
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    accepted = next(
+        value for value in state["assignments"] if value["state"] == "accepted"
+    )
+    escaped_name = "escaped.safetensors"
+    original_result = state_dir / "results" / accepted["result_file"]
+    (state_dir / escaped_name).write_bytes(original_result.read_bytes())
+    accepted["assignment_id"] = "../escaped"
+    accepted["result_file"] = f"../{escaped_name}"
+    accepted["oracle_file"] = f"../{escaped_name}"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="assignment set identity is invalid"):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "message"),
+    (
+        ("oracle_file", "oracle gradient file identity is invalid"),
+        ("result_file", "accepted result file identity is invalid"),
+    ),
+)
+def test_restart_rejects_mutable_assignment_artifact_name(
+    tmp_path: Path,
+    field: str,
+    message: str,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / field
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    assignment = coordinator.lease(
+        "worker-a",
+        worker_token="test-token",
+        now=100,
+    )
+    coordinator.accept(
+        submission_for(coordinator, assignment),
+        now=101,
+        finalize=False,
+    )
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    accepted = next(
+        value for value in state["assignments"] if value["state"] == "accepted"
+    )
+    accepted[field] = "../escaped.safetensors"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+        )
+
+
+def test_restart_rejects_result_link_swap_during_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    assignment = coordinator.lease(
+        "worker-a",
+        worker_token="test-token",
+        now=100,
+    )
+    coordinator.accept(
+        submission_for(coordinator, assignment),
+        now=101,
+        finalize=False,
+    )
+    result_path = state_dir / "results" / f"{assignment['assignment_id']}.safetensors"
+    held_path = tmp_path / "held-result.safetensors"
+    symlink_probe = tmp_path / "symlink-probe"
+    try:
+        symlink_probe.symlink_to(result_path)
+    except OSError:
+        pytest.skip("symlinks are unavailable for the link-swap regression")
+    symlink_probe.unlink()
+
+    real_open = os.open
+    swapped = False
+
+    def swapping_open(path: str | bytes | os.PathLike[str], flags: int, *args: object) -> int:
+        nonlocal swapped
+        if not swapped and Path(path) == result_path:
+            swapped = True
+            os.replace(result_path, held_path)
+            result_path.symlink_to(held_path)
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(multiworker.os, "open", swapping_open)
+    with pytest.raises(ValueError, match="accepted result artifact.*(changed|unavailable)"):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+        )
+    assert swapped
+
+
+def test_restart_rejects_result_root_rebind_during_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    assignment = coordinator.lease(
+        "worker-a",
+        worker_token="test-token",
+        now=100,
+    )
+    coordinator.accept(
+        submission_for(coordinator, assignment),
+        now=101,
+        finalize=False,
+    )
+    results_dir = state_dir / "results"
+    result_path = results_dir / f"{assignment['assignment_id']}.safetensors"
+    held_dir = tmp_path / "held-results"
+    symlink_probe = tmp_path / "directory-symlink-probe"
+    try:
+        symlink_probe.symlink_to(results_dir, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks are unavailable for the root-swap regression")
+    symlink_probe.unlink()
+
+    real_open = os.open
+    attempted = False
+
+    def swapping_open(path: str | bytes | os.PathLike[str], flags: int, *args: object) -> int:
+        nonlocal attempted
+        if not attempted and Path(path) == result_path:
+            attempted = True
+            os.replace(results_dir, held_dir)
+            results_dir.symlink_to(held_dir, target_is_directory=True)
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(multiworker.os, "open", swapping_open)
+    with pytest.raises(ValueError, match="accepted result artifact.*(changed|unavailable)"):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+        )
+    assert attempted
+
+
+def test_restart_rejects_oracle_and_result_mutated_with_rebound_state(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    assignment = coordinator.lease(
+        "worker-a",
+        worker_token="test-token",
+        now=100,
+    )
+    coordinator.accept(
+        submission_for(coordinator, assignment),
+        now=101,
+        finalize=False,
+    )
+    oracle_path = coordinator.oracle_gradient_path(str(assignment["assignment_id"]))
+    gradients = load_safetensors(oracle_path.read_bytes())
+    name = sorted(gradients)[0]
+    changed = gradients[name].clone()
+    changed.reshape(-1)[0] = torch.nextafter(
+        changed.reshape(-1)[0],
+        torch.tensor(float("inf")),
+    )
+    gradients[name] = changed
+    changed_bytes = save_safetensors(gradients)
+    oracle_path.write_bytes(changed_bytes)
+    result_path = state_dir / "results" / f"{assignment['assignment_id']}.safetensors"
+    result_path.write_bytes(changed_bytes)
+
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    accepted = next(
+        value for value in state["assignments"] if value["state"] == "accepted"
+    )
+    accepted["oracle_file_sha256"] = hashlib.sha256(changed_bytes).hexdigest()
+    accepted["oracle_tensor_sha256"] = multiworker.tensor_sha256(gradients)
+    accepted["oracle_file_size"] = len(changed_bytes)
+    accepted["result_file_sha256"] = hashlib.sha256(changed_bytes).hexdigest()
+    accepted["result_tensor_sha256"] = multiworker.tensor_sha256(gradients)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="oracle gradient differs from independent"):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+        )
+
+
+def test_legacy_result_identity_migration_is_exact_fp32_only(tmp_path: Path) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    for profile, backend, should_migrate in (
+        (peft.EXACT_CPU_FP32_PROFILE, "python-oracle-f32", True),
+        (peft.BURN_NDARRAY_F32_PROFILE, "burn-ndarray-f32", False),
+        (peft.BURN_WEBGPU_F32_PROFILE, "burn-webgpu-f32", False),
+        (
+            peft.INT8_FROZEN_LINEAR_PROFILE,
+            "python-oracle-int8-f32-dequant",
+            False,
+        ),
+    ):
+        state_dir = tmp_path / profile
+        coordinator = GlobalStepCoordinator.create(
+            loaded.campaign,
+            state_dir,
+            worker_count=2,
+            participants=participants,
+            lora=loaded,
+            numerical_profile=profile,
+        )
+        assignment = coordinator.lease(
+            "worker-a",
+            worker_token="test-token",
+            now=100,
+        )
+        submission = submission_for(
+            coordinator,
+            assignment,
+            runtime_backend=backend,
+        )
+        if backend not in multiworker._ORACLE_RUNTIME_BACKENDS:
+            submission = replace(
+                submission,
+                worker_telemetry=worker_telemetry(coordinator, assignment),
+            )
+        coordinator.accept(
+            submission,
+            now=101,
+            finalize=False,
+        )
+        state_path = state_dir / "global-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state.pop("accepted_result_identity_revision")
+        for field in multiworker._RESULT_STATE_IDENTITY_FIELDS:
+            state.pop(field)
+        for persisted_assignment in state["assignments"]:
+            for field in (
+                "result_file_sha256",
+                "result_tensor_sha256",
+                "oracle_file_sha256",
+                "oracle_tensor_sha256",
+                "oracle_file_size",
+            ):
+                persisted_assignment.pop(field)
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        lock_path = state_dir / "campaign-lock.json"
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+        lock.pop("accepted_result_identity_revision")
+        lock.pop("dataset_cursor")
+        lock.pop("worker_count")
+        lock.pop("assignment_ids")
+        for field in multiworker._RESULT_STATE_IDENTITY_FIELDS:
+            lock.pop(field)
+        lock_path.write_text(json.dumps(lock), encoding="utf-8")
+
+        if not should_migrate:
+            with pytest.raises(ValueError, match="accepted result identity is missing"):
+                GlobalStepCoordinator.load(
+                    loaded.campaign,
+                    state_dir,
+                    participants=participants,
+                    lora=loaded,
+                    numerical_profile=profile,
+                )
+            continue
+
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+            numerical_profile=profile,
+        )
+        migrated_state = json.loads(state_path.read_text(encoding="utf-8"))
+        migrated_assignment = next(
+            value
+            for value in migrated_state["assignments"]
+            if value["state"] == "accepted"
+        )
+        assert migrated_state["accepted_result_identity_revision"] == 1
+        assert len(migrated_assignment["result_file_sha256"]) == 64
+        assert len(migrated_assignment["result_tensor_sha256"]) == 64
+        assert len(migrated_assignment["oracle_file_sha256"]) == 64
+        assert len(migrated_assignment["oracle_tensor_sha256"]) == 64
+        assert migrated_assignment["oracle_file_size"] > 0
+        assert json.loads(lock_path.read_text(encoding="utf-8"))[
+            "accepted_result_identity_revision"
+        ] == 1
+        migrated_state_bytes = state_path.read_bytes()
+        migrated_lock_bytes = lock_path.read_bytes()
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+            numerical_profile=profile,
+        )
+        assert state_path.read_bytes() == migrated_state_bytes
+        assert lock_path.read_bytes() == migrated_lock_bytes
+
+
+@pytest.mark.parametrize(
+    "profile",
+    (
+        peft.BURN_NDARRAY_F32_PROFILE,
+        peft.BURN_WEBGPU_F32_PROFILE,
+        peft.INT8_FROZEN_LINEAR_PROFILE,
+    ),
+)
+def test_approximate_result_identity_predecessor_rejects_without_acceptances(
+    tmp_path: Path,
+    profile: str,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    state_dir = tmp_path / profile
+    GlobalStepCoordinator.create(
+        loaded.campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+        numerical_profile=profile,
+    )
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("accepted_result_identity_revision")
+    for field in multiworker._RESULT_STATE_IDENTITY_FIELDS:
+        state.pop(field)
+    for assignment in state["assignments"]:
+        for field in (
+            "result_file_sha256",
+            "result_tensor_sha256",
+            "oracle_file_sha256",
+            "oracle_tensor_sha256",
+            "oracle_file_size",
+        ):
+            assignment.pop(field)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    lock_path = state_dir / "campaign-lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    for field in (
+        "accepted_result_identity_revision",
+        "dataset_cursor",
+        "worker_count",
+        "assignment_ids",
+        *multiworker._RESULT_STATE_IDENTITY_FIELDS,
+    ):
+        lock.pop(field)
+    lock_path.write_text(json.dumps(lock), encoding="utf-8")
+    state_before = state_path.read_bytes()
+    lock_before = lock_path.read_bytes()
+
+    with pytest.raises(ValueError, match="exact-FP32 only"):
+        GlobalStepCoordinator.load(
+            loaded.campaign,
+            state_dir,
+            participants=participants,
+            lora=loaded,
+            numerical_profile=profile,
+        )
+    assert state_path.read_bytes() == state_before
+    assert lock_path.read_bytes() == lock_before
 
 
 def test_layer_bundle_partial_transfer_telemetry_binds_artifact_membership(
@@ -815,6 +1803,16 @@ def test_lora_http_contract_serves_assignments_artifacts_and_result_checkpoint(
         participants=participants,
         lora=loaded,
     )
+    expected_model_bytes = coordinator.initial_model_path.read_bytes()
+    expected_adapter_bytes = coordinator.initial_adapter_path.read_bytes()
+    mutated_model = load_safetensors(expected_model_bytes)
+    first_model_name = next(iter(mutated_model))
+    mutated_model[first_model_name] = mutated_model[first_model_name] + 1.0
+    coordinator.initial_model_path.write_bytes(save_safetensors(mutated_model))
+    mutated_adapter = load_safetensors(expected_adapter_bytes)
+    first_adapter_name = next(iter(mutated_adapter))
+    mutated_adapter[first_adapter_name] = mutated_adapter[first_adapter_name] + 1.0
+    coordinator.initial_adapter_path.write_bytes(save_safetensors(mutated_adapter))
     browser_root = tmp_path / "browser"
     browser_root.mkdir()
     (browser_root / "index.html").write_text("OrcaColony", encoding="utf-8")
@@ -835,9 +1833,13 @@ def test_lora_http_contract_serves_assignments_artifacts_and_result_checkpoint(
             assert assignment["model_url"] == "/api/v1/artifacts/model.safetensors"
             assert assignment["adapter_url"] == "/api/v1/artifacts/adapter.safetensors"
             with urlopen(f"{base_url}{assignment['model_url']}") as response:
-                initial_base = load_safetensors(response.read())
+                served_model_bytes = response.read()
+                initial_base = load_safetensors(served_model_bytes)
             with urlopen(f"{base_url}{assignment['adapter_url']}") as response:
-                initial_adapter = load_safetensors(response.read())
+                served_adapter_bytes = response.read()
+                initial_adapter = load_safetensors(served_adapter_bytes)
+            assert served_model_bytes == expected_model_bytes
+            assert served_adapter_bytes == expected_adapter_bytes
             assert multiworker.tensor_sha256(initial_base) == assignment["base_model_sha256"]
             assert multiworker.tensor_sha256(initial_adapter) == assignment["adapter_sha256"]
 
@@ -862,10 +1864,22 @@ def test_lora_http_contract_serves_assignments_artifacts_and_result_checkpoint(
             )
             with urlopen(result_request) as response:
                 receipts.append(json.load(response))
+            if len(receipts) == 1:
+                base_adapter_path = (
+                    coordinator.base_checkpoint_dir / "adapter.safetensors"
+                )
+                base_adapter_path.write_bytes(save_safetensors(mutated_adapter))
 
         completed = receipts[-1]
+        expected_completed_adapter = coordinator.checkpoint_artifact_bytes(
+            "adapter.safetensors"
+        )
+        (coordinator.checkpoint_dir / "adapter.safetensors").write_bytes(
+            save_safetensors(mutated_adapter)
+        )
         with urlopen(f"{base_url}{completed['checkpoint_url']}") as response:
-            completed_adapter = load_safetensors(response.read())
+            completed_adapter_bytes = response.read()
+            completed_adapter = load_safetensors(completed_adapter_bytes)
     finally:
         server.shutdown()
         server.server_close()
@@ -876,6 +1890,7 @@ def test_lora_http_contract_serves_assignments_artifacts_and_result_checkpoint(
     assert receipts[0]["checkpoint_sha256"] is None
     assert receipts[0]["checkpoint_url"] is None
     assert completed["step_complete"] is True
+    assert completed_adapter_bytes == expected_completed_adapter
     assert completed["model_sha256"] == loaded.config.base_model_sha256
     assert completed["adapter_sha256"] == multiworker.tensor_sha256(completed_adapter)
     assert completed[
@@ -892,7 +1907,7 @@ def test_lora_http_contract_serves_assignments_artifacts_and_result_checkpoint(
     assert completed["checkpoint_url"] == "/api/v1/checkpoint/adapter.safetensors"
 
 
-def test_dense_restart_migrates_the_pre_lora_state_and_campaign_lock(
+def test_dense_restart_rejects_combined_pre_lora_and_profile_migration(
     tmp_path: Path,
 ) -> None:
     campaign = load_campaign(CONFIG)
@@ -943,22 +1958,191 @@ def test_dense_restart_migrates_the_pre_lora_state_and_campaign_lock(
     ):
         lock.pop(field)
     lock_path.write_text(json.dumps(lock), encoding="utf-8")
+    state_before = state_path.read_bytes()
+    lock_before = lock_path.read_bytes()
 
-    recovered = GlobalStepCoordinator.load(
+    with pytest.raises(ValueError, match="combined global-step migration"):
+        GlobalStepCoordinator.load(
+            campaign,
+            state_dir,
+            participants=participants,
+        )
+    assert state_path.read_bytes() == state_before
+    assert lock_path.read_bytes() == lock_before
+
+
+def test_global_step_legacy_profile_migration_rejects_a_profiled_lock(
+    tmp_path: Path,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    participants = participants_for(campaign.campaign["id"])
+    state_dir = tmp_path / "coordinator"
+    GlobalStepCoordinator.create(
+        campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+    )
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("numerical_profile")
+    for assignment in state["assignments"]:
+        assignment.pop("numerical_profile")
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    lock_path = state_dir / "campaign-lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock["numerical_profile"] = peft.INT8_FROZEN_LINEAR_PROFILE
+    lock_path.write_text(json.dumps(lock), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="campaign lock mismatch"):
+        GlobalStepCoordinator.load(
+            campaign,
+            state_dir,
+            participants=participants,
+        )
+
+
+def test_global_step_exact_profile_predecessor_migrates_once(tmp_path: Path) -> None:
+    campaign = load_campaign(CONFIG)
+    participants = participants_for(campaign.campaign["id"])
+    state_dir = tmp_path / "exact-profile-predecessor"
+    GlobalStepCoordinator.create(
+        campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+    )
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("numerical_profile")
+    for assignment in state["assignments"]:
+        assignment.pop("numerical_profile")
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    lock_path = state_dir / "campaign-lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock.pop("numerical_profile")
+    lock_path.write_text(json.dumps(lock), encoding="utf-8")
+
+    GlobalStepCoordinator.load(
         campaign,
         state_dir,
         participants=participants,
     )
-    assert recovered.status()["training_method"] == "dense"
     migrated_state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert migrated_state["base_model_sha256"] == migrated_state["checkpoint_sha256"]
-    assert migrated_state["result_checkpoint_sha256"] is None
     assert migrated_state["numerical_profile"] == peft.EXACT_CPU_FP32_PROFILE
     assert all(
         assignment["numerical_profile"] == peft.EXACT_CPU_FP32_PROFILE
         for assignment in migrated_state["assignments"]
     )
-    migrated_lock = json.loads(lock_path.read_text(encoding="utf-8"))
-    assert migrated_lock["training_method"] == "dense"
-    assert migrated_lock["adapter_sha256"] is None
-    assert migrated_lock["numerical_profile"] == peft.EXACT_CPU_FP32_PROFILE
+
+
+def test_completed_dense_resume_state_binds_optimizer_and_state_bytes(
+    tmp_path: Path,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    participants = participants_for(campaign.campaign["id"])
+    state_dir = tmp_path / "completed-dense"
+    coordinator = GlobalStepCoordinator.create(
+        campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+    )
+    for worker_id in ("worker-a", "worker-b"):
+        assignment = coordinator.lease(
+            worker_id,
+            worker_token="test-token",
+        )
+        coordinator.accept(submission_for(coordinator, assignment))
+    global_state_path = state_dir / "global-state.json"
+    lock_path = state_dir / "campaign-lock.json"
+    original_state_bytes = global_state_path.read_bytes()
+    original_lock_bytes = lock_path.read_bytes()
+    for field, mutation, message in (
+        ("result_dataset_cursor", 0.0, "completed global-step progress identity"),
+        ("result_loss_history", [1], "completed global-step progress identity"),
+        ("result_dataset_cursor", None, "current global-step state schema"),
+        ("result_loss_history", None, "current global-step state schema"),
+    ):
+        state = json.loads(original_state_bytes)
+        lock = json.loads(original_lock_bytes)
+        if mutation is None:
+            state.pop(field)
+            lock.pop(field)
+        else:
+            state[field] = mutation
+            lock[field] = mutation
+        global_state_path.write_text(json.dumps(state), encoding="utf-8")
+        lock_path.write_text(json.dumps(lock), encoding="utf-8")
+        with pytest.raises(ValueError, match=message):
+            GlobalStepCoordinator.load(
+                campaign,
+                state_dir,
+                participants=participants,
+            )
+        global_state_path.write_bytes(original_state_bytes)
+        lock_path.write_bytes(original_lock_bytes)
+    optimizer_path = coordinator.checkpoint_dir / "optimizer.safetensors"
+    optimizer = load_safetensors(optimizer_path.read_bytes())
+    tensor_name = next(
+        name for name, tensor in optimizer.items() if tensor.dtype.is_floating_point
+    )
+    optimizer[tensor_name] = optimizer[tensor_name] + 1.0
+    optimizer_bytes = save_safetensors(optimizer)
+    optimizer_path.write_bytes(optimizer_bytes)
+    checkpoint_state_path = coordinator.checkpoint_dir / "state.json"
+    checkpoint_state = json.loads(checkpoint_state_path.read_text(encoding="utf-8"))
+    checkpoint_state["optimizer"]["sha256"] = hashlib.sha256(
+        optimizer_bytes
+    ).hexdigest()
+    checkpoint_state_path.write_text(json.dumps(checkpoint_state), encoding="utf-8")
+    state_before = global_state_path.read_bytes()
+    lock_before = lock_path.read_bytes()
+
+    with pytest.raises(ValueError, match="completed global-step checkpoint identity"):
+        GlobalStepCoordinator.load(
+            campaign,
+            state_dir,
+            participants=participants,
+        )
+    assert global_state_path.read_bytes() == state_before
+    assert lock_path.read_bytes() == lock_before
+
+
+@pytest.mark.parametrize("location", ("state", "assignment"))
+def test_global_step_profile_predecessor_rejects_unknown_fields_without_rewrite(
+    tmp_path: Path,
+    location: str,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    participants = participants_for(campaign.campaign["id"])
+    state_dir = tmp_path / f"profile-predecessor-{location}"
+    GlobalStepCoordinator.create(
+        campaign,
+        state_dir,
+        worker_count=2,
+        participants=participants,
+    )
+    state_path = state_dir / "global-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("numerical_profile")
+    for assignment in state["assignments"]:
+        assignment.pop("numerical_profile")
+    target = state if location == "state" else state["assignments"][0]
+    target["unknown_predecessor_field"] = True
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    lock_path = state_dir / "campaign-lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock.pop("numerical_profile")
+    lock_path.write_text(json.dumps(lock), encoding="utf-8")
+    state_before = state_path.read_bytes()
+    lock_before = lock_path.read_bytes()
+
+    with pytest.raises(ValueError, match="numerical-profile.*schema"):
+        GlobalStepCoordinator.load(
+            campaign,
+            state_dir,
+            participants=participants,
+        )
+    assert state_path.read_bytes() == state_before
+    assert lock_path.read_bytes() == lock_before

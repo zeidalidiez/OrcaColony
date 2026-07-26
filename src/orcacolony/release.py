@@ -11,11 +11,17 @@ from html import escape
 from pathlib import Path
 from typing import Mapping
 
+from safetensors.torch import load as load_safetensors
 from safetensors.torch import load_file as load_safetensors_file
 
 from .artifacts import PackedDataset
 from .campaign_run import CampaignCoordinator
-from .multiworker import _campaign_payload, _revision, normalize_http_origin
+from .multiworker import (
+    _campaign_payload,
+    _reject_duplicate_json_keys,
+    _revision,
+    normalize_http_origin,
+)
 from .participants import load_participants
 from .peft import (
     BURN_NDARRAY_F32_PROFILE,
@@ -262,24 +268,40 @@ def _copy_public_file(source: Path, destination: Path) -> None:
     shutil.copyfile(source, destination)
 
 
+def _write_owned_checkpoint(
+    artifacts: Mapping[str, bytes],
+    destination: Path,
+) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    for name, payload in artifacts.items():
+        if (
+            not isinstance(name, str)
+            or Path(name).name != name
+            or name in {"", ".", ".."}
+            or type(payload) is not bytes
+        ):
+            raise ValueError("owned checkpoint artifact is invalid")
+        (destination / name).write_bytes(payload)
+
+
 def _select_checkpoint(
     coordinator: CampaignCoordinator,
     dashboard: Mapping[str, object],
-) -> tuple[int, Path, Mapping[str, object] | None]:
+) -> tuple[int, Mapping[str, object] | None]:
     evaluations = dashboard["evaluations"]
     selected_evaluation: Mapping[str, object] | None = None
     if evaluations:
         selected_evaluation = min(
             evaluations,
-            key=lambda entry: (float(entry["mean_loss"]), int(entry["step"])),
+            key=lambda entry: (entry["mean_loss"], entry["step"]),
         )
-        step = int(selected_evaluation["step"])
+        step = selected_evaluation["step"]
     else:
-        step = int(dashboard["progress"]["completed_steps"])
-    checkpoint = coordinator.checkpoints_dir / f"step-{step:08d}"
-    if not checkpoint.is_dir():
-        raise ValueError(f"selected checkpoint is unavailable: step {step}")
-    return step, checkpoint, selected_evaluation
+        step = dashboard["progress"]["completed_steps"]
+    if type(step) is not int or step < 0:
+        raise ValueError("selected checkpoint step is invalid")
+    coordinator.versioned_checkpoint_artifacts(step)
+    return step, selected_evaluation
 
 
 def _validate_checkpoint_for_release(
@@ -366,8 +388,21 @@ def _validate_lora_checkpoint_for_release(
     state: Mapping[str, object],
     step: int,
     dataset_revision: str,
+    numerical_profile: str,
 ) -> dict[str, object]:
-    _, _, loaded_step, _, _ = load_lora_checkpoint(lora, checkpoint)
+    if (
+        state.get("format") != "orcacolony_lora_checkpoint_v2"
+        or "numerical_profile" not in state
+    ):
+        raise ValueError(
+            "release LoRA checkpoint numerical profile is missing; "
+            "profile-bearing v2 format is required"
+        )
+    _, _, loaded_step, _, _ = load_lora_checkpoint(
+        lora,
+        checkpoint,
+        expected_numerical_profile=numerical_profile,
+    )
     if loaded_step != step or state.get("dataset_revision") != dataset_revision:
         raise ValueError("selected LoRA checkpoint provenance is inconsistent")
     adapter = state.get("adapter")
@@ -375,9 +410,7 @@ def _validate_lora_checkpoint_for_release(
         raise ValueError("selected LoRA adapter metadata is invalid")
     return {
         "training_method": "frozen-base-lora",
-        "numerical_profile": state.get(
-            "numerical_profile", EXACT_CPU_FP32_PROFILE
-        ),
+        "numerical_profile": state["numerical_profile"],
         "base_model_sha256": lora.config.base_model_sha256,
         "adapter_sha256": adapter["tensor_sha256"],
         "weight_checkpoint_sha256": state["weight_checkpoint_sha256"],
@@ -471,7 +504,9 @@ def build_release_bundle(
     browser_root = Path(browser_root).resolve()
     if public_coordinator_url is not None:
         public_coordinator_url = normalize_http_origin(public_coordinator_url)
-    dataset = PackedDataset.load(dataset_root)
+    dataset = coordinator.dataset
+    if dataset is None:
+        raise ValueError("release dataset authority is unavailable")
     validate_public_dataset_manifest(dataset.manifest)
     if dataset.revision != dashboard["dataset"]["revision"]:
         raise ValueError("release dataset revision does not match the campaign")
@@ -489,20 +524,162 @@ def build_release_bundle(
     temporary.mkdir()
 
     try:
-        step, checkpoint, selected_evaluation = _select_checkpoint(
+        numerical_profile = str(dashboard["campaign"]["numerical_profile"])
+        lock = coordinator._lock_payload()
+        if lock.get("campaign_revision") != _revision(_campaign_payload(campaign)):
+            raise ValueError("release campaign revision differs from campaign lock")
+        if lock.get("numerical_profile") != numerical_profile:
+            raise ValueError("release numerical profile differs from campaign lock")
+        lora = coordinator.lora
+        evaluations = dashboard["evaluations"]
+        if not isinstance(evaluations, list) or any(
+            not isinstance(entry, Mapping) for entry in evaluations
+        ):
+            raise ValueError("release evaluations are invalid")
+        evaluation_fields = {
+            "format",
+            "campaign_id",
+            "step",
+            "dataset_revision",
+            "checkpoint_sha256",
+            "validation_sequences",
+            "loss_sum",
+            "loss_weight_sum",
+            "mean_loss",
+            "perplexity",
+            "numerical_profile",
+        }
+        if lora is not None:
+            evaluation_fields.update(
+                {
+                    "training_method",
+                    "base_model_sha256",
+                    "adapter_sha256",
+                    "weight_checkpoint_sha256",
+                    "resume_state_sha256",
+                }
+            )
+        for evaluation in evaluations:
+            if (
+                evaluation.get("format") != "orcacolony_evaluation_v1"
+                or set(evaluation) != evaluation_fields
+            ):
+                raise ValueError("release evaluation schema is invalid")
+            if (
+                evaluation.get("campaign_id") != dashboard["campaign"]["id"]
+                or evaluation.get("dataset_revision") != dataset.revision
+                or type(evaluation.get("step")) is not int
+                or evaluation["step"] < 0
+                or type(evaluation.get("validation_sequences")) is not int
+                or evaluation["validation_sequences"] <= 0
+                or type(evaluation.get("loss_weight_sum")) is not int
+                or evaluation["loss_weight_sum"] <= 0
+                or any(
+                    type(evaluation.get(field)) is not float
+                    or not math.isfinite(evaluation[field])
+                    for field in ("loss_sum", "mean_loss", "perplexity")
+                )
+                or not _is_sha256(evaluation.get("checkpoint_sha256"))
+            ):
+                raise ValueError("release evaluation provenance differs")
+            evaluation_profile = evaluation.get("numerical_profile")
+            if evaluation_profile != numerical_profile:
+                raise ValueError("release evaluation numerical profile differs")
+            evaluation_step = evaluation["step"]
+            evaluation_artifacts = coordinator.versioned_checkpoint_artifacts(
+                evaluation_step
+            )
+            expected_artifact_names = {
+                "state.json",
+                "optimizer.safetensors",
+                "adapter.safetensors" if lora is not None else "model.safetensors",
+            }
+            if set(evaluation_artifacts) != expected_artifact_names:
+                raise ValueError("release evaluation checkpoint artifact set is invalid")
+            evaluation_checkpoint = (
+                temporary / ".validation" / f"step-{evaluation_step:08d}"
+            )
+            _write_owned_checkpoint(evaluation_artifacts, evaluation_checkpoint)
+            evaluation_state = json.loads(
+                evaluation_artifacts["state.json"],
+                object_pairs_hook=_reject_duplicate_json_keys,
+            )
+            try:
+                if lora is not None:
+                    if evaluation.get("training_method") != "frozen-base-lora":
+                        raise ValueError("release evaluation training method differs")
+                    evaluation_identities = _validate_lora_checkpoint_for_release(
+                        lora,
+                        evaluation_checkpoint,
+                        evaluation_state,
+                        evaluation_step,
+                        dataset.revision,
+                        numerical_profile,
+                    )
+                    expected_evaluation_identities = {
+                        "checkpoint_sha256": evaluation_identities[
+                            "resume_state_sha256"
+                        ],
+                        **{
+                            field: evaluation_identities[field]
+                            for field in (
+                                "base_model_sha256",
+                                "adapter_sha256",
+                                "weight_checkpoint_sha256",
+                                "resume_state_sha256",
+                            )
+                        },
+                    }
+                else:
+                    expected_evaluation_identities = {
+                        "checkpoint_sha256": _validate_checkpoint_for_release(
+                            campaign,
+                            evaluation_checkpoint,
+                            evaluation_state,
+                            evaluation_step,
+                            dataset.revision,
+                        )
+                    }
+            finally:
+                shutil.rmtree(evaluation_checkpoint)
+            if any(
+                evaluation.get(field) != expected
+                for field, expected in expected_evaluation_identities.items()
+            ):
+                raise ValueError(
+                    "release evaluation LoRA provenance checkpoint identity differs"
+                    if lora is not None
+                    else "release evaluation checkpoint identity differs"
+                )
+        shutil.rmtree(temporary / ".validation", ignore_errors=True)
+
+        step, selected_evaluation = _select_checkpoint(
             coordinator,
             dashboard,
         )
-        checkpoint_state_bytes = (checkpoint / "state.json").read_bytes()
-        checkpoint_state = json.loads(checkpoint_state_bytes)
-        lora = coordinator.lora
+        selected_artifacts = coordinator.versioned_checkpoint_artifacts(step)
+        expected_selected_names = {
+            "state.json",
+            "optimizer.safetensors",
+            "adapter.safetensors" if lora is not None else "model.safetensors",
+        }
+        if set(selected_artifacts) != expected_selected_names:
+            raise ValueError("selected checkpoint artifact set is invalid")
+        checkpoint_state_bytes = selected_artifacts["state.json"]
+        checkpoint_state = json.loads(
+            checkpoint_state_bytes,
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+        published_checkpoint_dir = temporary / "checkpoint"
+        _write_owned_checkpoint(selected_artifacts, published_checkpoint_dir)
         lora_identities = (
             _validate_lora_checkpoint_for_release(
                 lora,
-                checkpoint,
+                published_checkpoint_dir,
                 checkpoint_state,
                 step,
                 dataset.revision,
+                numerical_profile,
             )
             if lora is not None
             else None
@@ -512,7 +689,7 @@ def build_release_bundle(
             if lora_identities is not None
             else _validate_checkpoint_for_release(
                 campaign,
-                checkpoint,
+                published_checkpoint_dir,
                 checkpoint_state,
                 step,
                 dataset.revision,
@@ -522,16 +699,31 @@ def build_release_bundle(
             selected_evaluation["checkpoint_sha256"] != checkpoint_sha256
         ):
             raise ValueError("selected evaluation does not match its checkpoint")
+        if lora_identities is not None and selected_evaluation is not None:
+            selected_lora_identities = {
+                field: selected_evaluation.get(field)
+                for field in (
+                    "base_model_sha256",
+                    "adapter_sha256",
+                    "weight_checkpoint_sha256",
+                    "resume_state_sha256",
+                )
+            }
+            expected_lora_identities = {
+                field: lora_identities[field] for field in selected_lora_identities
+            }
+            if selected_lora_identities != expected_lora_identities:
+                raise ValueError(
+                    "selected evaluation LoRA provenance does not match its checkpoint"
+                )
 
         campaign_payload = _campaign_payload(campaign)
         _write_json(temporary / "campaign.json", campaign_payload)
-        lock = coordinator._lock_payload()
-        numerical_profile = str(dashboard["campaign"]["numerical_profile"])
-        if lock.get("numerical_profile") != numerical_profile:
-            raise ValueError("release numerical profile differs from campaign lock")
         _write_json(temporary / "campaign-lock.json", lock)
         release_dashboard = copy.deepcopy(dashboard)
-        completed_step = int(dashboard["progress"]["completed_steps"])
+        completed_step = dashboard["progress"]["completed_steps"]
+        if type(completed_step) is not int or completed_step < 0:
+            raise ValueError("release completed step is invalid")
         release_dashboard["checkpoint"] = {
             "download_url": (
                 "checkpoint/adapter.safetensors"
@@ -571,31 +763,19 @@ def build_release_bundle(
             },
         )
 
-        checkpoint_files = (
-            ("adapter.safetensors", "optimizer.safetensors", "state.json")
-            if lora_identities is not None
-            else ("model.safetensors", "optimizer.safetensors", "state.json")
-        )
-        for filename in checkpoint_files:
-            _copy_public_file(
-                checkpoint / filename,
-                temporary / "checkpoint" / filename,
-            )
         if lora_identities is not None:
-            base_model_path = coordinator.initial_model_path
-            base_model_sha256 = tensor_sha256(
-                load_safetensors_file(str(base_model_path))
-            )
+            base_model_bytes = coordinator.initial_model_bytes()
+            base_model_sha256 = tensor_sha256(load_safetensors(base_model_bytes))
             if base_model_sha256 != lora_identities["base_model_sha256"]:
                 raise ValueError("release frozen-base artifact identity is inconsistent")
-            _copy_public_file(
-                base_model_path,
-                temporary / "checkpoint" / "base-model.safetensors",
+            (temporary / "checkpoint" / "base-model.safetensors").write_bytes(
+                base_model_bytes
             )
         for filename in _DATASET_FILES:
-            _copy_public_file(
-                dataset_root / filename,
-                temporary / "dataset" / filename,
+            dataset_destination = temporary / "dataset" / filename
+            dataset_destination.parent.mkdir(parents=True, exist_ok=True)
+            dataset_destination.write_bytes(
+                coordinator.dataset_artifact_bytes(filename)
             )
         published_dataset = PackedDataset.load(temporary / "dataset")
         if published_dataset.revision != dataset.revision:
@@ -612,6 +792,7 @@ def build_release_bundle(
                 published_checkpoint,
                 step,
                 dataset.revision,
+                numerical_profile,
             )
             copied_base_sha256 = tensor_sha256(
                 load_safetensors_file(

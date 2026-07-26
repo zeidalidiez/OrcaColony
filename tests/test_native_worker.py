@@ -354,7 +354,7 @@ def test_layer_bundle_assignment_binds_each_artifact_url(tmp_path: Path) -> None
         )
 
 
-def test_layer_bundle_publication_and_fresh_cache_reject_raw_mutation(
+def test_layer_bundle_publication_serves_owned_snapshot_after_raw_mutation(
     tmp_path: Path,
 ) -> None:
     loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
@@ -375,7 +375,8 @@ def test_layer_bundle_publication_and_fresh_cache_reject_raw_mutation(
     assignment = coordinator.lease("worker-0", worker_token=token)
     artifact = assignment["base_layer_bundle"]["artifacts"][2]
     artifact_path = coordinator.base_layer_bundle_artifact_path(artifact["file"])
-    mutated = bytearray(artifact_path.read_bytes())
+    admitted = artifact_path.read_bytes()
+    mutated = bytearray(admitted)
     mutated[-1] ^= 1
     artifact_path.write_bytes(mutated)
 
@@ -391,26 +392,22 @@ def test_layer_bundle_publication_and_fresh_cache_reject_raw_mutation(
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        with pytest.raises(ValueError, match="SHA-256 mismatch"):
-            run_assignment(
-                coordinator_url=f"http://127.0.0.1:{server.server_port}",
-                worker_id="worker-0",
-                worker_token=token,
-                campaign_path=CONFIG,
-                lora_path=LORA_CONFIG,
-                cache_dir=tmp_path / "cache",
-                base_profile="layer-bundle",
-            )
+        result = run_assignment(
+            coordinator_url=f"http://127.0.0.1:{server.server_port}",
+            worker_id="worker-0",
+            worker_token=token,
+            campaign_path=CONFIG,
+            lora_path=LORA_CONFIG,
+            cache_dir=tmp_path / "cache",
+            base_profile="layer-bundle",
+        )
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
 
-    cache_bundle_root = tmp_path / "cache" / "bundle"
-    assert not any(
-        path.name == artifact["file"]
-        for path in cache_bundle_root.rglob("*.safetensors")
-    )
+    assert result.receipt["accepted"] is True
+    assert coordinator.base_layer_bundle_artifact_bytes(artifact["file"]) == admitted
 
 
 def test_warm_layer_bundle_cache_reauthenticates_each_linear_on_use(

@@ -1,24 +1,32 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
+import stat
+import tempfile
 import threading
-from collections.abc import Mapping
-from dataclasses import asdict
-from pathlib import Path
+from collections.abc import Iterator, Mapping
+from contextlib import ExitStack, contextmanager
+from dataclasses import asdict, dataclass
+from pathlib import Path, PurePath
 
 from .artifacts import PackedDataset
 from .multiworker import (
     GlobalStepCoordinator,
     LeasedGradient,
     WorkReceipt,
+    _atomic_bytes,
     _atomic_json,
     _aggregate_resource_observations,
     _campaign_payload,
     _checkpoint_numerical_profile,
+    _exact_json_equal,
+    _reject_duplicate_json_keys,
     _revision,
+    _safe_artifact_snapshot,
     _validated_numerical_profile,
     create_http_server,
 )
@@ -30,10 +38,17 @@ from .peft import (
     INT8_FROZEN_LINEAR_PROFILE,
     LoadedLoRAManifest,
     evaluate_lora_checkpoint,
+    load_lora_checkpoint,
     load_lora_manifest,
     run_lora_training,
 )
-from .reference import CampaignConfig, evaluate_checkpoint, load_campaign, run_training
+from .reference import (
+    CampaignConfig,
+    _load_checkpoint,
+    evaluate_checkpoint,
+    load_campaign,
+    run_training,
+)
 
 
 _PUBLIC_DATASET_SOURCE_FIELDS = (
@@ -44,6 +59,149 @@ _PUBLIC_DATASET_SOURCE_FIELDS = (
     "revision",
     "selection",
 )
+_CAMPAIGN_STATE_FIELDS = frozenset(
+    {
+        "format",
+        "campaign_id",
+        "campaign_revision",
+        "participants_revision",
+        "dataset_revision",
+        "worker_count",
+        "lease_seconds",
+        "target_steps",
+        "completed_steps",
+        "state",
+        "current_round",
+        "checkpoints",
+        "last_checkpoint_metrics",
+        "evaluations",
+        "last_evaluation",
+        "baseline_checkpoint",
+        "training_method",
+        "lora_manifest_sha256",
+        "base_model_sha256",
+        "numerical_profile",
+        "publish_base_layer_bundle",
+    }
+)
+_CAMPAIGN_CHECKPOINT_FIELDS = frozenset(
+    {"step", "path", "round", "numerical_profile"}
+)
+_DATASET_ARTIFACT_NAMES = (
+    "manifest.json",
+    "tokenizer.json",
+    "train.safetensors",
+    "validation.safetensors",
+    "DATASET-NOTICE.md",
+)
+
+
+def _confined_campaign_directory(
+    state_dir: Path,
+    relative_name: object,
+    label: str,
+) -> Path:
+    if not isinstance(relative_name, str):
+        raise ValueError(f"{label} path is invalid")
+    relative = Path(relative_name)
+    if (
+        relative.is_absolute()
+        or relative.as_posix() != relative_name
+        or not relative.parts
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
+        raise ValueError(f"{label} path is invalid")
+    root = state_dir.resolve(strict=True)
+    candidate = state_dir
+    for part in relative.parts:
+        candidate = candidate / part
+        observation = os.stat(candidate, follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(observation.st_mode)
+            or candidate.is_symlink()
+            or bool(
+                getattr(observation, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+            )
+        ):
+            raise ValueError(f"{label} path is not a managed directory")
+    if not candidate.resolve(strict=True).is_relative_to(root):
+        raise ValueError(f"{label} path escapes the campaign root")
+    return candidate
+
+
+def _campaign_directory_observation(path: Path) -> tuple[int, ...]:
+    metadata = os.stat(path, follow_symlinks=False)
+    return (
+        int(metadata.st_dev),
+        int(metadata.st_ino),
+        int(metadata.st_mode),
+        int(getattr(metadata, "st_file_attributes", 0)),
+    )
+
+
+@contextmanager
+def _pinned_campaign_directory(
+    root: Path,
+    relative: str,
+    label: str,
+) -> Iterator[Path]:
+    candidate = _confined_campaign_directory(root, relative, label)
+    relative_path = Path(relative)
+    directories = [root]
+    current = root
+    for component in relative_path.parts:
+        current = current / component
+        directories.append(current)
+    observations = {
+        directory: _campaign_directory_observation(directory)
+        for directory in directories
+    }
+    resolved = {directory: directory.resolve(strict=True) for directory in directories}
+    try:
+        with ExitStack() as leases:
+            for directory in directories:
+                leases.enter_context(os.scandir(directory))
+            yield candidate
+            for directory in directories:
+                if (
+                    _campaign_directory_observation(directory)
+                    != observations[directory]
+                    or directory.resolve(strict=True) != resolved[directory]
+                ):
+                    raise ValueError(f"{label} changed during validation")
+    except OSError as exc:
+        raise ValueError(f"{label} changed during validation") from exc
+
+
+def _campaign_lock_payload(
+    state: Mapping[str, object],
+    lora: LoadedLoRAManifest | None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "format": "orcacolony_campaign_run_lock_v1",
+        "campaign_id": state["campaign_id"],
+        "campaign_revision": state["campaign_revision"],
+        "participants_revision": state["participants_revision"],
+        "dataset_revision": state.get("dataset_revision", "synthetic-fixture-v1"),
+        "worker_count": state["worker_count"],
+        "target_steps": state["target_steps"],
+        "numerical_profile": state["numerical_profile"],
+        "assignment_protocol_revision": 1,
+        "result_protocol_revision": 2,
+    }
+    if lora is not None:
+        payload.update(
+            {
+                "training_method": "frozen-base-lora",
+                "lora_manifest_sha256": lora.manifest_sha256,
+                "base_model_sha256": lora.config.base_model_sha256,
+                "result_protocol_revision": 3,
+            }
+        )
+    if state["publish_base_layer_bundle"]:
+        payload["publish_base_layer_bundle"] = True
+    return payload
 
 
 class CampaignCoordinator:
@@ -56,6 +214,7 @@ class CampaignCoordinator:
         current: GlobalStepCoordinator,
         dataset: PackedDataset | None = None,
         lora: LoadedLoRAManifest | None = None,
+        rounds: Mapping[str, GlobalStepCoordinator] | None = None,
     ) -> None:
         self.campaign = campaign
         self.state_dir = state_dir
@@ -64,6 +223,25 @@ class CampaignCoordinator:
         self._current = current
         self.dataset = dataset
         self.lora = lora
+        self._rounds = dict(
+            rounds
+            if rounds is not None
+            else {str(state["current_round"]): current}
+        )
+        self._checkpoint_snapshots: dict[int, dict[str, bytes]] = {}
+        self._dataset_snapshots = (
+            {
+                name: _safe_artifact_snapshot(
+                    dataset.root,
+                    name,
+                    "campaign dataset artifact",
+                )
+                for name in _DATASET_ARTIFACT_NAMES
+            }
+            if dataset is not None
+            else {}
+        )
+        self._prevalidated_next_round: tuple[str, GlobalStepCoordinator] | None = None
         self._lock = threading.RLock()
         self.rounds_dir = state_dir / "rounds"
         self.checkpoints_dir = state_dir / "checkpoints"
@@ -168,7 +346,27 @@ class CampaignCoordinator:
             if baseline_identity != current.status()["checkpoint_sha256"]:
                 raise ValueError("baseline checkpoint does not match campaign initialization")
             state["baseline_checkpoint"] = baseline_relative.as_posix()
-            coordinator._evaluate_versioned_checkpoint(0, baseline_checkpoint)
+            coordinator._checkpoint_snapshots[0] = (
+                coordinator._snapshot_versioned_checkpoint(baseline_checkpoint)
+            )
+            baseline_evaluation = coordinator._evaluate_versioned_checkpoint(
+                0,
+                baseline_checkpoint,
+            )
+            if baseline_evaluation is None:
+                raise ValueError("baseline evaluation was not produced")
+            evaluated_baseline_identity = (
+                baseline_evaluation["weight_checkpoint_sha256"]
+                if lora is not None
+                else baseline_evaluation["checkpoint_sha256"]
+            )
+            if evaluated_baseline_identity != baseline_identity:
+                raise ValueError("baseline evaluation checkpoint identity changed")
+            if lora is not None and (
+                baseline_evaluation["resume_state_sha256"]
+                != current._state["resume_state_sha256"]
+            ):
+                raise ValueError("baseline evaluation resume-state identity changed")
         coordinator._write_state()
         coordinator._write_lock()
         coordinator._write_ledger()
@@ -187,8 +385,16 @@ class CampaignCoordinator:
     ) -> CampaignCoordinator:
         state_dir = Path(state_dir)
         state = json.loads(
-            (state_dir / "campaign-state.json").read_text(encoding="utf-8")
+            _safe_artifact_snapshot(
+                state_dir,
+                "campaign-state.json",
+                "campaign state",
+            ),
+            object_pairs_hook=_reject_duplicate_json_keys,
         )
+        if not isinstance(state, dict):
+            raise ValueError("campaign state must be a JSON object")
+        persisted_state_fields = frozenset(state)
         if state.get("format") != "orcacolony_campaign_state_v1":
             raise ValueError("unsupported campaign state format")
         requested_profile = _validated_numerical_profile(numerical_profile)
@@ -197,6 +403,13 @@ class CampaignCoordinator:
             if requested_profile != EXACT_CPU_FP32_PROFILE:
                 raise ValueError("legacy campaign numerical profile is FP32")
             state["numerical_profile"] = EXACT_CPU_FP32_PROFILE
+        expected_state_fields = (
+            _CAMPAIGN_STATE_FIELDS - {"numerical_profile"}
+            if numerical_profile_migrated
+            else _CAMPAIGN_STATE_FIELDS
+        )
+        if persisted_state_fields != expected_state_fields:
+            raise ValueError("campaign state schema is invalid")
         stored_profile = _validated_numerical_profile(state.get("numerical_profile"))
         if stored_profile != requested_profile:
             raise ValueError("campaign numerical profile does not match configuration")
@@ -206,6 +419,29 @@ class CampaignCoordinator:
             raise ValueError("campaign revision mismatch")
         if state.get("participants_revision") != participants.revision:
             raise ValueError("participant revision mismatch")
+        campaign_worker_count = state.get("worker_count")
+        if type(campaign_worker_count) is not int or campaign_worker_count < 2:
+            raise ValueError("campaign worker count is invalid")
+        lease_seconds = state.get("lease_seconds")
+        target_steps = state.get("target_steps")
+        completed_steps = state.get("completed_steps")
+        if (
+            type(lease_seconds) is not int
+            or lease_seconds <= 0
+            or type(target_steps) is not int
+            or target_steps < 1
+            or type(completed_steps) is not int
+            or completed_steps < 0
+            or completed_steps > target_steps
+        ):
+            raise ValueError("campaign progress integers are invalid")
+        campaign_state = state.get("state")
+        if campaign_state not in {"campaign_running", "campaign_complete"} or (
+            campaign_state == "campaign_complete" and completed_steps != target_steps
+        ) or (
+            campaign_state == "campaign_running" and completed_steps >= target_steps
+        ):
+            raise ValueError("campaign progress state is invalid")
         expected_training_method = "frozen-base-lora" if lora is not None else "dense"
         if state.get("training_method", "dense") != expected_training_method:
             raise ValueError("campaign training method mismatch")
@@ -214,69 +450,179 @@ class CampaignCoordinator:
             or state.get("base_model_sha256") != lora.config.base_model_sha256
         ):
             raise ValueError("campaign LoRA identity mismatch")
+        if lora is None and (
+            state.get("lora_manifest_sha256") is not None
+            or state.get("base_model_sha256") is not None
+        ):
+            raise ValueError("dense campaign contains LoRA identity")
         expected_dataset_revision = (
             dataset.revision if dataset is not None else "synthetic-fixture-v1"
         )
         if state.get("dataset_revision", "synthetic-fixture-v1") != expected_dataset_revision:
             raise ValueError("campaign dataset revision mismatch")
-        state.setdefault("evaluations", [])
-        state.setdefault("last_evaluation", None)
-        state.setdefault("baseline_checkpoint", None)
-        state.setdefault("publish_base_layer_bundle", False)
-        current_path = state_dir / str(state["current_round"])
-        current = GlobalStepCoordinator.load(
-            campaign,
-            current_path,
-            participants=participants,
-            dataset=dataset,
-            lora=lora,
-            numerical_profile=stored_profile,
+        if type(state.get("publish_base_layer_bundle")) is not bool:
+            raise ValueError("campaign layer-bundle publication state is invalid")
+        expected_baseline = (
+            "checkpoints/step-00000000"
+            if campaign.evaluation is not None
+            else None
         )
+        if state.get("baseline_checkpoint") != expected_baseline:
+            raise ValueError("campaign baseline checkpoint path is invalid")
+        if expected_baseline is not None:
+            _confined_campaign_directory(
+                state_dir,
+                expected_baseline,
+                "campaign baseline checkpoint",
+            )
+        lock_path = state_dir / "campaign-lock.json"
+        expected_lock = _campaign_lock_payload(state, lora)
+        expected_stored_lock = dict(expected_lock)
+        if numerical_profile_migrated:
+            expected_stored_lock.pop("numerical_profile")
+        stored_lock = json.loads(
+            _safe_artifact_snapshot(
+                state_dir,
+                lock_path.name,
+                "campaign lock",
+            ),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+        if not _exact_json_equal(stored_lock, expected_stored_lock):
+            raise ValueError("campaign lock mismatch")
+        expected_current_step = (
+            completed_steps - 1
+            if campaign_state == "campaign_complete"
+            else completed_steps
+        )
+        expected_current_relative = (
+            Path("rounds") / f"round-{expected_current_step:08d}"
+        )
+        if state.get("current_round") != expected_current_relative.as_posix():
+            raise ValueError("campaign current round path is invalid")
+        with _pinned_campaign_directory(
+            state_dir,
+            state["current_round"],
+            "campaign current round",
+        ) as current_path:
+            current = GlobalStepCoordinator.load(
+                campaign,
+                current_path,
+                participants=participants,
+                dataset=dataset,
+                lora=lora,
+                numerical_profile=stored_profile,
+                expected_worker_count=campaign_worker_count,
+                persist_migrations=False,
+                finalize_ready=False,
+            )
+        validated_rounds = {str(state["current_round"]): current}
+        if current._state.get("lease_seconds") != lease_seconds:
+            raise ValueError("campaign child lease duration differs")
         if current.has_base_layer_bundle != bool(state["publish_base_layer_bundle"]):
             raise ValueError("campaign layer-bundle publication state differs")
         checkpoints = state.get("checkpoints")
         if not isinstance(checkpoints, list):
             raise ValueError("campaign checkpoint history must be a JSON array")
+        if len(checkpoints) != completed_steps:
+            raise ValueError("campaign checkpoint history is incomplete")
         current_resolved = current_path.resolve()
-        for checkpoint in checkpoints:
-            if not isinstance(checkpoint, Mapping):
-                raise ValueError("campaign checkpoint history entry must be a JSON object")
+        for expected_step, checkpoint in enumerate(checkpoints, start=1):
+            expected_checkpoint_fields = _CAMPAIGN_CHECKPOINT_FIELDS
+            if numerical_profile_migrated:
+                expected_checkpoint_fields -= {"numerical_profile"}
+            if (
+                not isinstance(checkpoint, Mapping)
+                or frozenset(checkpoint) != expected_checkpoint_fields
+            ):
+                raise ValueError("campaign checkpoint history entry schema is invalid")
             step = checkpoint.get("step")
-            if isinstance(step, bool) or not isinstance(step, int) or step <= 0:
+            if type(step) is not int or step != expected_step:
                 raise ValueError("campaign checkpoint history step is invalid")
             expected_round = Path("rounds") / f"round-{step - 1:08d}"
             if checkpoint.get("round") != expected_round.as_posix():
                 raise ValueError("campaign checkpoint round path is invalid")
+            expected_checkpoint = Path("checkpoints") / f"step-{step:08d}"
+            if checkpoint.get("path") != expected_checkpoint.as_posix():
+                raise ValueError("campaign checkpoint path is invalid")
+            _confined_campaign_directory(
+                state_dir,
+                checkpoint["path"],
+                "campaign checkpoint",
+            )
             if numerical_profile_migrated and "numerical_profile" not in checkpoint:
                 checkpoint["numerical_profile"] = stored_profile
             if checkpoint.get("numerical_profile") != stored_profile:
                 raise ValueError("campaign checkpoint numerical profile mismatch")
-            prior_round = (state_dir / expected_round).resolve()
-            if prior_round == current_resolved:
-                continue
-            prior_coordinator = GlobalStepCoordinator.load(
-                campaign,
-                prior_round,
-                participants=participants,
-                dataset=dataset,
-                lora=lora,
-                numerical_profile=stored_profile,
+            prior_round = _confined_campaign_directory(
+                state_dir,
+                expected_round.as_posix(),
+                "prior campaign round",
             )
+            if prior_round.resolve() == current_resolved:
+                continue
+            with _pinned_campaign_directory(
+                state_dir,
+                expected_round.as_posix(),
+                "prior campaign round",
+            ) as prior_round:
+                prior_coordinator = GlobalStepCoordinator.load(
+                    campaign,
+                    prior_round,
+                    participants=participants,
+                    dataset=dataset,
+                    lora=lora,
+                    numerical_profile=stored_profile,
+                    expected_worker_count=campaign_worker_count,
+                    persist_migrations=False,
+                    finalize_ready=False,
+                )
+            validated_rounds[expected_round.as_posix()] = prior_coordinator
             if prior_coordinator.has_base_layer_bundle != bool(
                 state["publish_base_layer_bundle"]
             ):
                 raise ValueError("prior campaign layer-bundle state differs")
-        coordinator = cls(campaign, state_dir, participants, state, current, dataset, lora)
-        lock_path = state_dir / "campaign-lock.json"
-        if numerical_profile_migrated:
+        coordinator = cls(
+            campaign,
+            state_dir,
+            participants,
+            state,
+            current,
+            dataset,
+            lora,
+            validated_rounds,
+        )
+        baseline_relative = state.get("baseline_checkpoint")
+        if baseline_relative is not None:
+            with _pinned_campaign_directory(
+                state_dir,
+                str(baseline_relative),
+                "campaign baseline checkpoint",
+            ) as baseline_checkpoint:
+                coordinator._checkpoint_snapshots[0] = (
+                    coordinator._snapshot_versioned_checkpoint(baseline_checkpoint)
+                )
+        for checkpoint_entry in state["checkpoints"]:
+            checkpoint_step = checkpoint_entry["step"]
+            with _pinned_campaign_directory(
+                state_dir,
+                str(checkpoint_entry["path"]),
+                "campaign checkpoint",
+            ) as checkpoint_path:
+                coordinator._checkpoint_snapshots[checkpoint_step] = (
+                    coordinator._snapshot_versioned_checkpoint(checkpoint_path)
+                )
+        evaluation_profile_migrated = coordinator._validate_persisted_evaluations()
+        current.finalize_if_ready()
+        if current._state["state"] == "step_complete":
+            current._validate_completed_checkpoint_identity()
+        coordinator._prevalidate_existing_next_round()
+        for validated_round in validated_rounds.values():
+            validated_round.persist_validated_migrations()
+        if numerical_profile_migrated or evaluation_profile_migrated:
             coordinator._write_state()
+        if numerical_profile_migrated:
             coordinator._write_lock()
-        elif (
-            not lock_path.is_file()
-            or json.loads(lock_path.read_text(encoding="utf-8"))
-            != coordinator._lock_payload()
-        ):
-            raise ValueError("campaign lock mismatch")
         coordinator._advance_if_ready()
         coordinator._write_ledger()
         coordinator._write_evaluations()
@@ -301,8 +647,36 @@ class CampaignCoordinator:
     def oracle_gradient_path(self, assignment_id: str) -> Path:
         return self._current.oracle_gradient_path(assignment_id)
 
+    def oracle_gradient_bytes(self, assignment_id: str) -> bytes:
+        return self._current.oracle_gradient_bytes(assignment_id)
+
+    def initial_model_bytes(self) -> bytes:
+        return self._current.initial_model_bytes()
+
+    def initial_adapter_bytes(self) -> bytes:
+        return self._current.initial_adapter_bytes()
+
+    def dataset_artifact_bytes(self, file_name: str) -> bytes:
+        try:
+            return self._dataset_snapshots[file_name]
+        except KeyError as exc:
+            raise ValueError("unknown campaign dataset artifact") from exc
+
+    def checkpoint_artifact_bytes(self, file_name: str) -> bytes:
+        checkpoints = self._state["checkpoints"]
+        if not checkpoints:
+            return self._current.checkpoint_artifact_bytes(file_name)
+        artifacts = self.versioned_checkpoint_artifacts(checkpoints[-1]["step"])
+        try:
+            return artifacts[file_name]
+        except KeyError as exc:
+            raise ValueError("unknown checkpoint artifact") from exc
+
     def base_layer_bundle_artifact_path(self, file_name: str) -> Path:
         return self._current.base_layer_bundle_artifact_path(file_name)
+
+    def base_layer_bundle_artifact_bytes(self, file_name: str) -> bytes:
+        return self._current.base_layer_bundle_artifact_bytes(file_name)
 
     def lease(
         self,
@@ -336,32 +710,7 @@ class CampaignCoordinator:
         _atomic_json(self.state_dir / "campaign-state.json", self._state)
 
     def _lock_payload(self) -> dict[str, object]:
-        payload: dict[str, object] = {
-            "format": "orcacolony_campaign_run_lock_v1",
-            "campaign_id": self._state["campaign_id"],
-            "campaign_revision": self._state["campaign_revision"],
-            "participants_revision": self._state["participants_revision"],
-            "dataset_revision": self._state.get(
-                "dataset_revision", "synthetic-fixture-v1"
-            ),
-            "worker_count": self._state["worker_count"],
-            "target_steps": self._state["target_steps"],
-            "numerical_profile": self._state["numerical_profile"],
-            "assignment_protocol_revision": 1,
-            "result_protocol_revision": 2,
-        }
-        if self.lora is not None:
-            payload.update(
-                {
-                    "training_method": "frozen-base-lora",
-                    "lora_manifest_sha256": self.lora.manifest_sha256,
-                    "base_model_sha256": self.lora.config.base_model_sha256,
-                    "result_protocol_revision": 3,
-                }
-            )
-        if self._state["publish_base_layer_bundle"]:
-            payload["publish_base_layer_bundle"] = True
-        return payload
+        return _campaign_lock_payload(self._state, self.lora)
 
     def _write_lock(self) -> None:
         _atomic_json(self.state_dir / "campaign-lock.json", self._lock_payload())
@@ -385,7 +734,148 @@ class CampaignCoordinator:
             },
         )
 
-    def _evaluate_versioned_checkpoint(self, step: int, checkpoint: Path) -> None:
+    def _validate_persisted_evaluations(self) -> bool:
+        evaluations = self._state.get("evaluations")
+        last_evaluation = self._state.get("last_evaluation")
+        if not isinstance(evaluations, list) or any(
+            not isinstance(entry, dict) for entry in evaluations
+        ):
+            raise ValueError("persisted campaign evaluations are invalid")
+        if self.campaign.evaluation is None:
+            if evaluations or last_evaluation is not None:
+                raise ValueError("campaign has unexpected persisted evaluations")
+            return False
+        if not evaluations or not _exact_json_equal(last_evaluation, evaluations[-1]):
+            raise ValueError("persisted last evaluation differs from evaluation history")
+
+        baseline = self._state.get("baseline_checkpoint")
+        checkpoints = self._state.get("checkpoints")
+        if not isinstance(baseline, str) or not isinstance(checkpoints, list):
+            raise ValueError("persisted evaluation checkpoint history is invalid")
+        expected_checkpoints: list[tuple[int, str]] = [
+            (0, "checkpoints/step-00000000")
+        ]
+        if baseline != expected_checkpoints[0][1]:
+            raise ValueError("persisted baseline evaluation checkpoint differs")
+        for expected_step, checkpoint in enumerate(checkpoints, start=1):
+            expected_path = f"checkpoints/step-{expected_step:08d}"
+            if (
+                not isinstance(checkpoint, Mapping)
+                or checkpoint.get("step") != expected_step
+                or checkpoint.get("path") != expected_path
+            ):
+                raise ValueError("persisted evaluation checkpoint history differs")
+            expected_checkpoints.append((expected_step, expected_path))
+        if len(evaluations) != len(expected_checkpoints):
+            raise ValueError("persisted evaluation history is incomplete")
+
+        expected_profile = str(self._state["numerical_profile"])
+        expected_dataset_revision = str(self._state["dataset_revision"])
+        migrated = False
+        for entry, (expected_step, relative_path) in zip(
+            evaluations,
+            expected_checkpoints,
+            strict=True,
+        ):
+            evaluation_fields = {
+                "format",
+                "campaign_id",
+                "step",
+                "dataset_revision",
+                "checkpoint_sha256",
+                "validation_sequences",
+                "loss_sum",
+                "loss_weight_sum",
+                "mean_loss",
+                "perplexity",
+                "numerical_profile",
+            }
+            if self.lora is not None:
+                evaluation_fields.update(
+                    {
+                        "training_method",
+                        "base_model_sha256",
+                        "adapter_sha256",
+                        "weight_checkpoint_sha256",
+                        "resume_state_sha256",
+                    }
+                )
+            if entry.get("format") != "orcacolony_evaluation_v1":
+                raise ValueError("persisted evaluation format is invalid")
+            if "numerical_profile" not in entry:
+                if (
+                    expected_profile != EXACT_CPU_FP32_PROFILE
+                    or set(entry) != evaluation_fields - {"numerical_profile"}
+                ):
+                    raise ValueError(
+                        "persisted evaluation predecessor schema is invalid"
+                    )
+                entry["numerical_profile"] = EXACT_CPU_FP32_PROFILE
+                migrated = True
+            elif set(entry) != evaluation_fields:
+                raise ValueError("persisted evaluation schema is invalid")
+            if (
+                entry.get("campaign_id") != self._state["campaign_id"]
+                or entry.get("dataset_revision") != expected_dataset_revision
+                or type(entry.get("step")) is not int
+                or entry["step"] != expected_step
+            ):
+                raise ValueError("persisted evaluation identity differs")
+            entry_profile = entry.get("numerical_profile")
+            if entry_profile != expected_profile:
+                raise ValueError("evaluation numerical profile differs")
+            if self.lora is not None and entry.get("training_method") != (
+                "frozen-base-lora"
+            ):
+                raise ValueError("persisted evaluation training method differs")
+
+            with self._owned_versioned_checkpoint(expected_step) as checkpoint_dir:
+                checkpoint_state = json.loads(
+                    _safe_artifact_snapshot(
+                        checkpoint_dir,
+                        "state.json",
+                        "persisted evaluation checkpoint state",
+                    ),
+                    object_pairs_hook=_reject_duplicate_json_keys,
+                )
+                if not isinstance(checkpoint_state, Mapping):
+                    raise ValueError("persisted evaluation checkpoint state is invalid")
+                if self.lora is not None:
+                    load_lora_checkpoint(
+                        self.lora,
+                        checkpoint_dir,
+                        expected_numerical_profile=expected_profile,
+                    )
+                    adapter_state = checkpoint_state.get("adapter")
+                    if not isinstance(adapter_state, Mapping) or (
+                        entry.get("base_model_sha256")
+                        != checkpoint_state.get("base_model_sha256")
+                        or entry.get("adapter_sha256")
+                        != adapter_state.get("tensor_sha256")
+                        or entry.get("weight_checkpoint_sha256")
+                        != checkpoint_state.get("weight_checkpoint_sha256")
+                        or entry.get("checkpoint_sha256")
+                        != checkpoint_state.get("checkpoint_sha256")
+                        or entry.get("resume_state_sha256")
+                        != checkpoint_state.get("checkpoint_sha256")
+                    ):
+                        raise ValueError("persisted evaluation checkpoint identity differs")
+                else:
+                    _load_checkpoint(self.campaign, checkpoint_dir)
+                    model_state = checkpoint_state.get("model")
+                    if not isinstance(model_state, Mapping) or entry.get(
+                        "checkpoint_sha256"
+                    ) != model_state.get("sha256"):
+                        raise ValueError("persisted evaluation checkpoint identity differs")
+        if migrated:
+            self._state["last_evaluation"] = dict(evaluations[-1])
+        return migrated
+
+    def _evaluate_versioned_checkpoint(
+        self,
+        step: int,
+        checkpoint: Path,
+    ) -> dict[str, object] | None:
         if self.campaign.evaluation is None:
             return
         if self.dataset is None:
@@ -394,46 +884,183 @@ class CampaignCoordinator:
             "evaluations"
         ]
         existing = next(
-            (entry for entry in evaluations if int(entry["step"]) == step),
+            (entry for entry in evaluations if entry["step"] == step),
             None,
         )
         if existing is None:
-            existing = (
-                evaluate_lora_checkpoint(self.lora, checkpoint, self.dataset)
-                if self.lora is not None
-                else evaluate_checkpoint(self.campaign, checkpoint, self.dataset)
+            expected_checkpoint = self.checkpoints_dir / f"step-{step:08d}"
+            if checkpoint != expected_checkpoint:
+                raise ValueError("campaign evaluation checkpoint path differs")
+            with self._owned_versioned_checkpoint(step) as pinned_checkpoint:
+                existing = (
+                    evaluate_lora_checkpoint(
+                        self.lora,
+                        pinned_checkpoint,
+                        self.dataset,
+                    )
+                    if self.lora is not None
+                    else evaluate_checkpoint(
+                        self.campaign,
+                        pinned_checkpoint,
+                        self.dataset,
+                    )
+                )
+            existing.setdefault(
+                "numerical_profile",
+                self._state["numerical_profile"],
             )
             evaluations.append(existing)
-            evaluations.sort(key=lambda entry: int(entry["step"]))
+            evaluations.sort(key=lambda entry: entry["step"])
         self._state["last_evaluation"] = existing
         self._write_evaluations()
+        return existing
+
+    def _snapshot_versioned_checkpoint(self, checkpoint: Path) -> dict[str, bytes]:
+        expected_names = {
+            "state.json",
+            "optimizer.safetensors",
+            "adapter.safetensors" if self.lora is not None else "model.safetensors",
+        }
+        return {
+            name: _safe_artifact_snapshot(
+                checkpoint,
+                name,
+                "versioned campaign checkpoint artifact",
+            )
+            for name in expected_names
+        }
+
+    def versioned_checkpoint_artifacts(self, step: int) -> dict[str, bytes]:
+        if type(step) is not int or step < 0:
+            raise ValueError("campaign checkpoint step is invalid")
+        try:
+            return dict(self._checkpoint_snapshots[step])
+        except KeyError as exc:
+            raise ValueError("campaign checkpoint snapshot is unavailable") from exc
+
+    @contextmanager
+    def _owned_versioned_checkpoint(self, step: int) -> Iterator[Path]:
+        artifacts = self.versioned_checkpoint_artifacts(step)
+        temporary_root = Path(
+            tempfile.mkdtemp(
+                prefix=f".evaluation-step-{step:08d}-",
+                dir=self.state_dir,
+            )
+        )
+        checkpoint = temporary_root / "checkpoint"
+        checkpoint.mkdir()
+        try:
+            for name, payload in artifacts.items():
+                _atomic_bytes(checkpoint / name, payload)
+            yield checkpoint
+        finally:
+            shutil.rmtree(temporary_root, ignore_errors=True)
 
     def _version_checkpoint(self, step: int) -> Path:
         destination = self.checkpoints_dir / f"step-{step:08d}"
-        source = self._current.checkpoint_dir
-        source_state = json.loads((source / "state.json").read_text(encoding="utf-8"))
+        artifacts = self._current.completed_checkpoint_artifacts()
+        expected_names = {
+            "state.json",
+            "optimizer.safetensors",
+            "adapter.safetensors" if self.lora is not None else "model.safetensors",
+        }
+        if set(artifacts) != expected_names:
+            raise ValueError("completed checkpoint artifact set is invalid")
         if destination.exists():
-            destination_state = json.loads(
-                (destination / "state.json").read_text(encoding="utf-8")
-            )
-            if destination_state != source_state:
+            existing = {
+                name: _safe_artifact_snapshot(
+                    destination,
+                    name,
+                    "versioned campaign checkpoint artifact",
+                )
+                for name in expected_names
+            }
+            if existing != artifacts:
                 raise ValueError("versioned checkpoint does not match completed round")
+            self._checkpoint_snapshots[step] = dict(artifacts)
             return destination
 
         temporary = destination.with_name(destination.name + ".tmp")
         if temporary.exists():
-            shutil.rmtree(temporary)
-        shutil.copytree(source, temporary)
-        os.replace(temporary, destination)
+            raise ValueError("versioned checkpoint temporary path already exists")
+        temporary.mkdir()
+        try:
+            for name, payload in artifacts.items():
+                _atomic_bytes(temporary / name, payload)
+            os.replace(temporary, destination)
+        except Exception:
+            shutil.rmtree(temporary, ignore_errors=True)
+            raise
+        self._checkpoint_snapshots[step] = dict(artifacts)
         return destination
+
+    def _validate_next_round_authority(
+        self,
+        next_round: GlobalStepCoordinator,
+        completed_step: int,
+    ) -> None:
+        expected_checkpoint_sha256 = (
+            self._current._state["result_weight_checkpoint_sha256"]
+            if self.lora is not None
+            else self._current._state["model_sha256"]
+        )
+        expected_authority = {
+            "base_step": completed_step,
+            "dataset_cursor": self._current._state["result_dataset_cursor"],
+            "checkpoint_sha256": expected_checkpoint_sha256,
+            "resume_state_sha256": self._current._state[
+                "result_resume_state_sha256"
+            ],
+        }
+        for field, expected in expected_authority.items():
+            if next_round._state[field] != expected:
+                raise ValueError(
+                    f"next campaign round checkpoint authority differs: {field}"
+                )
+        if next_round.has_base_layer_bundle != bool(
+            self._state["publish_base_layer_bundle"]
+        ):
+            raise ValueError("next campaign layer-bundle publication state differs")
+        if next_round._state["lease_seconds"] != self._state["lease_seconds"]:
+            raise ValueError("next campaign child lease duration differs")
+
+    def _prevalidate_existing_next_round(self) -> None:
+        status = self._current.status()
+        if status["state"] != "step_complete":
+            return
+        completed_step = status["step"]
+        if completed_step >= self._state["target_steps"]:
+            return
+        next_relative = Path("rounds") / f"round-{completed_step:08d}"
+        next_path = self.state_dir / next_relative
+        if not next_path.exists():
+            return
+        with _pinned_campaign_directory(
+            self.state_dir,
+            next_relative.as_posix(),
+            "next campaign round",
+        ) as pinned_next:
+            next_round = GlobalStepCoordinator.load(
+                self.campaign,
+                pinned_next,
+                participants=self.participants,
+                dataset=self.dataset,
+                lora=self.lora,
+                numerical_profile=str(self._state["numerical_profile"]),
+                expected_worker_count=self._state["worker_count"],
+                persist_migrations=False,
+                finalize_ready=False,
+            )
+        self._validate_next_round_authority(next_round, completed_step)
+        self._prevalidated_next_round = (next_relative.as_posix(), next_round)
 
     def _advance_if_ready(self) -> None:
         if self._current.status()["state"] != "step_complete":
             return
-        completed_step = int(self._current.status()["step"])
+        completed_step = self._current.status()["step"]
         checkpoint = self._version_checkpoint(completed_step)
         checkpoints: list[dict[str, object]] = self._state["checkpoints"]  # type: ignore[assignment]
-        if not any(int(value["step"]) == completed_step for value in checkpoints):
+        if not any(value["step"] == completed_step for value in checkpoints):
             checkpoints.append(
                 {
                     "step": completed_step,
@@ -448,7 +1075,7 @@ class CampaignCoordinator:
         ]
         self._evaluate_versioned_checkpoint(completed_step, checkpoint)
 
-        if completed_step >= int(self._state["target_steps"]):
+        if completed_step >= self._state["target_steps"]:
             self._state["state"] = "campaign_complete"
             self._write_state()
             self._write_ledger()
@@ -456,22 +1083,35 @@ class CampaignCoordinator:
 
         next_relative = Path("rounds") / f"round-{completed_step:08d}"
         next_path = self.state_dir / next_relative
-        if (next_path / "global-state.json").is_file():
-            next_round = GlobalStepCoordinator.load(
-                self.campaign,
-                next_path,
-                participants=self.participants,
-                dataset=self.dataset,
-                lora=self.lora,
-                numerical_profile=str(self._state["numerical_profile"]),
-            )
+        loaded_existing_round = (next_path / "global-state.json").is_file()
+        if loaded_existing_round:
+            cached = self._prevalidated_next_round
+            if cached is not None and cached[0] == next_relative.as_posix():
+                next_round = cached[1]
+            else:
+                with _pinned_campaign_directory(
+                    self.state_dir,
+                    next_relative.as_posix(),
+                    "next campaign round",
+                ) as pinned_next:
+                    next_round = GlobalStepCoordinator.load(
+                        self.campaign,
+                        pinned_next,
+                        participants=self.participants,
+                        dataset=self.dataset,
+                        lora=self.lora,
+                        numerical_profile=str(self._state["numerical_profile"]),
+                        expected_worker_count=self._state["worker_count"],
+                        persist_migrations=False,
+                        finalize_ready=False,
+                    )
         else:
             next_round = GlobalStepCoordinator.create(
                 self.campaign,
                 next_path,
-                worker_count=int(self._state["worker_count"]),
+                worker_count=self._state["worker_count"],
                 participants=self.participants,
-                lease_seconds=int(self._state["lease_seconds"]),
+                lease_seconds=self._state["lease_seconds"],
                 resume_from=checkpoint,
                 dataset=self.dataset,
                 lora=self.lora,
@@ -480,36 +1120,60 @@ class CampaignCoordinator:
                 ),
                 numerical_profile=str(self._state["numerical_profile"]),
             )
-        if next_round.has_base_layer_bundle != bool(
-            self._state["publish_base_layer_bundle"]
-        ):
-            raise ValueError("next campaign layer-bundle publication state differs")
+        self._validate_next_round_authority(next_round, completed_step)
+        if loaded_existing_round:
+            next_round.finalize_if_ready()
+            if next_round._state["state"] == "step_complete":
+                next_round._validate_completed_checkpoint_identity()
+        self._rounds[next_relative.as_posix()] = next_round
         self._current = next_round
+        self._prevalidated_next_round = None
         self._state["current_round"] = next_relative.as_posix()
         self._state["state"] = "campaign_running"
         self._write_state()
         self._write_ledger()
+        if loaded_existing_round:
+            next_round.persist_validated_migrations()
 
-    def _write_ledger(self) -> None:
+    def _ledger_payload(self, *, include_current: bool = False) -> dict[str, object]:
         entries: list[dict[str, object]] = []
+        completed_rounds: set[str] = set()
         for checkpoint in self._state["checkpoints"]:
-            round_ledger = self.state_dir / str(checkpoint["round"]) / "accepted-work.json"
-            payload = json.loads(round_ledger.read_text(encoding="utf-8"))
+            round_name = str(checkpoint["round"])
+            completed_rounds.add(round_name)
+            try:
+                round_coordinator = self._rounds[round_name]
+            except KeyError as exc:
+                raise ValueError("campaign round authority is unavailable") from exc
+            payload = round_coordinator.accepted_ledger_payload()
             for entry in payload["entries"]:
                 entries.append({**entry, "checkpoint_step": checkpoint["step"]})
+        if (
+            include_current
+            and str(self._state["current_round"]) not in completed_rounds
+        ):
+            next_step = self._state["completed_steps"] + 1
+            current = self._current.accepted_ledger_payload()
+            entries.extend(
+                {**entry, "checkpoint_step": next_step}
+                for entry in current["entries"]
+            )
         entries.sort(key=lambda value: (value["checkpoint_step"], value["data_range"][0]))
+        return {
+            "format": "orcacolony_campaign_accepted_work_v1",
+            "campaign_id": self._state["campaign_id"],
+            "participants_revision": self._state["participants_revision"],
+            "dataset_revision": self._state.get(
+                "dataset_revision", "synthetic-fixture-v1"
+            ),
+            "numerical_profile": self._state["numerical_profile"],
+            "entries": entries,
+        }
+
+    def _write_ledger(self) -> None:
         _atomic_json(
             self.state_dir / "accepted-work.json",
-            {
-                "format": "orcacolony_campaign_accepted_work_v1",
-                "campaign_id": self._state["campaign_id"],
-                "participants_revision": self._state["participants_revision"],
-                "dataset_revision": self._state.get(
-                    "dataset_revision", "synthetic-fixture-v1"
-                ),
-                "numerical_profile": self._state["numerical_profile"],
-                "entries": entries,
-            },
+            self._ledger_payload(),
         )
 
     def status(self) -> dict[str, object]:
@@ -528,31 +1192,10 @@ class CampaignCoordinator:
         }
 
     def _dashboard_ledger_entries(self) -> list[dict[str, object]]:
-        payload = json.loads(
-            (self.state_dir / "accepted-work.json").read_text(encoding="utf-8")
-        )
-        entries = [dict(entry) for entry in payload["entries"]]
-        completed_rounds = {
-            str(checkpoint["round"]) for checkpoint in self._state["checkpoints"]
-        }
-        if str(self._state["current_round"]) not in completed_rounds:
-            current = json.loads(
-                (self._current.state_dir / "accepted-work.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            next_step = int(self._state["completed_steps"]) + 1
-            entries.extend(
-                {**entry, "checkpoint_step": next_step}
-                for entry in current["entries"]
-            )
-        entries.sort(
-            key=lambda value: (
-                int(value["checkpoint_step"]),
-                int(value["data_range"][0]),
-            )
-        )
-        return entries
+        return [
+            dict(entry)
+            for entry in self._ledger_payload(include_current=True)["entries"]
+        ]
 
     def evaluation_gate(self) -> dict[str, object] | None:
         if self.campaign.evaluation is None:
@@ -570,17 +1213,15 @@ class CampaignCoordinator:
                 ),
             }
         baseline = next(
-            (entry for entry in evaluations if int(entry["step"]) == 0),
+            (entry for entry in evaluations if entry["step"] == 0),
             None,
         )
-        latest = max(evaluations, key=lambda entry: int(entry["step"]))
+        latest = max(evaluations, key=lambda entry: entry["step"])
         if baseline is None:
             raise ValueError("evaluation success gate requires an initialization baseline")
-        improvement = float(baseline["mean_loss"]) - float(latest["mean_loss"])
+        improvement = baseline["mean_loss"] - latest["mean_loss"]
         minimum = float(gate["minimum_improvement_from_initialization"])
-        complete = int(self._state["completed_steps"]) >= int(
-            self._state["target_steps"]
-        )
+        complete = self._state["completed_steps"] >= self._state["target_steps"]
         gate_state = "pending"
         if complete:
             gate_state = "passed" if improvement >= minimum else "failed"
@@ -589,8 +1230,8 @@ class CampaignCoordinator:
             "state": gate_state,
             "minimum_improvement_from_initialization": minimum,
             "observed_improvement_from_initialization": improvement,
-            "baseline_step": int(baseline["step"]),
-            "evaluated_step": int(latest["step"]),
+            "baseline_step": baseline["step"],
+            "evaluated_step": latest["step"],
         }
 
     def dashboard(self) -> dict[str, object]:
@@ -610,7 +1251,7 @@ class CampaignCoordinator:
                     {"accepted_assignments": 0, "accepted_tokens": 0},
                 )
                 totals["accepted_assignments"] += 1
-                totals["accepted_tokens"] += int(entry["loss_weight_sum"])
+                totals["accepted_tokens"] += entry["loss_weight_sum"]
                 public_ledger.append(
                     {
                         "contribution_id": entry["assignment_id"],
@@ -707,8 +1348,8 @@ class CampaignCoordinator:
                     "completed_steps": self._state["completed_steps"],
                     "target_steps": self._state["target_steps"],
                     "accepted_assignments": len(entries),
-                    "target_assignments": int(self._state["target_steps"])
-                    * int(self._state["worker_count"]),
+                    "target_assignments": self._state["target_steps"]
+                    * self._state["worker_count"],
                     "accepted_tokens": accepted_tokens,
                     "open_assignments": assignment_states.count("open"),
                     "leased_assignments": assignment_states.count("leased"),
@@ -737,7 +1378,7 @@ class CampaignCoordinator:
                             if lora_mode
                             else "/api/v1/checkpoint/model.safetensors"
                         )
-                        if int(self._state["completed_steps"]) > 0
+                        if self._state["completed_steps"] > 0
                         else None
                     ),
                     "parity": self._state["last_checkpoint_metrics"],
