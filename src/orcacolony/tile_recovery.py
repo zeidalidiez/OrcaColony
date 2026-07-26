@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -62,6 +63,24 @@ _OWNED_TENSOR_FILES = (
     "output-adjoint.safetensors",
     "result.safetensors",
 )
+_TRANSACTION_IDENTITY_FIELDS = (
+    "campaign_id",
+    "dataset_revision",
+    "checkpoint_model_sha256",
+    "block_index",
+    "cursor",
+    "tile_sha256",
+    "input_sha256",
+)
+_MANIFEST_FIELDS = {
+    "format",
+    "transaction_id",
+    *_TRANSACTION_IDENTITY_FIELDS,
+    "phase",
+    "phase_history",
+    "result_applied",
+    "files",
+}
 
 
 @dataclass(frozen=True)
@@ -78,6 +97,7 @@ class RecoveredTileTransactionEvidence:
     dataset_revision: str
     start_method: str
     transaction_id: str
+    checkpoint_model_sha256: str
     block_index: int
     cursor: int
     phase_history: tuple[str, ...]
@@ -187,8 +207,20 @@ def _transition(
     _write_manifest(transaction_dir, manifest)
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise ValueError(f"duplicate JSON key in transaction manifest: {key}")
+        payload[key] = value
+    return payload
+
+
 def _load_manifest(transaction_dir: Path) -> dict[str, Any]:
-    payload = json.loads((transaction_dir / "manifest.json").read_text("utf-8"))
+    payload = json.loads(
+        (transaction_dir / "manifest.json").read_text("utf-8"),
+        object_pairs_hook=_reject_duplicate_json_keys,
+    )
     if not isinstance(payload, dict):
         raise ValueError("transaction manifest is invalid")
     return payload
@@ -224,6 +256,61 @@ def _read_owned_tensor_file(
     return payload
 
 
+def _validate_result_ready_phase(manifest: dict[str, Any]) -> None:
+    if manifest.get("result_applied") is not False:
+        raise ValueError("transaction result was already applied")
+    if manifest.get("phase") != "result_accepted":
+        raise ValueError("transaction result is not ready to apply")
+    history = manifest.get("phase_history")
+    if not isinstance(history, list) or tuple(history) != _PHASES[:-1]:
+        raise ValueError("transaction phase history is invalid")
+
+
+def _validate_result_ready_manifest(
+    transaction_dir: Path,
+    manifest: dict[str, Any],
+    expected_identity: dict[str, object],
+) -> dict[str, bytes]:
+    if frozenset(expected_identity) != frozenset(_TRANSACTION_IDENTITY_FIELDS):
+        raise AssertionError("expected transaction identity is invalid")
+    if frozenset(manifest) != frozenset(_MANIFEST_FIELDS):
+        raise ValueError("transaction manifest schema is invalid")
+    if manifest.get("format") != "orcacolony_boundary_transaction_v1":
+        raise ValueError("transaction manifest format is invalid")
+    _validate_result_ready_phase(manifest)
+    for name, expected in expected_identity.items():
+        actual = manifest.get(name)
+        if type(actual) is not type(expected) or actual != expected:
+            raise ValueError(f"transaction identity is invalid: {name}")
+    expected_transaction_id = hashlib.sha256(
+        _canonical_json(expected_identity)
+    ).hexdigest()
+    if (
+        type(manifest.get("transaction_id")) is not str
+        or manifest["transaction_id"] != expected_transaction_id
+    ):
+        raise ValueError("transaction id is invalid")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or frozenset(files) != frozenset(
+        _OWNED_TENSOR_FILES
+    ):
+        raise ValueError("transaction file map is invalid")
+    if transaction_dir.is_symlink() or not transaction_dir.is_dir():
+        raise ValueError("transaction directory is invalid")
+    entries = tuple(transaction_dir.iterdir())
+    if any(entry.is_symlink() or not entry.is_file() for entry in entries):
+        raise ValueError("transaction directory contains a non-file entry")
+    if {entry.name for entry in entries} != {
+        "manifest.json",
+        *_OWNED_TENSOR_FILES,
+    }:
+        raise ValueError("transaction directory contains unexpected files")
+    return {
+        name: _read_owned_tensor_file(transaction_dir, manifest, name)
+        for name in _OWNED_TENSOR_FILES
+    }
+
+
 def _start_worker(
     context: multiprocessing.context.BaseContext,
     campaign: CampaignConfig,
@@ -232,6 +319,7 @@ def _start_worker(
     timeout_seconds: float,
     *,
     name: str,
+    expected_tile_state_sha256: str,
 ) -> _TileWorkerHandle:
     parent_connection, child_connection = context.Pipe(duplex=True)
     process = context.Process(
@@ -273,7 +361,11 @@ def _start_worker(
             "after_model_current_rss_bytes",
             "after_model_peak_rss_bytes",
         }
-        if frozenset(ready) != frozenset(expected) or ready["status"] != "ready":
+        if (
+            frozenset(ready) != frozenset(expected)
+            or ready["status"] != "ready"
+            or ready["tile_state_sha256"] != expected_tile_state_sha256
+        ):
             raise ValueError(f"{name} initialization acknowledgement is invalid")
         return _TileWorkerHandle(
             process=process,
@@ -406,44 +498,74 @@ def _apply_result_once(
     block_input: Tensor,
     block_index: int,
     campaign: CampaignConfig,
+    *,
+    expected_identity: dict[str, object],
 ) -> dict[str, Tensor]:
     manifest = _load_manifest(transaction_dir)
-    if manifest.get("result_applied") is not False:
-        raise ValueError("transaction result was already applied")
-    if manifest.get("phase") != "result_accepted":
-        raise ValueError("transaction result is not ready to apply")
-    result_wire = _read_owned_tensor_file(
+    validated_files = _validate_result_ready_manifest(
         transaction_dir,
         manifest,
-        "result.safetensors",
+        expected_identity,
     )
+    result_wire = validated_files["result.safetensors"]
     result = _deserialize_tensors(result_wire)
     selected = recovered_model.blocks[block_index]
     expected_names = {f"gradient.{name}" for name, _ in selected.named_parameters()}
     expected_names.add("input_adjoint")
     if frozenset(result) != frozenset(expected_names):
         raise ValueError("recovered result tensor schema is invalid")
+    validated_gradients: dict[str, Tensor] = {}
     for name, parameter in selected.named_parameters():
-        gradient = _validate_tensor(
+        validated_gradients[name] = _validate_tensor(
             result[f"gradient.{name}"],
             shape=parameter.shape,
             label=f"gradient.{name}",
-        )
-        parameter.grad = gradient
+        ).detach().clone()
     input_adjoint = _validate_tensor(
         result["input_adjoint"],
         shape=block_input.shape,
         label="input_adjoint",
-    )
-    block_input.backward(input_adjoint)
-    recovered_raw = _gradient_snapshot(recovered_model)
-    torch.nn.utils.clip_grad_norm_(
-        recovered_model.parameters(),
-        campaign.training.max_gradient_norm,
-    )
-    recovered_optimizer.step()
-    manifest["result_applied"] = True
-    _transition(transaction_dir, manifest, "result_accepted", "applied")
+    ).detach().clone()
+
+    gradients_before = {
+        name: None if parameter.grad is None else parameter.grad.detach().clone()
+        for name, parameter in recovered_model.named_parameters()
+    }
+    try:
+        for name, parameter in selected.named_parameters():
+            parameter.grad = validated_gradients[name]
+        block_input.backward(input_adjoint, retain_graph=True)
+        recovered_raw = _gradient_snapshot(recovered_model)
+        torch.nn.utils.clip_grad_norm_(
+            recovered_model.parameters(),
+            campaign.training.max_gradient_norm,
+        )
+        candidate_model = copy.deepcopy(recovered_model)
+        candidate_optimizer = _create_optimizer(candidate_model, campaign.training)
+        candidate_optimizer.load_state_dict(
+            copy.deepcopy(recovered_optimizer.state_dict())
+        )
+        candidate_parameters = dict(candidate_model.named_parameters())
+        for name, parameter in recovered_model.named_parameters():
+            candidate = candidate_parameters[name]
+            candidate.grad = (
+                None if parameter.grad is None else parameter.grad.detach().clone()
+            )
+        candidate_optimizer.step()
+        candidate_model_state = {
+            name: tensor.detach().clone()
+            for name, tensor in candidate_model.state_dict().items()
+        }
+        candidate_optimizer_state = copy.deepcopy(candidate_optimizer.state_dict())
+        manifest["result_applied"] = True
+        _transition(transaction_dir, manifest, "result_accepted", "applied")
+    except BaseException:
+        for name, parameter in recovered_model.named_parameters():
+            previous = gradients_before[name]
+            parameter.grad = None if previous is None else previous.detach().clone()
+        raise
+    recovered_model.load_state_dict(candidate_model_state)
+    recovered_optimizer.load_state_dict(candidate_optimizer_state)
     return recovered_raw
 
 
@@ -507,6 +629,7 @@ def run_recovered_tile_transaction(
         for name, tensor in recovered.blocks[block_index].state_dict().items()
     }
     tile_wire = _serialize_tensors(tile_state)
+    tile_state_sha256 = tensor_sha256(tile_state)
     model_sha256 = tensor_sha256(recovered.state_dict())
     identity = {
         "campaign_id": str(campaign.campaign["id"]),
@@ -554,6 +677,7 @@ def run_recovered_tile_transaction(
             tile_wire,
             timeout_seconds,
             name="orcacolony-tile-before-loss",
+            expected_tile_state_sha256=tile_state_sha256,
         )
         first_initialization_seconds = first_worker.initialization_seconds
         output_wire, _, first_forward_elapsed = _worker_forward(
@@ -596,6 +720,7 @@ def run_recovered_tile_transaction(
             persisted_tile,
             timeout_seconds,
             name="orcacolony-tile-replacement",
+            expected_tile_state_sha256=tile_state_sha256,
         )
         replacement_initialization_seconds = replacement.initialization_seconds
         replay_output, _, replay_forward_elapsed = _worker_forward(
@@ -666,6 +791,7 @@ def run_recovered_tile_transaction(
             block_input,
             block_index,
             campaign,
+            expected_identity=identity,
         )
         duplicate_rejected = False
         try:
@@ -676,6 +802,7 @@ def run_recovered_tile_transaction(
                 block_input,
                 block_index,
                 campaign,
+                expected_identity=identity,
             )
         except ValueError as exc:
             duplicate_rejected = "already applied" in str(exc)
@@ -745,11 +872,12 @@ def run_recovered_tile_transaction(
     )
     replacement_peak = int(replacement_shutdown["peak_rss_bytes"])
     return RecoveredTileTransactionEvidence(
-        format="orcacolony_recovered_tile_transaction_evidence_v1",
+        format="orcacolony_recovered_tile_transaction_evidence_v2",
         campaign_id=str(campaign.campaign["id"]),
         dataset_revision=str(identity["dataset_revision"]),
         start_method=context.get_start_method(),
         transaction_id=transaction_id,
+        checkpoint_model_sha256=model_sha256,
         block_index=block_index,
         cursor=cursor,
         phase_history=_PHASES,

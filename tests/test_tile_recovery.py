@@ -4,8 +4,20 @@ import hashlib
 import json
 from pathlib import Path
 
-from orcacolony.reference import load_campaign
+import pytest
+import torch
+import torch.nn.functional as F
+
+import orcacolony.tile_recovery as tile_recovery
+from orcacolony.reference import (
+    _create_optimizer,
+    build_model,
+    fixture_batch,
+    load_campaign,
+    tensor_sha256,
+)
 from orcacolony.tile_recovery import main, run_recovered_tile_transaction
+from orcacolony.tiled_model import _prefix_activation, _suffix_logits
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
@@ -17,6 +29,382 @@ EXPECTED_FILES = {
     "output-adjoint.safetensors",
     "result.safetensors",
 }
+
+
+class _StopBeforeApply(Exception):
+    pass
+
+
+def _prepare_result_accepted_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Path:
+    transaction_dir = tmp_path / "transaction"
+
+    def stop_before_apply(*_args: object, **_kwargs: object) -> dict[str, torch.Tensor]:
+        raise _StopBeforeApply
+
+    original_apply = tile_recovery._apply_result_once
+    monkeypatch.setattr(tile_recovery, "_apply_result_once", stop_before_apply)
+    with pytest.raises(_StopBeforeApply):
+        run_recovered_tile_transaction(
+            load_campaign(CONFIG),
+            block_index=2,
+            transaction_dir=transaction_dir,
+            timeout_seconds=30.0,
+        )
+    monkeypatch.setattr(tile_recovery, "_apply_result_once", original_apply)
+    return transaction_dir
+
+
+def _coordinator_before_apply(
+    transaction_dir: Path,
+) -> tuple[torch.nn.Module, torch.optim.Optimizer, torch.Tensor]:
+    campaign = load_campaign(CONFIG)
+    recovered = build_model(campaign)
+    optimizer = _create_optimizer(recovered, campaign.training)
+    inputs, targets = fixture_batch(campaign, 0)
+    recovered.train()
+    optimizer.zero_grad(set_to_none=True)
+    block_input = _prefix_activation(recovered, inputs, 2)
+    manifest = tile_recovery._load_manifest(transaction_dir)
+    output_tensors = tile_recovery._deserialize_tensors(
+        tile_recovery._read_owned_tensor_file(
+            transaction_dir,
+            manifest,
+            "forward-output.safetensors",
+        )
+    )
+    boundary_output = tile_recovery._validate_tensor(
+        output_tensors["output"],
+        shape=block_input.shape,
+        label="output",
+    ).requires_grad_(True)
+    loss = F.cross_entropy(
+        _suffix_logits(recovered, boundary_output, 2).reshape(
+            -1,
+            campaign.model.vocabulary_size,
+        ),
+        targets.reshape(-1),
+        reduction="mean",
+    )
+    loss.backward()
+    return recovered, optimizer, block_input
+
+
+def _expected_identity(transaction_dir: Path) -> dict[str, object]:
+    manifest = tile_recovery._load_manifest(transaction_dir)
+    return {
+        name: manifest[name]
+        for name in tile_recovery._TRANSACTION_IDENTITY_FIELDS
+    }
+
+
+def _assert_apply_rejected_without_mutation(
+    transaction_dir: Path,
+    expected_identity: dict[str, object],
+    match: str,
+) -> None:
+    recovered, optimizer, block_input = _coordinator_before_apply(transaction_dir)
+    model_before = tensor_sha256(recovered.state_dict())
+    gradients_before = {
+        name: None if parameter.grad is None else parameter.grad.detach().clone()
+        for name, parameter in recovered.named_parameters()
+    }
+    with pytest.raises(ValueError, match=match):
+        tile_recovery._apply_result_once(
+            transaction_dir,
+            recovered,
+            optimizer,
+            block_input,
+            2,
+            load_campaign(CONFIG),
+            expected_identity=expected_identity,
+        )
+    assert tensor_sha256(recovered.state_dict()) == model_before
+    assert not optimizer.state
+    for name, parameter in recovered.named_parameters():
+        expected = gradients_before[name]
+        if expected is None:
+            assert parameter.grad is None
+        else:
+            assert parameter.grad is not None
+            assert torch.equal(parameter.grad, expected)
+
+
+def test_manifest_rejects_duplicate_json_keys(tmp_path: Path) -> None:
+    transaction_dir = tmp_path / "transaction"
+    transaction_dir.mkdir()
+    (transaction_dir / "manifest.json").write_text(
+        '{"phase":"result_accepted","phase":"applied"}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate JSON key"):
+        tile_recovery._load_manifest(transaction_dir)
+
+
+def test_malformed_phase_history_is_rejected_before_coordinator_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transaction_dir = _prepare_result_accepted_transaction(tmp_path, monkeypatch)
+    expected_identity = _expected_identity(transaction_dir)
+    manifest = tile_recovery._load_manifest(transaction_dir)
+    manifest["phase_history"] = ["prepared", "worker_lost"]
+    tile_recovery._write_manifest(transaction_dir, manifest)
+
+    recovered, optimizer, block_input = _coordinator_before_apply(transaction_dir)
+    model_before = tensor_sha256(recovered.state_dict())
+    gradients_before = {
+        name: None if parameter.grad is None else parameter.grad.detach().clone()
+        for name, parameter in recovered.named_parameters()
+    }
+
+    with pytest.raises(ValueError, match="phase history"):
+        tile_recovery._apply_result_once(
+            transaction_dir,
+            recovered,
+            optimizer,
+            block_input,
+            2,
+            load_campaign(CONFIG),
+            expected_identity=expected_identity,
+        )
+
+    assert tensor_sha256(recovered.state_dict()) == model_before
+    assert not optimizer.state
+    for name, parameter in recovered.named_parameters():
+        expected = gradients_before[name]
+        if expected is None:
+            assert parameter.grad is None
+        else:
+            assert parameter.grad is not None
+            assert torch.equal(parameter.grad, expected)
+    rejected = tile_recovery._load_manifest(transaction_dir)
+    assert rejected["phase"] == "result_accepted"
+    assert rejected["result_applied"] is False
+
+
+def test_failed_applied_transition_rolls_back_and_remains_retryable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transaction_dir = _prepare_result_accepted_transaction(tmp_path, monkeypatch)
+    expected_identity = _expected_identity(transaction_dir)
+    recovered, optimizer, block_input = _coordinator_before_apply(transaction_dir)
+    model_before = tensor_sha256(recovered.state_dict())
+    gradients_before = {
+        name: None if parameter.grad is None else parameter.grad.detach().clone()
+        for name, parameter in recovered.named_parameters()
+    }
+    original_write_manifest = tile_recovery._write_manifest
+
+    def fail_applied_write(*_args: object, **_kwargs: object) -> None:
+        raise OSError("injected applied-state write failure")
+
+    monkeypatch.setattr(tile_recovery, "_write_manifest", fail_applied_write)
+    with pytest.raises(OSError, match="injected applied-state write failure"):
+        tile_recovery._apply_result_once(
+            transaction_dir,
+            recovered,
+            optimizer,
+            block_input,
+            2,
+            load_campaign(CONFIG),
+            expected_identity=expected_identity,
+        )
+    monkeypatch.setattr(tile_recovery, "_write_manifest", original_write_manifest)
+
+    assert tensor_sha256(recovered.state_dict()) == model_before
+    assert not optimizer.state
+    for name, parameter in recovered.named_parameters():
+        expected = gradients_before[name]
+        if expected is None:
+            assert parameter.grad is None
+        else:
+            assert parameter.grad is not None
+            assert torch.equal(parameter.grad, expected)
+    retryable = tile_recovery._load_manifest(transaction_dir)
+    assert retryable["phase"] == "result_accepted"
+    assert retryable["result_applied"] is False
+
+    tile_recovery._apply_result_once(
+        transaction_dir,
+        recovered,
+        optimizer,
+        block_input,
+        2,
+        load_campaign(CONFIG),
+        expected_identity=expected_identity,
+    )
+    applied = tile_recovery._load_manifest(transaction_dir)
+    assert applied["phase"] == "applied"
+    assert applied["result_applied"] is True
+
+
+def test_unexpected_transaction_file_is_rejected_before_coordinator_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transaction_dir = _prepare_result_accepted_transaction(tmp_path, monkeypatch)
+    expected_identity = _expected_identity(transaction_dir)
+    (transaction_dir / "unexpected.bin").write_bytes(b"not admitted")
+    recovered, optimizer, block_input = _coordinator_before_apply(transaction_dir)
+    model_before = tensor_sha256(recovered.state_dict())
+
+    with pytest.raises(ValueError, match="unexpected files"):
+        tile_recovery._apply_result_once(
+            transaction_dir,
+            recovered,
+            optimizer,
+            block_input,
+            2,
+            load_campaign(CONFIG),
+            expected_identity=expected_identity,
+        )
+
+    assert tensor_sha256(recovered.state_dict()) == model_before
+    assert not optimizer.state
+
+
+def test_manifest_file_and_result_corruption_are_rejected_before_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transaction_dir = _prepare_result_accepted_transaction(tmp_path, monkeypatch)
+    expected_identity = _expected_identity(transaction_dir)
+    baseline = {
+        path.name: path.read_bytes()
+        for path in transaction_dir.iterdir()
+    }
+
+    def restore() -> None:
+        for path in tuple(transaction_dir.iterdir()):
+            if path.name not in baseline:
+                path.unlink()
+        for name, payload in baseline.items():
+            tile_recovery._write_bytes_atomic(transaction_dir / name, payload)
+
+    manifest = tile_recovery._load_manifest(transaction_dir)
+    manifest["campaign_id"] = "tampered-campaign"
+    tile_recovery._write_manifest(transaction_dir, manifest)
+    _assert_apply_rejected_without_mutation(
+        transaction_dir,
+        expected_identity,
+        "transaction identity",
+    )
+
+    restore()
+    manifest = tile_recovery._load_manifest(transaction_dir)
+    manifest["unexpected"] = True
+    tile_recovery._write_manifest(transaction_dir, manifest)
+    _assert_apply_rejected_without_mutation(
+        transaction_dir,
+        expected_identity,
+        "manifest schema",
+    )
+
+    restore()
+    tile_path = transaction_dir / "tile.safetensors"
+    tile_path.write_bytes(tile_path.read_bytes() + b"changed")
+    _assert_apply_rejected_without_mutation(
+        transaction_dir,
+        expected_identity,
+        "file size changed",
+    )
+
+    restore()
+    manifest = tile_recovery._load_manifest(transaction_dir)
+    result = {
+        name: tensor.detach().clone()
+        for name, tensor in tile_recovery._deserialize_tensors(
+            (transaction_dir / "result.safetensors").read_bytes()
+        ).items()
+    }
+    gradient_name = next(name for name in sorted(result) if name.startswith("gradient."))
+    result[gradient_name].view(-1)[0] = float("nan")
+    tile_recovery._record_tensor_file(
+        transaction_dir,
+        manifest,
+        "result.safetensors",
+        tile_recovery._serialize_tensors(result),
+    )
+    tile_recovery._write_manifest(transaction_dir, manifest)
+    _assert_apply_rejected_without_mutation(
+        transaction_dir,
+        expected_identity,
+        "tensor is non-finite",
+    )
+
+
+def test_recovery_worker_rejects_mismatched_tile_state_acknowledgement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeConnection:
+        def send_bytes(self, _payload: bytes) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    class FakeProcess:
+        exitcode = -15
+
+        def start(self) -> None:
+            pass
+
+        def terminate(self) -> None:
+            pass
+
+        def join(self, _timeout: float) -> None:
+            pass
+
+        def kill(self) -> None:
+            pass
+
+        def is_alive(self) -> bool:
+            return False
+
+    class FakeContext:
+        def __init__(self) -> None:
+            self.parent = FakeConnection()
+            self.child = FakeConnection()
+            self.process = FakeProcess()
+
+        def Pipe(self, *, duplex: bool) -> tuple[FakeConnection, FakeConnection]:
+            assert duplex is True
+            return self.parent, self.child
+
+        def Process(self, **_kwargs: object) -> FakeProcess:
+            return self.process
+
+    ready = {
+        "status": "ready",
+        "tile_state_sha256": "wrong-state",
+        "startup_current_rss_bytes": 1,
+        "startup_peak_rss_bytes": 1,
+        "after_model_current_rss_bytes": 1,
+        "after_model_peak_rss_bytes": 1,
+    }
+    monkeypatch.setattr(tile_recovery, "_send_json", lambda *_args: None)
+    monkeypatch.setattr(tile_recovery, "_await_model_readiness", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        tile_recovery,
+        "_recv_json",
+        lambda *_args, **_kwargs: (ready, 0),
+    )
+
+    with pytest.raises(ValueError, match="initialization acknowledgement"):
+        tile_recovery._start_worker(
+            FakeContext(),
+            load_campaign(CONFIG),
+            2,
+            b"tile",
+            1.0,
+            name="mismatched-state-worker",
+            expected_tile_state_sha256="expected-state",
+        )
 
 
 def test_replacement_tile_replays_and_applies_one_exact_result(
@@ -32,7 +420,7 @@ def test_replacement_tile_replays_and_applies_one_exact_result(
         timeout_seconds=30.0,
     )
 
-    assert evidence.format == "orcacolony_recovered_tile_transaction_evidence_v1"
+    assert evidence.format == "orcacolony_recovered_tile_transaction_evidence_v2"
     assert evidence.start_method == "spawn"
     assert evidence.block_index == 2
     assert evidence.cursor == 0
@@ -83,6 +471,19 @@ def test_replacement_tile_replays_and_applies_one_exact_result(
     assert manifest["phase"] == "applied"
     assert manifest["result_applied"] is True
     assert tuple(manifest["phase_history"]) == evidence.phase_history
+    persisted_by_name = {item.name: item for item in evidence.persisted_files}
+    transaction_identity = {
+        "campaign_id": evidence.campaign_id,
+        "dataset_revision": evidence.dataset_revision,
+        "checkpoint_model_sha256": evidence.checkpoint_model_sha256,
+        "block_index": evidence.block_index,
+        "cursor": evidence.cursor,
+        "tile_sha256": persisted_by_name["tile.safetensors"].sha256,
+        "input_sha256": persisted_by_name["input.safetensors"].sha256,
+    }
+    assert evidence.transaction_id == hashlib.sha256(
+        tile_recovery._canonical_json(transaction_identity)
+    ).hexdigest()
     for item in evidence.persisted_files:
         path = transaction_dir / item.name
         assert path.stat().st_size == item.size_bytes
@@ -111,7 +512,7 @@ def test_tile_recovery_cli_writes_evidence_and_transaction(
     )
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert payload["format"] == "orcacolony_recovered_tile_transaction_evidence_v1"
+    assert payload["format"] == "orcacolony_recovered_tile_transaction_evidence_v2"
     assert payload["replay_output_bytes_identical"] is True
     assert payload["duplicate_result_rejected"] is True
     assert payload["centralized_model_sha256"] == payload["recovered_model_sha256"]
