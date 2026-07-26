@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>P5 Rolling-block T1 — OrcaColony Report 002</title>
+  <style>
+    :root {
+      --paper: #f4f1e8;
+      --white: #fffefa;
+      --ink: #13282b;
+      --muted: #5e706f;
+      --ocean: #0d5961;
+      --ocean-dark: #073c42;
+      --amber: #bf681f;
+      --green: #356c4c;
+      --red: #9a4935;
+      --line: #c7d0ca;
+      --soft: #e4e8df;
+      --max: 1120px;
+    }
+    * { box-sizing: border-box; }
+    html { color: var(--ink); background: var(--paper); }
+    body { margin: 0; font-family: "Segoe UI", "Aptos", sans-serif; line-height: 1.58; }
+    a { color: var(--ocean-dark); text-underline-offset: 3px; }
+    a:hover { color: var(--amber); }
+    a:focus-visible { outline: 3px solid var(--amber); outline-offset: 4px; }
+    .page { width: min(calc(100% - 40px), var(--max)); margin: 0 auto; }
+    nav { padding: 24px 0; font: 700 .77rem/1 "Consolas", monospace; letter-spacing: .09em; text-transform: uppercase; }
+    header { padding: 58px 0 50px; border-top: 2px solid var(--ink); border-bottom: 1px solid var(--line); }
+    .eyebrow { display: flex; align-items: center; gap: 12px; color: var(--ocean); font: 700 .75rem/1.3 "Consolas", monospace; letter-spacing: .14em; text-transform: uppercase; }
+    .status { padding: 6px 9px; border: 1px solid var(--amber); color: var(--amber); letter-spacing: .07em; }
+    h1, h2, h3 { font-family: Georgia, "Times New Roman", serif; letter-spacing: -.022em; }
+    h1 { max-width: 990px; margin: 20px 0 24px; font-size: clamp(2.6rem, 6vw, 5.8rem); line-height: .98; font-weight: 500; }
+    .standfirst { max-width: 850px; color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.3rem); }
+    .verdict { display: grid; grid-template-columns: 1.4fr .6fr; gap: 42px; padding: 42px 0; border-bottom: 1px solid var(--line); }
+    .verdict h2 { margin: 0 0 12px; font-size: clamp(1.8rem, 3.7vw, 3.1rem); font-weight: 500; }
+    .verdict p { margin: 0; color: var(--muted); font-size: 1.05rem; }
+    .decision { border-left: 3px solid var(--amber); padding-left: 22px; }
+    .decision span { display: block; margin-bottom: 7px; color: var(--amber); font: 700 .72rem/1.3 "Consolas", monospace; text-transform: uppercase; letter-spacing: .12em; }
+    .decision strong { font-size: 1.1rem; }
+    main { padding: 8px 0 76px; }
+    section { padding: 56px 0; border-bottom: 1px solid var(--line); }
+    .section-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 54px; }
+    .section-label { font: 700 .75rem/1.4 "Consolas", monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--ocean); }
+    h2 { margin: 0 0 20px; font-size: clamp(1.8rem, 3.6vw, 3rem); font-weight: 500; }
+    h3 { margin: 32px 0 9px; font-size: 1.45rem; }
+    p { margin: 0 0 16px; }
+    .muted { color: var(--muted); }
+    .metrics { border-top: 2px solid var(--ink); }
+    .metric-row { display: grid; grid-template-columns: minmax(220px, 1.3fr) 1fr 1fr; gap: 24px; padding: 18px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+    .metric-row:first-child { color: var(--muted); font: 700 .72rem/1.2 "Consolas", monospace; text-transform: uppercase; letter-spacing: .08em; }
+    .metric-name { font-weight: 650; }
+    .metric-value { font: 700 1.03rem/1.3 "Consolas", monospace; }
+    .metric-value.good { color: var(--green); }
+    .metric-value.caution { color: var(--red); }
+    .callout { margin-top: 32px; padding: 25px 28px; background: var(--white); border-top: 3px solid var(--amber); }
+    .callout strong { display: block; margin-bottom: 7px; }
+    .chart { margin: 30px 0 12px; padding: 20px 18px 10px; background: var(--white); border: 1px solid var(--line); }
+    .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+    .chart text { font-family: "Consolas", monospace; font-size: 12px; fill: var(--muted); }
+    .chart .grid { stroke: var(--line); stroke-width: 1; }
+    .chart .rolling { fill: none; stroke: var(--amber); stroke-width: 4; }
+    .chart .baseline { fill: none; stroke: var(--ocean); stroke-width: 4; }
+    .chart .rolling-point { fill: var(--amber); }
+    .chart .baseline-point { fill: var(--ocean); }
+    .legend { display: flex; flex-wrap: wrap; gap: 22px; margin: 12px 0 0; font-size: .9rem; }
+    .legend span::before { content: ""; display: inline-block; width: 20px; height: 3px; margin: 0 8px 3px 0; background: var(--ocean); }
+    .legend .rolling-key::before { background: var(--amber); }
+    figcaption { margin-top: 12px; color: var(--muted); font-size: .9rem; }
+    table { width: 100%; margin-top: 24px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    th, td { padding: 11px 10px; border-bottom: 1px solid var(--line); text-align: right; }
+    th:first-child, td:first-child { padding-left: 0; text-align: left; }
+    th { color: var(--muted); font: 700 .72rem/1.2 "Consolas", monospace; text-transform: uppercase; letter-spacing: .06em; }
+    td { font-family: "Consolas", monospace; font-size: .88rem; }
+    .findings { list-style: none; padding: 0; margin: 0; }
+    .findings li { display: grid; grid-template-columns: 28px 1fr; gap: 18px; padding: 18px 0; border-top: 1px solid var(--line); }
+    .mark { font: 700 1rem/1.4 "Consolas", monospace; }
+    .positive .mark { color: var(--green); }
+    .negative .mark { color: var(--red); }
+    .findings strong { display: block; margin-bottom: 4px; }
+    .findings p { color: var(--muted); }
+    code { font-family: "Consolas", monospace; font-size: .9em; }
+    pre { overflow-x: auto; margin: 18px 0; padding: 22px; background: var(--ink); color: #eef2ed; line-height: 1.5; }
+    details { margin-top: 26px; }
+    summary { cursor: pointer; font-weight: 700; color: var(--ocean-dark); }
+    .meta-list { margin: 18px 0 0; padding: 0; list-style: none; }
+    .meta-list li { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 20px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+    .meta-list span { color: var(--muted); }
+    footer { padding: 28px 0 44px; display: flex; justify-content: space-between; gap: 28px; color: var(--muted); font-size: .85rem; }
+    @media (max-width: 760px) {
+      .verdict, .section-grid { grid-template-columns: 1fr; }
+      .metric-row { grid-template-columns: 1fr 1fr; }
+      .metric-row > :first-child { grid-column: 1 / -1; }
+      .metric-row:first-child { display: none; }
+      .chart { margin-inline: -10px; padding-inline: 6px; }
+      footer { display: block; }
+    }
+    @media print {
+      html, body { background: white; }
+      .page { width: 100%; }
+      nav { display: none; }
+      section { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <nav><a href="index.html">← All reports</a></nav>
+
+    <header>
+      <div class="eyebrow"><span>Report 002</span><span class="status">Partial evidence · method revision needed</span></div>
+      <h1>Persistent block workers cut repeated download 85.95%; quality recovers only 21.49%.</h1>
+      <p class="standfirst">Across 12 authenticated TinyStories assignments, rolling one of six blocks at a time improved held-out loss monotonically by 0.301125. The full-model control improved by 1.401365 on the same batches and optimizer-step count. Worker tensor residency was 57.58% lower, but the comparison also exposed a schedule mismatch that the next P5 topology must remove.</p>
+    </header>
+
+    <div class="verdict">
+      <div>
+        <h2>The systems case strengthened; the training case did not.</h2>
+        <p>Persistent shared state materially reduces repeat transfer, and every deterministic measurement reproduced exactly. But sequential one-block updates train only 11.44% of full parameters per step and use a shallow objective that is not the full model's objective.</p>
+      </div>
+      <div class="decision">
+        <span>Decision</span>
+        <strong>Keep P5 active. Replace sequential rotation with one block-sharded global step before scaling.</strong>
+      </div>
+    </div>
+
+    <main>
+      <section>
+        <div class="section-grid">
+          <div class="section-label">01 / Question</div>
+          <div>
+            <h2>Does the T0 memory result survive authenticated data and held-out evaluation?</h2>
+            <p>The coordinator retained a six-block, 6,901,760-parameter model. One persistent worker session loaded shared token, position, normalization, and output state once, then replaced only the selected block as assignments rotated <code>0 → 1 → 2 → 3 → 4 → 5</code> twice.</p>
+            <p class="muted">Training consumed the exact campaign-bound TinyStories bundle at revision <code>99e5642…</code>. Both rolling and replicated controls started from identical weights, saw the same 12 training batches, used coordinator-owned AdamW, and were evaluated on the same frozen 16 validation sequences every two steps.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-grid">
+          <div class="section-label">02 / Held-out trajectory</div>
+          <div>
+            <h2>Both trajectories improved; the gap widened at every checkpoint.</h2>
+            <figure class="chart">
+              <svg viewBox="0 0 800 350" role="img" aria-labelledby="trajectory-title trajectory-desc">
+                <title id="trajectory-title">Held-out mean loss over twelve optimizer steps</title>
+                <desc id="trajectory-desc">Rolling-block loss falls from 9.0418 to 8.7407. Full-model baseline loss falls from 9.0418 to 7.6405.</desc>
+                <line class="grid" x1="70" y1="46.9" x2="760" y2="46.9"/><text x="58" y="51" text-anchor="end">9.0</text>
+                <line class="grid" x1="70" y1="131.2" x2="760" y2="131.2"/><text x="58" y="135" text-anchor="end">8.5</text>
+                <line class="grid" x1="70" y1="215.6" x2="760" y2="215.6"/><text x="58" y="220" text-anchor="end">8.0</text>
+                <line class="grid" x1="70" y1="300" x2="760" y2="300"/><text x="58" y="304" text-anchor="end">7.5</text>
+                <line class="grid" x1="70" y1="30" x2="70" y2="300"/>
+                <polyline class="rolling" points="70,39.8 185,51.4 300,56.1 415,61.5 530,78.4 645,85.3 760,90.6"/>
+                <polyline class="baseline" points="70,39.8 185,128.8 300,163.4 415,189.8 530,217.3 645,246.9 760,276.3"/>
+                <g class="rolling-point"><circle cx="70" cy="39.8" r="5"/><circle cx="185" cy="51.4" r="5"/><circle cx="300" cy="56.1" r="5"/><circle cx="415" cy="61.5" r="5"/><circle cx="530" cy="78.4" r="5"/><circle cx="645" cy="85.3" r="5"/><circle cx="760" cy="90.6" r="5"/></g>
+                <g class="baseline-point"><circle cx="70" cy="39.8" r="5"/><circle cx="185" cy="128.8" r="5"/><circle cx="300" cy="163.4" r="5"/><circle cx="415" cy="189.8" r="5"/><circle cx="530" cy="217.3" r="5"/><circle cx="645" cy="246.9" r="5"/><circle cx="760" cy="276.3" r="5"/></g>
+                <g><text x="70" y="327" text-anchor="middle">0</text><text x="185" y="327" text-anchor="middle">2</text><text x="300" y="327" text-anchor="middle">4</text><text x="415" y="327" text-anchor="middle">6</text><text x="530" y="327" text-anchor="middle">8</text><text x="645" y="327" text-anchor="middle">10</text><text x="760" y="327" text-anchor="middle">12</text><text x="415" y="348" text-anchor="middle">optimizer step</text></g>
+              </svg>
+              <div class="legend"><span class="rolling-key">Rolling one-block worker</span><span>Replicated full-model baseline</span></div>
+              <figcaption>Lower is better. The complete trajectory and final model hashes matched exactly in the independent repeat.</figcaption>
+            </figure>
+
+            <table aria-label="Held-out mean-loss trajectory">
+              <thead><tr><th>Step</th><th>Rolling</th><th>Full baseline</th><th>Final-direction gap</th></tr></thead>
+              <tbody>
+                <tr><td>0</td><td>9.041836</td><td>9.041836</td><td>0.000000</td></tr>
+                <tr><td>2</td><td>8.973142</td><td>8.514238</td><td>0.458904</td></tr>
+                <tr><td>4</td><td>8.945467</td><td>8.309502</td><td>0.635964</td></tr>
+                <tr><td>6</td><td>8.913209</td><td>8.152760</td><td>0.760449</td></tr>
+                <tr><td>8</td><td>8.813380</td><td>7.989837</td><td>0.823543</td></tr>
+                <tr><td>10</td><td>8.772481</td><td>7.814601</td><td>0.957880</td></tr>
+                <tr><td>12</td><td>8.740711</td><td>7.640471</td><td>1.100240</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-grid">
+          <div class="section-label">03 / Resources</div>
+          <div>
+            <h2>Persistence changes repeated transfer, not complete coverage.</h2>
+            <div class="metrics" role="table" aria-label="Rolling worker versus full-model control">
+              <div class="metric-row" role="row"><div>Measurement</div><div>Rolling worker</div><div>Full baseline</div></div>
+              <div class="metric-row" role="row"><div class="metric-name">Resident tensor bytes</div><div class="metric-value good">11,877,376</div><div class="metric-value">28,000,256</div></div>
+              <div class="metric-row" role="row"><div class="metric-name">Cold assignment download (57.21% lower)</div><div class="metric-value good">11,811,840</div><div class="metric-value">27,607,040</div></div>
+              <div class="metric-row" role="row"><div class="metric-name">Warm assignment download</div><div class="metric-value good">3,159,040</div><div class="metric-value">27,607,040</div></div>
+              <div class="metric-row" role="row"><div class="metric-name">12-step persistent download</div><div class="metric-value good">46,561,280</div><div class="metric-value">331,284,480</div></div>
+              <div class="metric-row" role="row"><div class="metric-name">Held-out loss improvement</div><div class="metric-value caution">0.301125</div><div class="metric-value">1.401365</div></div>
+              <div class="metric-row" role="row"><div class="metric-name">Parameters trained per step</div><div class="metric-value caution">789,760</div><div class="metric-value">6,901,760</div></div>
+            </div>
+            <div class="callout">
+              <strong>The transfer claim is download-only.</strong>
+              Each rolling assignment also returned a 3,159,040-byte mapped gradient. The persistent model-download total is 67.15% below twelve cold shallow workers and 85.95% below twelve replicated full-model downloads. After the session sees all six blocks, however, its 27,607,040 unique model bytes equal the complete model payload.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-grid">
+          <div class="section-label">04 / Reproduction</div>
+          <div>
+            <h2>Numerical evidence repeated exactly; operational observations formed a narrow range.</h2>
+            <ul class="findings">
+              <li class="positive"><span class="mark">+</span><div><strong>Every deterministic field matched.</strong><p>Both runs produced the same seven loss pairs, byte counts, block sequence, dataset revision, and rolling/full final model SHA-256 identities.</p></div></li>
+              <li class="positive"><span class="mark">+</span><div><strong>Rolling training work was about 3.0× faster.</strong><p>The measured rolling section—including exact shared-cache admission—took 1.962–2.078 seconds versus 5.974–6.225 seconds for full-model training. This is expected because far fewer parameters and blocks execute; it is not an end-to-end throughput claim.</p></div></li>
+              <li class="negative"><span class="mark">!</span><div><strong>Evaluation dominated the combined process.</strong><p>Two models evaluated every two steps, taking 16.478–16.941 of 26.972–27.927 total seconds. A real campaign would choose a less intrusive cadence.</p></div></li>
+              <li class="negative"><span class="mark">!</span><div><strong>Peak RSS is combined-process evidence.</strong><p>The isolated CLI process peaked between 700,350,464 and 705,372,160 bytes while simultaneously retaining rolling coordinator, full baseline, worker session, optimizers, and dataset tensors. It is not worker-only RSS.</p></div></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-grid">
+          <div class="section-label">05 / Interpretation</div>
+          <div>
+            <h2>The 21.49% quality ratio is diagnostic—not a fair production contest.</h2>
+            <p>At each control step, AdamW updates the full model: six blocks plus shared embedding and normalization state. At each rolling step, it updates one block, or 11.44% of the full parameters. Equal optimizer-step and batch counts therefore do not mean equal parameter-update coverage.</p>
+            <p>The objective differs too. Every selected block receives token embeddings directly and feeds the shared output path directly, regardless of where that block belongs in the full model. Its shallow-model gradient is not the corresponding slice of the full-model gradient.</p>
+            <p class="muted">This remains a 12-step, randomly initialized 6.9M-parameter CPU experiment over 16 validation sequences. It proves real-data trajectory and systems behavior, not useful story generation, public-worker operation, or final training quality.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-grid">
+          <div class="section-label">06 / Next iteration</div>
+          <div>
+            <h2>Make a global step from a complete set of block workers.</h2>
+            <p>The next P5 slice should assign one fixed block to each of six persistent workers against the same checkpoint and batch, collect all six mapped gradients, and apply one coordinator AdamW step. That gives every block one update per global step while preserving the low individual-worker residency measured here.</p>
+            <p>Worker-to-block affinity also changes the unique-transfer result: one worker can cache shared state plus one block instead of rotating through the entire model. The report must show individual, aggregate, cold, warm, download, and upload bytes separately. If quality still lags after schedule normalization, the following control should test exact boundary activations or gradient targets to isolate the shallow-objective error.</p>
+            <p class="muted">This P5 work proceeds independently of the slower, manually reviewed bug-report → triage JSON campaign and does not block P6/P7 pre-building.</p>
+
+            <details>
+              <summary>Reproduce and inspect both evidence files</summary>
+              <pre><code>uv run python -m orcacolony.partial_model \
+  --config campaign/t1-tinystories-smoke.json \
+  --dataset .artifacts/tinystories-t1-v2 \
+  --steps 12 \
+  --evaluation-interval 2 \
+  --output .artifacts/p5-rolling-block-t1-12step.json
+
+uv run pytest tests/test_partial_model.py -q</code></pre>
+              <ul class="meta-list">
+                <li><span>Primary evidence</span><a href="evidence/p5-rolling-block-t1-12step.json"><code>p5-rolling-block-t1-12step.json</code></a></li>
+                <li><span>Independent repeat</span><a href="evidence/p5-rolling-block-t1-12step-repeat.json"><code>p5-rolling-block-t1-12step-repeat.json</code></a></li>
+                <li><span>Dataset revision</span><code>99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af</code></li>
+                <li><span>Numerical mode</span><code>CPU FP32 deterministic T1</code></li>
+              </ul>
+            </details>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>OrcaColony report 002 · P5 authenticated rolling-block feasibility</span>
+      <span><a href="index.html">Reports index</a> · <a href="README.md">Reporting contract</a></span>
+    </footer>
+  </div>
+</body>
+</html>

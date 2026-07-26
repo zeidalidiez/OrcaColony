@@ -215,7 +215,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P5 — Explore rolling partial-model training
 
-**Status:** Active research — first vertical slice
+**Status:** Active research — authenticated T1 trajectory measured
 
 - Give capability-sized subnetworks or parameter slices to workers.
 - Rotate coverage across a larger coordinator-owned global model.
@@ -225,6 +225,9 @@ Completed within the first P3 measurement and native-baseline slice:
 - First bounded experiment: keep a complete canonical model at the coordinator, give a worker an executable submodel containing shared input/output components plus one selected transformer block, rotate the selected block across rounds, merge only explicitly mapped trainable gradients, and compare memory, transfer, coverage, and fixed-use-case loss movement with replicated full-model training. A negative result is publishable evidence rather than a reason to expand the protocol first.
 - The first T0 rolling-block run is executable and measured. Four assignments selected blocks `0, 1, 2, 3`; each worker retained `2,973,184` tensor bytes versus `5,401,600` for the full model (44.96% lower), received `2,956,800` payload tensor bytes versus `5,336,064` (44.59% lower), and returned `793,088` gradient bytes for `198,272` trainable parameters. Fixed-fixture mean loss improved by `0.6197383403778076`, 38.02% of the `1.6302005052566528` improvement from four replicated full-model updates.
 - The same run exposed the central tradeoff early: shared embedding/output state dominates each worker, and one persistent worker rotating through all four blocks eventually receives `5,336,064` unique tensor bytes—the complete full-model payload. This prototype proves lower peak residency and real mapped updates, not yet a way for one worker to avoid ever receiving the full model across complete coverage. The next experiment must test reuse and quality on held-out T1 data before any protocol promotion.
+- The authenticated T1 experiment now provides that next evidence. Across twelve assignments and two complete six-block rotations, worker tensor residency was `11,877,376` bytes versus `28,000,256` for the full model (57.58% lower). Cold worker payload was 57.21% lower, and retaining shared state once reduced twelve-step model download from `141,742,080` transient-worker bytes to `46,561,280` persistent-session bytes: 67.15% below transient workers and 85.95% below twelve replicated full-model downloads. Each assignment separately returned `3,159,040` mapped gradient bytes.
+- Held-out TinyStories mean loss improved monotonically from `9.041835904121399` to `8.740711331367493`, but the full-model control reached `7.6404712200164795`. Rolling improvement was `0.30112457275390625`, only 21.49% of the control's `1.4013646841049194`. An independent repeat matched every deterministic field exactly, including all seven evaluation pairs and both final model hashes; isolated-process wall time was 26.972–27.927 seconds and combined-process peak RSS was 700,350,464–705,372,160 bytes.
+- This is not a fair production-quality contest: one rolling step trains only `789,760` parameters (11.44% of the full model), while one control step trains all `6,901,760`; the shallow worker also bypasses the block's true prefix and suffix. P5 therefore stays active without promoting sequential rotation. The next slice will assemble one coordinator step from a complete set of block-affine workers against one checkpoint and batch, preserving low individual residency while normalizing per-block update coverage.
 - P5, P6, and P7 implementation do not wait on the slower practical-campaign review loop. The first owner-directed campaign target is noisy bug reports to validated triage JSON; its data, rubric, baseline examples, checkpoints, and final interpretation remain manual approval points.
 
 ### Cross-cutting worker reliability — hidden assignment canaries
@@ -258,7 +261,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Run the same bounded rolling-block experiment on authenticated T1 TinyStories data with held-out evaluation and explicit persistent-worker shared-state reuse. Compare one complete block-coverage cycle with replicated full-model training; do not add distributed protocol or reputation machinery until that evidence shows what is worth preserving.
+Build a schedule-normalized block-sharded global step: assign all six blocks from one frozen checkpoint and training batch to block-affine persistent workers, map every block gradient, and apply one coordinator AdamW step. Compare identical batches and global-step counts against the full-model control while reporting individual versus aggregate cold/warm download, gradient upload, tensor residency, runtime, and held-out trajectories. If the normalized topology still lags, test exact boundary supervision as the next single-variable control.
 
 ## Remaining major work
 
@@ -306,6 +309,9 @@ Run the same bounded rolling-block experiment on authenticated T1 TinyStories da
 - Recorded hidden coordinator-known audit assignments as a future sampled reputation mechanism for public untrusted workers, distinct from planted training-data canaries and explicitly not a prerequisite for P5 or the trusted-participant pilot.
 - The first P5 vertical-slice gate passed `202` tests plus compilation, lock verification, diff validation, the new CLI help path, and a reproducible real four-step experiment.
 - Added the separate root `reports/` human findings layer without changing `research/`. Report 001 turns the measured P5 T0 result into a self-contained HTML decision record with exact evidence, positive and negative findings, limitations, reproduction commands, and the next experiment. Method engineering and human-directed practical campaign review now proceed in parallel.
+- Added persistent rolling-worker sessions, authenticated external-dataset execution, held-out trajectory capture, download accounting, timing partitions, and combined-process peak-RSS evidence. Two independent twelve-step T1 runs reproduced every deterministic result exactly while exposing the sequential topology's 21.49% quality-progress ratio.
+- Published Report 002 with both raw evidence files. It preserves the 57.58% worker-residency and 85.95% repeated-download improvements alongside the full-coverage transfer limit, widening quality gap, non-equivalent update schedule, and the block-sharded next experiment.
+- The P5 T1 gate passed `206` tests plus source/test compilation, lock verification, diff validation, CLI help, exact Report 001 reproduction, two exact deterministic T1 repetitions, report-claim recomputation, local-link validation, and browser inspection.
 
 ### 2026-07-24
 
