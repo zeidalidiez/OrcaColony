@@ -825,6 +825,8 @@ class GlobalStepCoordinator:
         self._initial_adapter_snapshot: bytes | None = None
         self._base_layer_bundle_snapshots: dict[str, bytes] = {}
         self._completed_checkpoint_snapshots: dict[str, bytes] | None = None
+        self._oracle_artifact_snapshots: dict[str, bytes] = {}
+        self._accepted_result_snapshots: dict[str, bytes] = {}
         self._pending_state_migration = False
         self._pending_lock_migration = False
         self.participants = ParticipantRegistry.from_payload(
@@ -1121,6 +1123,7 @@ class GlobalStepCoordinator:
         inputs, targets = fixture_batch(campaign, dataset_cursor, dataset)
         rows_per_assignment = campaign.training.batch_size // worker_count
         assignments: list[dict[str, object]] = []
+        oracle_snapshots: dict[str, bytes] = {}
         adapter_contract: dict[str, object] | None = None
         if lora is not None:
             adapter_contract = {
@@ -1213,6 +1216,7 @@ class GlobalStepCoordinator:
             oracle_file = f"{assignment_id}.safetensors"
             oracle_bytes = save_safetensors(gradients)
             _atomic_bytes(state_dir / "oracle-gradients" / oracle_file, oracle_bytes)
+            oracle_snapshots[assignment_id] = oracle_bytes
             assignments.append(
                 {
                     "assignment_id": assignment_id,
@@ -1289,6 +1293,7 @@ class GlobalStepCoordinator:
         }
         _atomic_json(state_dir / "global-state.json", state)
         coordinator = cls(campaign, state_dir, state, dataset, lora=lora)
+        coordinator._oracle_artifact_snapshots = oracle_snapshots
         coordinator._initial_model_snapshot = _safe_artifact_snapshot(
             state_dir,
             "model.safetensors",
@@ -1897,6 +1902,7 @@ class GlobalStepCoordinator:
                 assignment,
                 migrate_legacy_identity=result_identity_migrated,
                 recomputed=recomputed_oracle,
+                retain_snapshot=True,
             )
             state_changed = state_changed or migrated_oracle_identity
             if result_identity_migrated:
@@ -1933,12 +1939,10 @@ class GlobalStepCoordinator:
                 }
                 if not isinstance(measured, Mapping) or set(measured) != measured_fields:
                     raise ValueError("persisted coordinator measurements are invalid")
-                _, expected_result_file = _validated_assignment_artifact_name(assignment)
                 result_storage_bytes = len(
-                    _safe_artifact_snapshot(
-                        coordinator.results_dir,
-                        expected_result_file,
-                        "accepted result artifact",
+                    coordinator._accepted_result_bytes(
+                        assignment,
+                        retain_snapshot=True,
                     )
                 )
                 expected_bytes = {
@@ -1974,6 +1978,7 @@ class GlobalStepCoordinator:
                             result_identity_migrated
                             and stored_profile == EXACT_CPU_FP32_PROFILE
                         ),
+                        retain_snapshot=True,
                     )
                 )
                 state_changed = state_changed or migrated_result_identity
@@ -2355,18 +2360,59 @@ class GlobalStepCoordinator:
         }
         return float(loss_sum.detach()), gradients
 
+    def _oracle_artifact_bytes(
+        self,
+        assignment: Mapping[str, object],
+        *,
+        retain_snapshot: bool,
+    ) -> bytes:
+        assignment_id, expected_file = _validated_assignment_artifact_name(assignment)
+        retained = self._oracle_artifact_snapshots.get(assignment_id)
+        if retained is not None:
+            return retained
+        payload = _safe_artifact_snapshot(
+            self.oracle_dir,
+            expected_file,
+            "oracle gradient artifact",
+        )
+        if retain_snapshot:
+            self._oracle_artifact_snapshots[assignment_id] = payload
+        return payload
+
+    def _accepted_result_bytes(
+        self,
+        assignment: Mapping[str, object],
+        *,
+        retain_snapshot: bool,
+    ) -> bytes:
+        assignment_id, expected_file = _validated_assignment_artifact_name(assignment)
+        if assignment.get("state") != "accepted" or assignment.get(
+            "result_file"
+        ) != expected_file:
+            raise ValueError("accepted result file identity is invalid")
+        retained = self._accepted_result_snapshots.get(assignment_id)
+        if retained is not None:
+            return retained
+        payload = _safe_artifact_snapshot(
+            self.results_dir,
+            expected_file,
+            "accepted result artifact",
+        )
+        if retain_snapshot:
+            self._accepted_result_snapshots[assignment_id] = payload
+        return payload
+
     def _validated_oracle_gradients(
         self,
         assignment: dict[str, object],
         *,
         migrate_legacy_identity: bool,
         recomputed: tuple[float, Mapping[str, Tensor]] | None = None,
+        retain_snapshot: bool = False,
     ) -> tuple[dict[str, Tensor], bool]:
-        _, expected_file = _validated_assignment_artifact_name(assignment)
-        oracle_bytes = _safe_artifact_snapshot(
-            self.oracle_dir,
-            expected_file,
-            "oracle gradient artifact",
+        oracle_bytes = self._oracle_artifact_bytes(
+            assignment,
+            retain_snapshot=retain_snapshot,
         )
         file_sha256 = hashlib.sha256(oracle_bytes).hexdigest()
         gradients = _owned_safetensors(oracle_bytes, "oracle gradient artifact")
@@ -2445,16 +2491,11 @@ class GlobalStepCoordinator:
         assignment: dict[str, object],
         *,
         migrate_legacy_identity: bool,
+        retain_snapshot: bool = False,
     ) -> tuple[dict[str, Tensor], bool]:
-        _, expected_file = _validated_assignment_artifact_name(assignment)
-        if assignment.get("state") != "accepted" or assignment.get(
-            "result_file"
-        ) != expected_file:
-            raise ValueError("accepted result file identity is invalid")
-        result_bytes = _safe_artifact_snapshot(
-            self.results_dir,
-            expected_file,
-            "accepted result artifact",
+        result_bytes = self._accepted_result_bytes(
+            assignment,
+            retain_snapshot=retain_snapshot,
         )
         file_sha256 = hashlib.sha256(result_bytes).hexdigest()
         gradients = _owned_safetensors(result_bytes, "accepted gradient artifact")
@@ -2502,11 +2543,9 @@ class GlobalStepCoordinator:
 
     def oracle_gradient_bytes(self, assignment_id: str) -> bytes:
         assignment = self._assignment(assignment_id)
-        _, expected_file = _validated_assignment_artifact_name(assignment)
-        oracle_bytes = _safe_artifact_snapshot(
-            self.oracle_dir,
-            expected_file,
-            "oracle gradient artifact",
+        oracle_bytes = self._oracle_artifact_bytes(
+            assignment,
+            retain_snapshot=False,
         )
         file_sha256 = assignment.get("oracle_file_sha256")
         tensor_digest = assignment.get("oracle_tensor_sha256")
@@ -2766,10 +2805,10 @@ class GlobalStepCoordinator:
             "telemetry_protocol_revision": 1,
             "resource_profile": {
                 "format": "orcacolony_assignment_resources_v1",
-                "model_download_bytes": self.initial_model_path.stat().st_size,
+                "model_download_bytes": len(self.initial_model_bytes()),
                 "layer_bundle_download_bytes": layer_bundle_download_bytes,
                 "adapter_download_bytes": (
-                    self.initial_adapter_path.stat().st_size if is_lora else 0
+                    len(self.initial_adapter_bytes()) if is_lora else 0
                 ),
                 "oracle_gradient_download_bytes": assignment["oracle_file_size"],
                 "expected_result_upload_bytes": assignment["oracle_file_size"],
@@ -2938,6 +2977,7 @@ class GlobalStepCoordinator:
             )
             if persisted_result != submission.safetensors:
                 raise ValueError("accepted result bytes changed while being stored")
+            self._accepted_result_snapshots[submission.assignment_id] = persisted_result
             instrumentation = {
                 "format": "orcacolony_assignment_instrumentation_v1",
                 "worker_reported": worker_telemetry,

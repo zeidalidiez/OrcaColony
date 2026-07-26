@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping, cast
 
 import torch
-from safetensors.torch import load_file as load_safetensors_file
+from safetensors.torch import load as load_safetensors
 from safetensors.torch import save as save_safetensors
 from safetensors.torch import save_file as save_safetensors_file
 from torch import Tensor, nn
@@ -477,12 +477,102 @@ def _save_checkpoint(
     )
 
 
+def _artifact_identity(metadata: os.stat_result) -> tuple[int, int]:
+    identity = (int(metadata.st_dev), int(metadata.st_ino))
+    if identity[1] <= 0:
+        raise ValueError("checkpoint artifact filesystem identity is unavailable")
+    return identity
+
+
+def _artifact_observation(metadata: os.stat_result) -> tuple[int, int, int]:
+    return (
+        int(metadata.st_size),
+        int(metadata.st_mtime_ns),
+        int(metadata.st_ctime_ns),
+    )
+
+
+def _owned_checkpoint_artifact_bytes(
+    root: Path,
+    file_name: str,
+    label: str,
+    *,
+    max_bytes: int,
+) -> bytes:
+    try:
+        root_before = os.lstat(root)
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        if (
+            not stat.S_ISDIR(root_before.st_mode)
+            or stat.S_ISLNK(root_before.st_mode)
+            or int(getattr(root_before, "st_file_attributes", 0)) & reparse_flag
+        ):
+            raise ValueError(f"{label} root is unsafe")
+        resolved_root = root.resolve(strict=True)
+        path = root / file_name
+        if path.parent != root:
+            raise ValueError(f"{label} escapes its root")
+        before = os.lstat(path)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or stat.S_ISLNK(before.st_mode)
+            or int(getattr(before, "st_file_attributes", 0)) & reparse_flag
+            or before.st_size > max_bytes
+        ):
+            raise ValueError(f"{label} is unsafe")
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(path, flags)
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                _artifact_identity(opened) != _artifact_identity(before)
+                or _artifact_observation(opened) != _artifact_observation(before)
+            ):
+                raise ValueError(f"{label} changed while being opened")
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                payload = stream.read(max_bytes + 1)
+            after_fd = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+        after_path = os.lstat(path)
+        root_after = os.lstat(root)
+        if len(payload) > max_bytes:
+            raise ValueError(f"{label} exceeds its size limit")
+        if (
+            _artifact_identity(after_fd) != _artifact_identity(before)
+            or _artifact_observation(after_fd) != _artifact_observation(before)
+            or _artifact_identity(after_path) != _artifact_identity(before)
+            or _artifact_observation(after_path) != _artifact_observation(before)
+            or _artifact_identity(root_after) != _artifact_identity(root_before)
+            or _artifact_observation(root_after) != _artifact_observation(root_before)
+            or path.resolve(strict=True).parent != resolved_root
+            or root.resolve(strict=True) != resolved_root
+        ):
+            raise ValueError(f"{label} changed while being acquired")
+        return payload
+    except (FileNotFoundError, NotADirectoryError, OSError) as exc:
+        raise ValueError(f"{label} could not be acquired safely") from exc
+
+
 def _load_checkpoint(
     campaign: CampaignConfig,
     checkpoint_dir: Path,
 ) -> tuple[VolunteerDecoder, torch.optim.AdamW, int, int, list[float]]:
+    model = build_model(campaign)
+    expected_model_tensors = model.state_dict()
+    model_tensor_bytes = sum(
+        tensor.numel() * tensor.element_size()
+        for tensor in expected_model_tensors.values()
+    )
     state = json.loads(
-        (checkpoint_dir / "state.json").read_text(encoding="utf-8"),
+        _owned_checkpoint_artifact_bytes(
+            checkpoint_dir,
+            "state.json",
+            "checkpoint state",
+            max_bytes=1024 * 1024,
+        ),
         object_pairs_hook=_reject_duplicate_json_keys,
     )
     if not isinstance(state, dict) or frozenset(state) != _CHECKPOINT_STATE_FIELDS:
@@ -526,27 +616,40 @@ def _load_checkpoint(
         or optimizer_artifact.get("file") != "optimizer.safetensors"
     ):
         raise ValueError("checkpoint artifact schema is invalid")
-    model_path = checkpoint_dir / model_artifact["file"]
-    optimizer_path = checkpoint_dir / optimizer_artifact["file"]
-    checkpoint_root = checkpoint_dir.resolve(strict=True)
-    for artifact_path in (model_path, optimizer_path):
-        metadata = artifact_path.lstat()
-        if (
-            artifact_path.is_symlink()
-            or not stat.S_ISREG(metadata.st_mode)
-            or int(getattr(metadata, "st_file_attributes", 0)) & 0x400
-            or not artifact_path.resolve(strict=True).is_relative_to(checkpoint_root)
-        ):
-            raise ValueError("checkpoint artifact path is unsafe")
-    if _sha256_file(model_path) != model_artifact["sha256"]:
+    model_bytes = _owned_checkpoint_artifact_bytes(
+        checkpoint_dir,
+        "model.safetensors",
+        "model checkpoint",
+        max_bytes=model_tensor_bytes + 1024 * 1024,
+    )
+    optimizer_bytes = _owned_checkpoint_artifact_bytes(
+        checkpoint_dir,
+        "optimizer.safetensors",
+        "optimizer checkpoint",
+        max_bytes=(2 * model_tensor_bytes) + 1024 * 1024,
+    )
+    if hashlib.sha256(model_bytes).hexdigest() != model_artifact["sha256"]:
         raise ValueError("model checkpoint digest mismatch")
-    if _sha256_file(optimizer_path) != optimizer_artifact["sha256"]:
+    if hashlib.sha256(optimizer_bytes).hexdigest() != optimizer_artifact["sha256"]:
         raise ValueError("optimizer checkpoint digest mismatch")
 
-    model = build_model(campaign)
-    model.load_state_dict(load_safetensors_file(str(model_path)))
+    model_tensors = load_safetensors(model_bytes)
+    if set(model_tensors) != set(expected_model_tensors):
+        raise ValueError("model checkpoint tensor schema is invalid")
+    for name, expected in expected_model_tensors.items():
+        tensor = model_tensors[name]
+        if (
+            tensor.dtype != expected.dtype
+            or tensor.shape != expected.shape
+            or not bool(torch.isfinite(tensor).all())
+        ):
+            raise ValueError("model checkpoint tensor is invalid")
+    model.load_state_dict(
+        {name: tensor.clone() for name, tensor in model_tensors.items()},
+        strict=True,
+    )
     optimizer = _create_optimizer(model, campaign.training)
-    optimizer_tensors = load_safetensors_file(str(optimizer_path))
+    optimizer_tensors = load_safetensors(optimizer_bytes)
     expected_optimizer_tensors = {
         f"{prefix}.{name}"
         for name, _ in model.named_parameters()

@@ -388,7 +388,7 @@ def _cached_base_layer_bundle(
             target,
             digest,
             expected_bytes,
-            authenticate_content=file_name == "manifest.json",
+            authenticate_content=True,
         ):
             continue
         target.unlink(missing_ok=True)

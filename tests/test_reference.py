@@ -1,8 +1,10 @@
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
-from safetensors.torch import load_file
+import torch
+from safetensors.torch import load, load_file, save
 
 from orcacolony.reference import (
     compute_fixture,
@@ -118,6 +120,44 @@ def test_dense_checkpoint_rejects_duplicate_keys_and_artifact_path_escape(
         run_training(
             campaign,
             output_dir=tmp_path / "escaped-resume",
+            target_steps=2,
+            resume_from=checkpoint,
+        )
+
+
+@pytest.mark.parametrize("mutation", ("missing", "dtype", "nonfinite"))
+def test_dense_checkpoint_requires_exact_finite_model_tensor_schema(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    campaign = load_campaign(CONFIG)
+    checkpoint = tmp_path / "checkpoint"
+    run_training(campaign, output_dir=checkpoint, target_steps=1)
+    model_path = checkpoint / "model.safetensors"
+    tensors = load(model_path.read_bytes())
+    tensor_name = next(iter(tensors))
+    if mutation == "missing":
+        tensors.pop(tensor_name)
+        message = "tensor schema is invalid"
+    elif mutation == "dtype":
+        tensors[tensor_name] = tensors[tensor_name].to(torch.float64)
+        message = "tensor is invalid"
+    else:
+        changed = tensors[tensor_name].clone()
+        changed.reshape(-1)[0] = float("nan")
+        tensors[tensor_name] = changed
+        message = "tensor is invalid"
+    payload = save(tensors)
+    model_path.write_bytes(payload)
+    state_path = checkpoint / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["model"]["sha256"] = hashlib.sha256(payload).hexdigest()
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        run_training(
+            campaign,
+            output_dir=tmp_path / "resumed",
             target_steps=2,
             resume_from=checkpoint,
         )

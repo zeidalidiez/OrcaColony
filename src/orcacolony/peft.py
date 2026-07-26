@@ -14,6 +14,7 @@ from pathlib import Path
 
 import torch
 from safetensors import safe_open
+from safetensors.torch import load as load_safetensors
 from safetensors.torch import load_file as load_safetensors_file
 from safetensors.torch import save_file as save_safetensors_file
 from torch import Tensor, nn
@@ -25,6 +26,7 @@ from .reference import (
     CausalSelfAttention,
     TrainingConfig,
     VolunteerDecoder,
+    _owned_checkpoint_artifact_bytes,
     build_model,
     campaign_from_mapping,
     fixture_batch,
@@ -2210,7 +2212,7 @@ def load_lora_checkpoint(
     *,
     expected_numerical_profile: str | None = None,
 ) -> tuple[VolunteerDecoder, torch.optim.AdamW, int, int, list[float]]:
-    checkpoint = Path(checkpoint_dir).resolve()
+    checkpoint = Path(checkpoint_dir)
     state_path = _safe_checkpoint_artifact_path(
         checkpoint,
         "state.json",
@@ -2218,7 +2220,12 @@ def load_lora_checkpoint(
     )
     state = _require_mapping(
         json.loads(
-            state_path.read_text(encoding="utf-8"),
+            _owned_checkpoint_artifact_bytes(
+                checkpoint,
+                state_path.name,
+                "LoRA checkpoint state file",
+                max_bytes=1024 * 1024,
+            ),
             object_pairs_hook=_reject_duplicate_keys,
         ),
         "LoRA checkpoint state",
@@ -2312,11 +2319,33 @@ def load_lora_checkpoint(
         optimizer_state.get("file"),
         "LoRA optimizer checkpoint file",
     )
-    if _sha256_file(adapter_path) != adapter_state.get("file_sha256"):
+    model = build_profiled_lora_model(
+        loaded.campaign,
+        loaded.config,
+        numerical_profile,
+    )
+    adapters = adapter_named_parameters(model)
+    adapter_tensor_bytes = sum(
+        parameter.numel() * parameter.element_size()
+        for parameter in adapters.values()
+    )
+    adapter_bytes = _owned_checkpoint_artifact_bytes(
+        checkpoint,
+        adapter_path.name,
+        "LoRA adapter checkpoint file",
+        max_bytes=adapter_tensor_bytes + 1024 * 1024,
+    )
+    optimizer_bytes = _owned_checkpoint_artifact_bytes(
+        checkpoint,
+        optimizer_path.name,
+        "LoRA optimizer checkpoint file",
+        max_bytes=(2 * adapter_tensor_bytes) + 1024 * 1024,
+    )
+    if _sha256_bytes(adapter_bytes) != adapter_state.get("file_sha256"):
         raise ValueError("LoRA adapter checkpoint file digest mismatch")
-    if _sha256_file(optimizer_path) != optimizer_state.get("sha256"):
+    if _sha256_bytes(optimizer_bytes) != optimizer_state.get("sha256"):
         raise ValueError("LoRA optimizer checkpoint digest mismatch")
-    adapter_tensors = load_safetensors_file(str(adapter_path))
+    adapter_tensors = load_safetensors(adapter_bytes)
     adapter_sha256 = tensor_sha256(adapter_tensors)
     if adapter_sha256 != adapter_state.get("tensor_sha256"):
         raise ValueError("LoRA adapter tensor digest mismatch")
@@ -2328,17 +2357,11 @@ def load_lora_checkpoint(
     if weight_checkpoint_sha256 != state.get("weight_checkpoint_sha256"):
         raise ValueError("LoRA weight checkpoint identity mismatch")
 
-    model = build_profiled_lora_model(
-        loaded.campaign,
-        loaded.config,
-        numerical_profile,
-    )
     if adapter_state.get("tensor_order") != list(adapter_named_parameters(model)):
         raise ValueError("LoRA adapter tensor order does not match the manifest")
     load_adapter_state(model, adapter_tensors)
-    adapters = adapter_named_parameters(model)
     optimizer = create_adapter_optimizer(model, loaded.campaign.training)
-    optimizer_tensors = load_safetensors_file(str(optimizer_path))
+    optimizer_tensors = load_safetensors(optimizer_bytes)
     expected_optimizer_names = {
         prefix + name
         for name in adapters

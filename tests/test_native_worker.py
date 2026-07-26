@@ -410,7 +410,7 @@ def test_layer_bundle_publication_serves_owned_snapshot_after_raw_mutation(
     assert coordinator.base_layer_bundle_artifact_bytes(artifact["file"]) == admitted
 
 
-def test_warm_layer_bundle_cache_reauthenticates_each_linear_on_use(
+def test_warm_layer_bundle_cache_repairs_each_raw_artifact_before_use(
     tmp_path: Path,
 ) -> None:
     loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
@@ -444,27 +444,29 @@ def test_warm_layer_bundle_cache_reauthenticates_each_linear_on_use(
         )
         bundle_dir = next((cache_dir / "bundle").iterdir())
         linear = bundle_dir / "linear-00000.safetensors"
-        mutated = bytearray(linear.read_bytes())
+        original = linear.read_bytes()
+        mutated = bytearray(original)
         mutated[-1] ^= 1
         linear.write_bytes(mutated)
 
-        with pytest.raises(ValueError, match="tensor digest mismatch"):
-            run_assignment(
-                coordinator_url=f"http://127.0.0.1:{server.server_port}",
-                worker_id="warm-b",
-                worker_token=token,
-                campaign_path=CONFIG,
-                lora_path=LORA_CONFIG,
-                cache_dir=cache_dir,
-                base_profile="layer-bundle",
-            )
+        second = run_assignment(
+            coordinator_url=f"http://127.0.0.1:{server.server_port}",
+            worker_id="warm-b",
+            worker_token=token,
+            campaign_path=CONFIG,
+            lora_path=LORA_CONFIG,
+            cache_dir=cache_dir,
+            base_profile="layer-bundle",
+        )
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
 
     assert first.receipt["accepted"] is True
-    assert coordinator.status()["resource_observations"]["accepted_assignments"] == 1
+    assert second.receipt["accepted"] is True
+    assert linear.read_bytes() == original
+    assert coordinator.status()["resource_observations"]["accepted_assignments"] == 2
 
 
 def test_connected_layer_bundle_t1_evidence_is_exact_and_evaluated() -> None:

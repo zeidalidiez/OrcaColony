@@ -2146,3 +2146,75 @@ def test_global_step_profile_predecessor_rejects_unknown_fields_without_rewrite(
         )
     assert state_path.read_bytes() == state_before
     assert lock_path.read_bytes() == lock_before
+
+
+def test_lora_finalization_uses_retained_result_and_oracle_snapshots(
+    tmp_path: Path,
+) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        tmp_path / "coordinator",
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+
+    admitted_oracles: dict[str, bytes] = {}
+    for worker_id in ("worker-a", "worker-b"):
+        assignment = coordinator.lease(
+            worker_id,
+            worker_token="test-token",
+            now=100,
+        )
+        assignment_id = str(assignment["assignment_id"])
+        admitted_oracles[assignment_id] = coordinator.oracle_gradient_bytes(
+            assignment_id
+        )
+        coordinator.accept(
+            submission_for(coordinator, assignment),
+            now=101,
+            finalize=False,
+        )
+
+    for assignment in coordinator.assignments:
+        assignment_id = str(assignment["assignment_id"])
+        (coordinator.oracle_dir / f"{assignment_id}.safetensors").write_bytes(
+            b"mutated oracle path"
+        )
+        (coordinator.results_dir / f"{assignment_id}.safetensors").write_bytes(
+            b"mutated result path"
+        )
+
+    coordinator.finalize_if_ready()
+
+    assert coordinator.status()["state"] == "step_complete"
+    for assignment_id, admitted in admitted_oracles.items():
+        assert coordinator.oracle_gradient_bytes(assignment_id) == admitted
+
+
+def test_assignment_resource_sizes_use_retained_initial_artifacts(tmp_path: Path) -> None:
+    loaded = load_lora_manifest(CONFIG, LORA_CONFIG)
+    participants = participants_for(loaded.campaign.campaign["id"])
+    coordinator = GlobalStepCoordinator.create(
+        loaded.campaign,
+        tmp_path / "coordinator",
+        worker_count=2,
+        participants=participants,
+        lora=loaded,
+    )
+    expected_model_bytes = len(coordinator.initial_model_bytes())
+    expected_adapter_bytes = len(coordinator.initial_adapter_bytes())
+    coordinator.initial_model_path.write_bytes(b"changed model path")
+    coordinator.initial_adapter_path.write_bytes(b"changed adapter path")
+
+    assignment = coordinator.lease(
+        "worker-a",
+        worker_token="test-token",
+        now=100,
+    )
+
+    resources = assignment["resource_profile"]
+    assert resources["model_download_bytes"] == expected_model_bytes
+    assert resources["adapter_download_bytes"] == expected_adapter_bytes
