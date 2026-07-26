@@ -161,11 +161,20 @@ def _write_bytes_atomic(path: Path, payload: bytes) -> None:
     temporary = path.with_name(path.name + ".tmp")
     if temporary.exists():
         temporary.unlink()
-    with temporary.open("xb") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    try:
+        with temporary.open("xb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError as cleanup_error:
+            raise RuntimeError(
+                f"failed to remove incomplete transaction file: {temporary.name}"
+            ) from cleanup_error
+        raise
 
 
 def _write_manifest(transaction_dir: Path, manifest: dict[str, Any]) -> None:

@@ -144,6 +144,102 @@ def test_manifest_rejects_duplicate_json_keys(tmp_path: Path) -> None:
         tile_recovery._load_manifest(transaction_dir)
 
 
+@pytest.mark.parametrize("failure_stage", ("write", "flush", "fsync", "replace"))
+def test_atomic_write_failure_removes_temporary_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+) -> None:
+    destination = tmp_path / "manifest.json"
+    temporary = tmp_path / "manifest.json.tmp"
+    destination.write_bytes(b"old authority\n")
+    original_open = Path.open
+
+    class FaultingHandle:
+        def __init__(self, handle: object) -> None:
+            self.handle = handle
+
+        def __enter__(self) -> FaultingHandle:
+            return self
+
+        def __exit__(self, *args: object) -> object:
+            return self.handle.__exit__(*args)
+
+        def write(self, payload: bytes) -> int:
+            if failure_stage == "write":
+                self.handle.write(payload[:1])
+                raise OSError("injected atomic write failure")
+            return self.handle.write(payload)
+
+        def flush(self) -> None:
+            self.handle.flush()
+            if failure_stage == "flush":
+                raise OSError("injected atomic flush failure")
+
+        def fileno(self) -> int:
+            return self.handle.fileno()
+
+    def faulting_open(path: Path, *args: object, **kwargs: object) -> object:
+        handle = original_open(path, *args, **kwargs)
+        if path == temporary and failure_stage in {"write", "flush"}:
+            return FaultingHandle(handle)
+        return handle
+
+    def fail_fsync(_descriptor: int) -> None:
+        raise OSError("injected atomic fsync failure")
+
+    def fail_replace(_source: object, _destination: object) -> None:
+        raise OSError("injected atomic replace failure")
+
+    if failure_stage in {"write", "flush"}:
+        monkeypatch.setattr(Path, "open", faulting_open)
+    elif failure_stage == "fsync":
+        monkeypatch.setattr(tile_recovery.os, "fsync", fail_fsync)
+    else:
+        monkeypatch.setattr(tile_recovery.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match=f"injected atomic {failure_stage} failure"):
+        tile_recovery._write_bytes_atomic(destination, b"new authority\n")
+
+    assert destination.read_bytes() == b"old authority\n"
+    assert not temporary.exists()
+
+
+def test_atomic_write_cleanup_failure_is_explicit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "manifest.json"
+    temporary = tmp_path / "manifest.json.tmp"
+    destination.write_bytes(b"old authority\n")
+    original_unlink = Path.unlink
+
+    def fail_replace(_source: object, _destination: object) -> None:
+        raise OSError("injected atomic replace failure")
+
+    def fail_temporary_cleanup(
+        path: Path,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        if path == temporary:
+            raise OSError("injected temporary cleanup failure")
+        original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(tile_recovery.os, "replace", fail_replace)
+    monkeypatch.setattr(Path, "unlink", fail_temporary_cleanup)
+
+    with pytest.raises(
+        RuntimeError,
+        match="failed to remove incomplete transaction file",
+    ) as failure:
+        tile_recovery._write_bytes_atomic(destination, b"new authority\n")
+
+    assert isinstance(failure.value.__cause__, OSError)
+    assert destination.read_bytes() == b"old authority\n"
+    assert temporary.exists()
+
+
 def test_malformed_phase_history_is_rejected_before_coordinator_mutation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -198,13 +294,15 @@ def test_failed_applied_transition_rolls_back_and_remains_retryable(
         name: None if parameter.grad is None else parameter.grad.detach().clone()
         for name, parameter in recovered.named_parameters()
     }
-    original_write_manifest = tile_recovery._write_manifest
+    original_replace = tile_recovery.os.replace
 
-    def fail_applied_write(*_args: object, **_kwargs: object) -> None:
-        raise OSError("injected applied-state write failure")
+    def fail_applied_replace(source: object, destination: object) -> None:
+        if Path(destination) == transaction_dir / "manifest.json":
+            raise OSError("injected applied-state replacement failure")
+        original_replace(source, destination)
 
-    monkeypatch.setattr(tile_recovery, "_write_manifest", fail_applied_write)
-    with pytest.raises(OSError, match="injected applied-state write failure"):
+    monkeypatch.setattr(tile_recovery.os, "replace", fail_applied_replace)
+    with pytest.raises(OSError, match="injected applied-state replacement failure"):
         tile_recovery._apply_result_once(
             transaction_dir,
             recovered,
@@ -214,7 +312,7 @@ def test_failed_applied_transition_rolls_back_and_remains_retryable(
             load_campaign(CONFIG),
             expected_identity=expected_identity,
         )
-    monkeypatch.setattr(tile_recovery, "_write_manifest", original_write_manifest)
+    monkeypatch.setattr(tile_recovery.os, "replace", original_replace)
 
     assert tensor_sha256(recovered.state_dict()) == model_before
     assert not optimizer.state
@@ -228,6 +326,7 @@ def test_failed_applied_transition_rolls_back_and_remains_retryable(
     retryable = tile_recovery._load_manifest(transaction_dir)
     assert retryable["phase"] == "result_accepted"
     assert retryable["result_applied"] is False
+    assert not (transaction_dir / "manifest.json.tmp").exists()
 
     tile_recovery._apply_result_once(
         transaction_dir,
