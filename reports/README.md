@@ -71,4 +71,10 @@ The first training-effect record is
 It preserves the failed 128-step public learnability gate, all checkpoint
 outputs, prompt and answer diagnostics, optimizer measurements, train-to-public
 similarity checks, resource use, and the decision to keep volunteer training
-blocked while a same-trajectory continuation is tested.
+blocked while a same-trajectory continuation was tested.
+
+The continuation findings are
+[`record-patch-t2-continuation-v1.html`](record-patch-t2-continuation-v1.html).
+They record the rise to `30/32` strict canonical JSON alongside `0/32` exact
+and semantic record matches, distinguish task scoring from language
+diagnostics, and select an answer-only objective as the next isolated control.

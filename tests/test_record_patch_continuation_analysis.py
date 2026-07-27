@@ -1,9 +1,23 @@
+import hashlib
+import json
+from pathlib import Path
+
 from orcacolony.record_patch_continuation_analysis import (
     _build_parser,
     _conditioning_analysis,
     _optimizer_analysis,
     _simple_benchmarks,
 )
+
+
+ROOT = Path(__file__).parents[1]
+EVIDENCE = (
+    ROOT
+    / "reports"
+    / "evidence"
+    / "record-patch-t2-continuation-v1.json"
+)
+REPORT = ROOT / "reports" / "record-patch-t2-continuation-v1.html"
 
 
 def test_conditioning_analysis_uses_strict_json_scalar_types() -> None:
@@ -107,3 +121,35 @@ def test_analysis_cli_has_no_private_holdout_argument() -> None:
 
     assert "final_holdout" not in destinations
     assert "holdout_key" not in destinations
+
+
+def test_committed_findings_match_the_selected_task_result() -> None:
+    payload = json.loads(EVIDENCE.read_text(encoding="utf-8"))
+    selected = next(
+        checkpoint
+        for checkpoint in payload["checkpoints"]
+        if checkpoint["step"] == 512
+    )
+
+    assert hashlib.sha256(EVIDENCE.read_bytes()).hexdigest() == (
+        "86e36cf923c71d89c2f9437a02d06fad9226a5f4a5c901bab3aa71a3dc45552e"
+    )
+    assert payload["disposition"]["benchmark_gate_passed"] is False
+    assert payload["disposition"]["general_capability_claim_evaluated"] is False
+    assert selected["behavioral_metrics"]["record_exact_match_count"] == 0
+    assert selected["behavioral_metrics"]["canonical_json"] == 0.9375
+    assert selected["conditioning_analysis"][
+        "expected_key_value_recall"
+    ] == {
+        "matched": 6,
+        "ratio": 6 / 158,
+        "total": 158,
+    }
+    assert payload["holdout"] == {
+        "behavioral_final_holdout_opened": False,
+        "language_final_holdout_evaluated": False,
+    }
+    report = REPORT.read_text(encoding="utf-8")
+    assert "6 / 158" in report
+    assert "0 / 32" in report
+    assert hashlib.sha256(EVIDENCE.read_bytes()).hexdigest() in report

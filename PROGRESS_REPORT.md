@@ -412,6 +412,14 @@ Run two explicitly separate bounded tracks:
   narrow claim; community contribution evidence and credit belong with each
   actual campaign. Benchmark data publication no longer depends on a model
   passing the benchmark.
+- Published Report 012 as agent findings with all 96 public checkpoint outputs,
+  task-scoped reference scores, field-conditioning diagnostics, teacher-forced
+  prompt and answer results, optimizer measurements, train-overlap checks,
+  compute boundaries, exact reproduction commands, and no general-capability
+  claim. Its committed analysis JSON is
+  `86e36cf923c71d89c2f9437a02d06fad9226a5f4a5c901bab3aa71a3dc45552e`;
+  desktop and 500-pixel layouts rendered cleanly and all six local links
+  returned HTTP 200.
 - Froze the exposure-only Record Patch continuation protocol at SHA-256
   `52e055693aadde508e60a8a2cb031be014c5ffdeb56b45f36eecf11870d4f6c5`.
   It binds the complete failed-run evidence and checksum manifests, exact

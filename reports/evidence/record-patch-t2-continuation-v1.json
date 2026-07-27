@@ -1,0 +1,2684 @@
+{
+  "analysis_revision": "sha256:2ab9d6e2e72195bd43fd68cc66da53dfd3b73174dd0842d686b375ab85b0cfdd",
+  "benchmark": {
+    "claim_scope": "Performance on this task only. The benchmark does not measure or imply general intelligence.",
+    "id": "record-patch-v1",
+    "primary_metric": "record exact match",
+    "public_examples": 32,
+    "simple_reference_scores": {
+      "copy_input_record": {
+        "description": "Canonicalize and return the input record without applying the patch.",
+        "exact_matches": 0,
+        "ratio": 0.0
+      },
+      "deterministic_task_oracle": {
+        "description": "Apply the declared Record Patch semantics and canonicalize the resulting flat JSON record.",
+        "exact_matches": 32,
+        "ratio": 1.0
+      },
+      "empty_object": {
+        "description": "Return an empty JSON object.",
+        "exact_matches": 0,
+        "ratio": 0.0
+      },
+      "examples": 32
+    },
+    "use_case": "Apply ordered SET, DELETE, and RENAME operations to a flat JSON record and emit the exact canonical result."
+  },
+  "campaign_id": "orcacolony-record-patch-t2-v1",
+  "campaign_sha256": "039fea26e0eb5f86146e152bc2bfaffe96bb78db0b8318cc21982ef0b872bfe5",
+  "checkpoints": [
+    {
+      "behavioral_guardrails": [
+        {
+          "id": "valid-json-rate",
+          "passed": false,
+          "threshold": 0.95,
+          "value": 0.0
+        },
+        {
+          "id": "canonical-json-rate",
+          "passed": false,
+          "threshold": 0.9,
+          "value": 0.0
+        },
+        {
+          "id": "single-operation-exact-match",
+          "passed": false,
+          "threshold": 0.8,
+          "value": 0.0
+        }
+      ],
+      "behavioral_metrics": {
+        "canonical_json": 0.0,
+        "examples": 32,
+        "record_exact_match": 0.0,
+        "record_exact_match_count": 0,
+        "record_exact_match_wilson_95": {
+          "high": 0.1071791982550706,
+          "low": 0.0
+        },
+        "semantic_match": 0.0,
+        "single_operation_exact_match": 0.0,
+        "valid_json": 0.0
+      },
+      "component_evaluation": {
+        "answer_mean_loss": 2.093474881534559,
+        "answer_perplexity": 8.113058155179225,
+        "answer_token_accuracy": 0.40700483091787437,
+        "answer_tokens": 828,
+        "method": "teacher-forced public behavioral transcripts split at the prompt character boundary; answer includes target newline and EOS",
+        "prompt_mean_loss": 1.4526908836619186,
+        "prompt_token_accuracy": 0.5407303370786517,
+        "prompt_tokens": 1424,
+        "step": 128,
+        "teacher_forced_exact_answers": 0
+      },
+      "conditioning_analysis": {
+        "changed_field_endpoint_match": {
+          "examples_with_all_changed_endpoints_matched": 0,
+          "matched": 20,
+          "ratio": 0.35714285714285715,
+          "total": 56,
+          "warning": "A missing deleted key can match its endpoint even when the rest of the record is wrong. This is diagnostic only."
+        },
+        "examples": 32,
+        "expected_key_recall": {
+          "matched": 0,
+          "ratio": 0.0,
+          "total": 158
+        },
+        "expected_key_value_recall": {
+          "matched": 0,
+          "ratio": 0.0,
+          "total": 158
+        },
+        "most_common_output_keys": [],
+        "most_common_output_values": [],
+        "output_key_precision": {
+          "matched": 0,
+          "ratio": null,
+          "total": 0
+        },
+        "output_key_value_pairs_copied_from_input": {
+          "matched": 0,
+          "ratio": null,
+          "total": 0
+        },
+        "scope": "all public behavioral examples; invalid outputs contribute zero matched fields",
+        "unchanged_key_value_retention": {
+          "matched": 0,
+          "ratio": 0.0,
+          "total": 122
+        },
+        "unique_outputs": 8,
+        "unique_valid_outputs": 0,
+        "valid_object_examples": 0
+      },
+      "language_evaluation": {
+        "mean_loss": 1.56358497243532,
+        "path": "evaluations/step-00000128/language.json",
+        "perplexity": 4.775912104952608,
+        "sha256": "cfc3e9c18366f695116c065f8ea117ae2306ed0e2a00366bdd59520eb5d7166e",
+        "wall_seconds": 24.55785900200135
+      },
+      "model_sha256": "2beb87e85d33284b80c882a458e30d8285c947002d1e8c5284292bebd1a70d1b",
+      "optimizer_sha256": "8870ef60064968d179a798ff60612a2f7c4540ace0cbaa3c66e7b11b93eb48c2",
+      "output_analysis": {
+        "classifications": {
+          "duplicate-object-keys": 32
+        },
+        "ends_with_object": 32,
+        "mean_output_characters": 55.96875,
+        "mentions_prompt_framing": 0,
+        "starts_with_object": 32
+      },
+      "samples": [
+        {
+          "bucket": "set-existing",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"priority\":\"ember-harbor-79\",\"status\":\"ember-harbor-78\",\"tag\":null,\"tier\":\"lumen\",\"type\":\"juniper\",\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000000-e5bf0cb9a7a7",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"priority\":\"ember-harbor-79\",\"zone\":true,\"type\":\"juniper\",\"status\":-9,\"tag\":null,\"tier\":\"lumen\"}\npatch\nSET status \"ember-harbor-78\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "set-new",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"color\":13,\"priority\":true,\"status\":null,\"tier\":40,\"type\":20}",
+          "id": "record-patch-v1-behavioral_validation-000001-6734330f9b1d",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"priority\":true,\"type\":20,\"tier\":40,\"color\":13}\npatch\nSET status null\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "delete-existing",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"color\":null,\"group\":false,\"status\":\"birch-juniper-80\",\"tier\":true}",
+          "id": "record-patch-v1-behavioral_validation-000002-a55acd9a6fa5",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"group\":false,\"color\":null,\"name\":\"grove\",\"status\":\"birch-juniper-80\",\"tier\":true}\npatch\nDELETE name\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "rename-new",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"active\":37,\"category\":\"indigo\",\"priority\":\"cedar\",\"status\":true,\"tag\":null,\"zone\":\"indigo-juniper-47\"}",
+          "id": "record-patch-v1-behavioral_validation-000003-31e4cb3e7d88",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"mode\":\"indigo-juniper-47\",\"status\":true,\"priority\":\"cedar\",\"active\":37,\"category\":\"indigo\",\"tag\":null}\npatch\nRENAME mode zone\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "overwrite-chain",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"active\":false,\"category\":false,\"name\":99,\"priority\":\"harbor-indigo-36\",\"tag\":\"lumen\",\"tier\":\"indigo-birch-24\"}",
+          "id": "record-patch-v1-behavioral_validation-000004-0f86ab7a4330",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"tier\":false,\"priority\":\"harbor-indigo-36\",\"active\":false,\"category\":false,\"tag\":\"lumen\",\"name\":99}\npatch\nSET tier \"indigo\"\nSET tier \"indigo-birch-24\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "delete-readd",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"active\":null,\"color\":\"cedar-birch-42\",\"group\":null,\"name\":86,\"owner\":-31,\"status\":null}",
+          "id": "record-patch-v1-behavioral_validation-000005-cab65fe40b28",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"group\":null,\"owner\":-31,\"color\":\"cedar-birch-42\",\"status\":true,\"name\":86,\"active\":null}\npatch\nDELETE status\nSET status null\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "rename-collision",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"active\":24,\"owner\":null,\"priority\":\"fjord-ember-92\",\"type\":null}",
+          "id": "record-patch-v1-behavioral_validation-000006-6b2d2fb3a9bc",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"owner\":null,\"priority\":\"indigo\",\"type\":null,\"active\":24,\"group\":\"fjord-ember-92\"}\npatch\nRENAME group priority\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "mixed-sequence",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"category\":null,\"color\":\"ember\",\"status\":true,\"tier\":\"kestrel-lumen-90\",\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000007-0fe07045a42b",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"type\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"region\":true,\"category\":null,\"status\":true,\"type\":true,\"color\":null}\npatch\nSET color \"ember\"\nDELETE type\nRENAME region zone\nSET tier \"kestrel-lumen-90\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "set-existing",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"category\":-4,\"color\":false,\"group\":true,\"region\":true,\"tier\":36}",
+          "id": "record-patch-v1-behavioral_validation-000008-e58e102611b3",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"color\":false,\"region\":true,\"group\":true,\"category\":true,\"tier\":36}\npatch\nSET category -4\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "set-new",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"mode\":\"fjord-cedar-70\",\"name\":\"lumen\",\"owner\":14,\"priority\":\"lumen-fjord-84\",\"region\":\"delta\",\"tier\":true}",
+          "id": "record-patch-v1-behavioral_validation-000009-4c9fe337c80d",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"tier\":true,\"priority\":\"lumen-fjord-84\",\"name\":\"lumen\",\"mode\":\"fjord-cedar-70\",\"owner\":14}\npatch\nSET region \"delta\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "delete-existing",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"owner\":null,\"tier\":-20,\"type\":false}",
+          "id": "record-patch-v1-behavioral_validation-000010-4a49bf743250",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"tier\":-20,\"type\":false,\"region\":false,\"owner\":null}\npatch\nDELETE region\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "rename-new",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"color\":null,\"group\":\"ember-fjord-02\",\"name\":\"kestrel\",\"owner\":\"juniper\",\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000011-c284bf891476",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"color\":null,\"group\":\"ember-fjord-02\",\"category\":\"juniper\",\"zone\":true,\"name\":\"kestrel\"}\npatch\nRENAME category owner\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "overwrite-chain",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"group\":false,\"name\":\"lumen\",\"priority\":\"kestrel-cedar-42\",\"region\":-38,\"status\":\"birch\",\"type\":null}",
+          "id": "record-patch-v1-behavioral_validation-000012-ce396c423428",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"type\":null,\"group\":false,\"priority\":\"kestrel-cedar-42\",\"status\":\"birch\",\"name\":\"lumen\",\"region\":false}\npatch\nSET region true\nSET region -38\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "delete-readd",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"category\":-16,\"group\":\"fjord\",\"priority\":\"cedar\",\"status\":false,\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000013-782a7b28c88c",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"category\":-16,\"priority\":\"cedar\",\"group\":\"fjord\",\"status\":\"harbor\",\"zone\":true}\npatch\nDELETE status\nSET status false\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "rename-collision",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"color\":\"ember\",\"name\":136,\"priority\":true,\"region\":77,\"tag\":null}",
+          "id": "record-patch-v1-behavioral_validation-000014-02bfaf50533d",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"region\":77,\"name\":136,\"tag\":\"indigo\",\"group\":null,\"priority\":true,\"color\":\"ember\"}\npatch\nRENAME group tag\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "mixed-sequence",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"category\":null,\"color\":\"indigo-ember-18\",\"mode\":107,\"name\":\"harbor-cedar-94\",\"status\":124,\"tier\":null}",
+          "id": "record-patch-v1-behavioral_validation-000015-c36de220cf7f",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"category\":null,\"name\":\"harbor-cedar-94\",\"mode\":\"cedar-ember-89\",\"status\":124,\"priority\":null,\"owner\":null}\npatch\nSET mode 107\nDELETE owner\nRENAME priority tier\nSET color \"indigo-ember-18\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "set-existing",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"active\":null,\"color\":17,\"mode\":null,\"priority\":84,\"tier\":true}",
+          "id": "record-patch-v1-behavioral_validation-000016-7961f71a774e",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"priority\":84,\"active\":57,\"color\":17,\"tier\":true,\"mode\":null}\npatch\nSET active null\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "set-new",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"group\":false,\"mode\":\"grove\",\"status\":null,\"tag\":128,\"tier\":\"ember-kestrel-97\",\"type\":null,\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000017-e19ff717275d",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"zone\":true,\"tier\":\"ember-kestrel-97\",\"tag\":128,\"status\":null,\"group\":false,\"mode\":\"grove\"}\npatch\nSET type null\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "delete-existing",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"category\":null,\"type\":true,\"zone\":null}",
+          "id": "record-patch-v1-behavioral_validation-000018-4cc0829fcf27",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"mode\":89,\"zone\":null,\"type\":true,\"category\":null}\npatch\nDELETE mode\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "rename-new",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"name\":\"cedar-indigo-87\",\"owner\":-31,\"priority\":true,\"tier\":108,\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000019-1b8c858cde67",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"type\":-31,\"zone\":true,\"tier\":108,\"priority\":true,\"name\":\"cedar-indigo-87\"}\npatch\nRENAME type owner\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "overwrite-chain",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"group\":\"lumen\",\"mode\":\"fjord-delta-31\",\"name\":\"birch\",\"region\":\"amber\",\"status\":null}",
+          "id": "record-patch-v1-behavioral_validation-000020-76522a94f83d",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"mode\":\"ember\",\"region\":\"amber\",\"status\":null,\"group\":\"lumen\",\"name\":\"birch\"}\npatch\nSET mode false\nSET mode \"fjord-delta-31\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "delete-readd",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"group\":true,\"mode\":null,\"region\":99,\"status\":\"birch\",\"type\":\"indigo\"}",
+          "id": "record-patch-v1-behavioral_validation-000021-fe062610dbdc",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"type\":\"indigo\",\"status\":\"birch\",\"region\":true,\"group\":true,\"mode\":null}\npatch\nDELETE region\nSET region 99\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "rename-collision",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"category\":-8,\"group\":112,\"zone\":\"cedar-amber-60\"}",
+          "id": "record-patch-v1-behavioral_validation-000022-fa51a4a575b1",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"category\":-8,\"zone\":\"harbor\",\"group\":112,\"name\":\"cedar-amber-60\"}\npatch\nRENAME name zone\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "mixed-sequence",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"active\":44,\"color\":null,\"mode\":null,\"owner\":\"indigo\",\"tag\":\"cedar\",\"tier\":\"birch\"}",
+          "id": "record-patch-v1-behavioral_validation-000023-7bd034e1ad5b",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"zone\":\"cedar\",\"color\":null,\"active\":\"lumen\",\"type\":\"ember-cedar-11\",\"tier\":\"birch\",\"owner\":\"indigo\"}\npatch\nSET active 44\nDELETE type\nRENAME zone tag\nSET mode null\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "set-existing",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"active\":\"grove-amber-79\",\"color\":\"juniper\",\"priority\":32,\"zone\":-22}",
+          "id": "record-patch-v1-behavioral_validation-000024-dda6b29e0aa1",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"zone\":-22,\"priority\":true,\"active\":\"grove-amber-79\",\"color\":\"juniper\"}\npatch\nSET priority 32\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "set-new",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"category\":null,\"color\":null,\"mode\":\"juniper\",\"name\":false,\"priority\":\"ember\",\"status\":\"indigo-birch-39\",\"type\":143}",
+          "id": "record-patch-v1-behavioral_validation-000025-e4ac1b7428c6",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"mode\":\"juniper\",\"priority\":\"ember\",\"type\":143,\"color\":null,\"status\":\"indigo-birch-39\",\"name\":false}\npatch\nSET category null\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "delete-existing",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"color\":null,\"tag\":66,\"zone\":null}",
+          "id": "record-patch-v1-behavioral_validation-000026-1a8c790c93ee",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"zone\":null,\"type\":138,\"tag\":66,\"color\":null}\npatch\nDELETE type\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "rename-new",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"group\":21,\"owner\":false,\"type\":\"amber-kestrel-17\",\"zone\":null}",
+          "id": "record-patch-v1-behavioral_validation-000027-a95d73d8ca9f",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"owner\":false,\"zone\":null,\"mode\":21,\"type\":\"amber-kestrel-17\"}\npatch\nRENAME mode group\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "overwrite-chain",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"priority\":25,\"region\":78,\"status\":false,\"zone\":\"grove-cedar-33\"}",
+          "id": "record-patch-v1-behavioral_validation-000028-1fa1819cc72d",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"zone\":\"grove-cedar-33\",\"status\":false,\"priority\":25,\"region\":\"indigo-indigo-17\"}\npatch\nSET region null\nSET region 78\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "delete-readd",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"category\":-24,\"priority\":27,\"region\":null,\"status\":68,\"tag\":\"juniper-ember-20\"}",
+          "id": "record-patch-v1-behavioral_validation-000029-6d7cad6e5916",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"status\":null,\"priority\":27,\"tag\":\"juniper-ember-20\",\"category\":-24,\"region\":null}\npatch\nDELETE status\nSET status 68\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "rename-collision",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"active\":\"harbor-harbor-24\",\"group\":null,\"region\":false,\"status\":true,\"tag\":-15}",
+          "id": "record-patch-v1-behavioral_validation-000030-de4908fa3def",
+          "output": "{\"category\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"owner\":true,\"group\":null,\"tag\":-15,\"status\":false,\"region\":false,\"active\":\"harbor-harbor-24\"}\npatch\nRENAME owner status\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "mixed-sequence",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"group\":true,\"mode\":null,\"owner\":\"amber\",\"status\":null}",
+          "id": "record-patch-v1-behavioral_validation-000031-122de1ad4355",
+          "output": "{\"active\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null,\"tag\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"tier\":true,\"group\":true,\"tag\":null,\"owner\":null}\npatch\nSET owner \"amber\"\nDELETE tier\nRENAME tag mode\nSET status null\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        }
+      ],
+      "step": 128
+    },
+    {
+      "behavioral_guardrails": [
+        {
+          "id": "valid-json-rate",
+          "passed": false,
+          "threshold": 0.95,
+          "value": 0.875
+        },
+        {
+          "id": "canonical-json-rate",
+          "passed": false,
+          "threshold": 0.9,
+          "value": 0.875
+        },
+        {
+          "id": "single-operation-exact-match",
+          "passed": false,
+          "threshold": 0.8,
+          "value": 0.0
+        }
+      ],
+      "behavioral_metrics": {
+        "canonical_json": 0.875,
+        "examples": 32,
+        "record_exact_match": 0.0,
+        "record_exact_match_count": 0,
+        "record_exact_match_wilson_95": {
+          "high": 0.1071791982550706,
+          "low": 0.0
+        },
+        "semantic_match": 0.0,
+        "single_operation_exact_match": 0.0,
+        "valid_json": 0.875
+      },
+      "component_evaluation": {
+        "answer_mean_loss": 2.0720261814779093,
+        "answer_perplexity": 7.940896525988515,
+        "answer_token_accuracy": 0.43478260869565216,
+        "answer_tokens": 828,
+        "method": "teacher-forced public behavioral transcripts split at the prompt character boundary; answer includes target newline and EOS",
+        "prompt_mean_loss": 1.238250253013933,
+        "prompt_token_accuracy": 0.6004213483146067,
+        "prompt_tokens": 1424,
+        "step": 256,
+        "teacher_forced_exact_answers": 0
+      },
+      "conditioning_analysis": {
+        "changed_field_endpoint_match": {
+          "examples_with_all_changed_endpoints_matched": 4,
+          "matched": 16,
+          "ratio": 0.2857142857142857,
+          "total": 56,
+          "warning": "A missing deleted key can match its endpoint even when the rest of the record is wrong. This is diagnostic only."
+        },
+        "examples": 32,
+        "expected_key_recall": {
+          "matched": 38,
+          "ratio": 0.24050632911392406,
+          "total": 158
+        },
+        "expected_key_value_recall": {
+          "matched": 9,
+          "ratio": 0.056962025316455694,
+          "total": 158
+        },
+        "most_common_output_keys": [
+          {
+            "count": 25,
+            "key": "active"
+          },
+          {
+            "count": 25,
+            "key": "mode"
+          },
+          {
+            "count": 22,
+            "key": "zone"
+          },
+          {
+            "count": 19,
+            "key": "priority"
+          },
+          {
+            "count": 8,
+            "key": "tag"
+          },
+          {
+            "count": 5,
+            "key": "status"
+          },
+          {
+            "count": 4,
+            "key": "owner"
+          },
+          {
+            "count": 3,
+            "key": "group"
+          },
+          {
+            "count": 3,
+            "key": "type"
+          },
+          {
+            "count": 3,
+            "key": "category"
+          }
+        ],
+        "most_common_output_values": [
+          {
+            "count": 117,
+            "value": "null"
+          }
+        ],
+        "output_key_precision": {
+          "matched": 38,
+          "ratio": 0.3247863247863248,
+          "total": 117
+        },
+        "output_key_value_pairs_copied_from_input": {
+          "matched": 9,
+          "ratio": 0.07692307692307693,
+          "total": 117
+        },
+        "scope": "all public behavioral examples; invalid outputs contribute zero matched fields",
+        "unchanged_key_value_retention": {
+          "matched": 7,
+          "ratio": 0.05737704918032787,
+          "total": 122
+        },
+        "unique_outputs": 14,
+        "unique_valid_outputs": 12,
+        "valid_object_examples": 28
+      },
+      "language_evaluation": {
+        "mean_loss": 1.3693936844946633,
+        "path": "evaluations/step-00000256/language.json",
+        "perplexity": 3.932965354532544,
+        "sha256": "55f9ce6b51d2ed2a61dc2efa3c5bb8f455d8a9c6777db2c92b6eee933bde7acd",
+        "wall_seconds": 26.22669567900084
+      },
+      "model_sha256": "50dc74f675593406edec568faf61e0250f3fe9c72162eec92b1dc6194003726c",
+      "optimizer_sha256": "48a0aa4e818879c040c06722a671dd28fec44e7fdd07d6c8be13cec665864102",
+      "output_analysis": {
+        "classifications": {
+          "duplicate-object-keys": 4,
+          "wrong-record": 28
+        },
+        "ends_with_object": 32,
+        "mean_output_characters": 57.5625,
+        "mentions_prompt_framing": 0,
+        "starts_with_object": 32
+      },
+      "samples": [
+        {
+          "bucket": "set-existing",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"priority\":\"ember-harbor-79\",\"status\":\"ember-harbor-78\",\"tag\":null,\"tier\":\"lumen\",\"type\":\"juniper\",\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000000-e5bf0cb9a7a7",
+          "output": "{\"active\":null,\"mode\":null,\"status\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "status": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"priority\":\"ember-harbor-79\",\"zone\":true,\"type\":\"juniper\",\"status\":-9,\"tag\":null,\"tier\":\"lumen\"}\npatch\nSET status \"ember-harbor-78\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "set-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"color\":13,\"priority\":true,\"status\":null,\"tier\":40,\"type\":20}",
+          "id": "record-patch-v1-behavioral_validation-000001-6734330f9b1d",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"priority\":true,\"type\":20,\"tier\":40,\"color\":13}\npatch\nSET status null\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "delete-existing",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"color\":null,\"group\":false,\"status\":\"birch-juniper-80\",\"tier\":true}",
+          "id": "record-patch-v1-behavioral_validation-000002-a55acd9a6fa5",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"group\":false,\"color\":null,\"name\":\"grove\",\"status\":\"birch-juniper-80\",\"tier\":true}\npatch\nDELETE name\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "rename-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":37,\"category\":\"indigo\",\"priority\":\"cedar\",\"status\":true,\"tag\":null,\"zone\":\"indigo-juniper-47\"}",
+          "id": "record-patch-v1-behavioral_validation-000003-31e4cb3e7d88",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"mode\":\"indigo-juniper-47\",\"status\":true,\"priority\":\"cedar\",\"active\":37,\"category\":\"indigo\",\"tag\":null}\npatch\nRENAME mode zone\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "overwrite-chain",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":false,\"category\":false,\"name\":99,\"priority\":\"harbor-indigo-36\",\"tag\":\"lumen\",\"tier\":\"indigo-birch-24\"}",
+          "id": "record-patch-v1-behavioral_validation-000004-0f86ab7a4330",
+          "output": "{\"active\":null,\"mode\":null,\"owner\":null,\"tag\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "owner": null,
+            "tag": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"tier\":false,\"priority\":\"harbor-indigo-36\",\"active\":false,\"category\":false,\"tag\":\"lumen\",\"name\":99}\npatch\nSET tier \"indigo\"\nSET tier \"indigo-birch-24\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "delete-readd",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":null,\"color\":\"cedar-birch-42\",\"group\":null,\"name\":86,\"owner\":-31,\"status\":null}",
+          "id": "record-patch-v1-behavioral_validation-000005-cab65fe40b28",
+          "output": "{\"active\":null,\"group\":null,\"priority\":null,\"tag\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "group": null,
+            "priority": null,
+            "tag": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"group\":null,\"owner\":-31,\"color\":\"cedar-birch-42\",\"status\":true,\"name\":86,\"active\":null}\npatch\nDELETE status\nSET status null\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "rename-collision",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":24,\"owner\":null,\"priority\":\"fjord-ember-92\",\"type\":null}",
+          "id": "record-patch-v1-behavioral_validation-000006-6b2d2fb3a9bc",
+          "output": "{\"active\":null,\"mode\":null,\"status\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "status": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"owner\":null,\"priority\":\"indigo\",\"type\":null,\"active\":24,\"group\":\"fjord-ember-92\"}\npatch\nRENAME group priority\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "mixed-sequence",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"category\":null,\"color\":\"ember\",\"status\":true,\"tier\":\"kestrel-lumen-90\",\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000007-0fe07045a42b",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"type\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "type": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"region\":true,\"category\":null,\"status\":true,\"type\":true,\"color\":null}\npatch\nSET color \"ember\"\nDELETE type\nRENAME region zone\nSET tier \"kestrel-lumen-90\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "set-existing",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"category\":-4,\"color\":false,\"group\":true,\"region\":true,\"tier\":36}",
+          "id": "record-patch-v1-behavioral_validation-000008-e58e102611b3",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"tag\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "tag": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"color\":false,\"region\":true,\"group\":true,\"category\":true,\"tier\":36}\npatch\nSET category -4\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "set-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"mode\":\"fjord-cedar-70\",\"name\":\"lumen\",\"owner\":14,\"priority\":\"lumen-fjord-84\",\"region\":\"delta\",\"tier\":true}",
+          "id": "record-patch-v1-behavioral_validation-000009-4c9fe337c80d",
+          "output": "{\"active\":null,\"mode\":null,\"owner\":null,\"tag\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "owner": null,
+            "tag": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"tier\":true,\"priority\":\"lumen-fjord-84\",\"name\":\"lumen\",\"mode\":\"fjord-cedar-70\",\"owner\":14}\npatch\nSET region \"delta\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "delete-existing",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"owner\":null,\"tier\":-20,\"type\":false}",
+          "id": "record-patch-v1-behavioral_validation-000010-4a49bf743250",
+          "output": "{\"active\":null,\"group\":null,\"priority\":null,\"zone\":null,\"zone\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"tier\":-20,\"type\":false,\"region\":false,\"owner\":null}\npatch\nDELETE region\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "rename-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"color\":null,\"group\":\"ember-fjord-02\",\"name\":\"kestrel\",\"owner\":\"juniper\",\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000011-c284bf891476",
+          "output": "{\"active\":null,\"mode\":null,\"status\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "status": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"color\":null,\"group\":\"ember-fjord-02\",\"category\":\"juniper\",\"zone\":true,\"name\":\"kestrel\"}\npatch\nRENAME category owner\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "overwrite-chain",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"group\":false,\"name\":\"lumen\",\"priority\":\"kestrel-cedar-42\",\"region\":-38,\"status\":\"birch\",\"type\":null}",
+          "id": "record-patch-v1-behavioral_validation-000012-ce396c423428",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"type\":null,\"group\":false,\"priority\":\"kestrel-cedar-42\",\"status\":\"birch\",\"name\":\"lumen\",\"region\":false}\npatch\nSET region true\nSET region -38\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "delete-readd",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"category\":-16,\"group\":\"fjord\",\"priority\":\"cedar\",\"status\":false,\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000013-782a7b28c88c",
+          "output": "{\"category\":null,\"mode\":null,\"priority\":null,\"tag\":null}",
+          "parsed_output": {
+            "category": null,
+            "mode": null,
+            "priority": null,
+            "tag": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"category\":-16,\"priority\":\"cedar\",\"group\":\"fjord\",\"status\":\"harbor\",\"zone\":true}\npatch\nDELETE status\nSET status false\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "rename-collision",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"color\":\"ember\",\"name\":136,\"priority\":true,\"region\":77,\"tag\":null}",
+          "id": "record-patch-v1-behavioral_validation-000014-02bfaf50533d",
+          "output": "{\"active\":null,\"mode\":null,\"status\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "status": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"region\":77,\"name\":136,\"tag\":\"indigo\",\"group\":null,\"priority\":true,\"color\":\"ember\"}\npatch\nRENAME group tag\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "mixed-sequence",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"category\":null,\"color\":\"indigo-ember-18\",\"mode\":107,\"name\":\"harbor-cedar-94\",\"status\":124,\"tier\":null}",
+          "id": "record-patch-v1-behavioral_validation-000015-c36de220cf7f",
+          "output": "{\"active\":null,\"mode\":null,\"owner\":null,\"tag\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "owner": null,
+            "tag": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"category\":null,\"name\":\"harbor-cedar-94\",\"mode\":\"cedar-ember-89\",\"status\":124,\"priority\":null,\"owner\":null}\npatch\nSET mode 107\nDELETE owner\nRENAME priority tier\nSET color \"indigo-ember-18\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "set-existing",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":null,\"color\":17,\"mode\":null,\"priority\":84,\"tier\":true}",
+          "id": "record-patch-v1-behavioral_validation-000016-7961f71a774e",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"priority\":84,\"active\":57,\"color\":17,\"tier\":true,\"mode\":null}\npatch\nSET active null\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "set-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"group\":false,\"mode\":\"grove\",\"status\":null,\"tag\":128,\"tier\":\"ember-kestrel-97\",\"type\":null,\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000017-e19ff717275d",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"zone\":true,\"tier\":\"ember-kestrel-97\",\"tag\":128,\"status\":null,\"group\":false,\"mode\":\"grove\"}\npatch\nSET type null\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "delete-existing",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"category\":null,\"type\":true,\"zone\":null}",
+          "id": "record-patch-v1-behavioral_validation-000018-4cc0829fcf27",
+          "output": "{\"category\":null,\"group\":null,\"priority\":null,\"zone\":null}",
+          "parsed_output": {
+            "category": null,
+            "group": null,
+            "priority": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"mode\":89,\"zone\":null,\"type\":true,\"category\":null}\npatch\nDELETE mode\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "rename-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"name\":\"cedar-indigo-87\",\"owner\":-31,\"priority\":true,\"tier\":108,\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000019-1b8c858cde67",
+          "output": "{\"active\":null,\"mode\":null,\"status\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "status": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"type\":-31,\"zone\":true,\"tier\":108,\"priority\":true,\"name\":\"cedar-indigo-87\"}\npatch\nRENAME type owner\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "overwrite-chain",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"group\":\"lumen\",\"mode\":\"fjord-delta-31\",\"name\":\"birch\",\"region\":\"amber\",\"status\":null}",
+          "id": "record-patch-v1-behavioral_validation-000020-76522a94f83d",
+          "output": "{\"active\":null,\"mode\":null,\"owner\":null,\"type\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "owner": null,
+            "type": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"mode\":\"ember\",\"region\":\"amber\",\"status\":null,\"group\":\"lumen\",\"name\":\"birch\"}\npatch\nSET mode false\nSET mode \"fjord-delta-31\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "delete-readd",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"group\":true,\"mode\":null,\"region\":99,\"status\":\"birch\",\"type\":\"indigo\"}",
+          "id": "record-patch-v1-behavioral_validation-000021-fe062610dbdc",
+          "output": "{\"active\":null,\"mode\":null,\"mode\":null,\"status\":null,\"zone\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"type\":\"indigo\",\"status\":\"birch\",\"region\":true,\"group\":true,\"mode\":null}\npatch\nDELETE region\nSET region 99\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "rename-collision",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"category\":-8,\"group\":112,\"zone\":\"cedar-amber-60\"}",
+          "id": "record-patch-v1-behavioral_validation-000022-fa51a4a575b1",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"category\":-8,\"zone\":\"harbor\",\"group\":112,\"name\":\"cedar-amber-60\"}\npatch\nRENAME name zone\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "mixed-sequence",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":44,\"color\":null,\"mode\":null,\"owner\":\"indigo\",\"tag\":\"cedar\",\"tier\":\"birch\"}",
+          "id": "record-patch-v1-behavioral_validation-000023-7bd034e1ad5b",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"type\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "type": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"zone\":\"cedar\",\"color\":null,\"active\":\"lumen\",\"type\":\"ember-cedar-11\",\"tier\":\"birch\",\"owner\":\"indigo\"}\npatch\nSET active 44\nDELETE type\nRENAME zone tag\nSET mode null\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "set-existing",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":\"grove-amber-79\",\"color\":\"juniper\",\"priority\":32,\"zone\":-22}",
+          "id": "record-patch-v1-behavioral_validation-000024-dda6b29e0aa1",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"tag\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "tag": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"zone\":-22,\"priority\":true,\"active\":\"grove-amber-79\",\"color\":\"juniper\"}\npatch\nSET priority 32\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "set-new",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"category\":null,\"color\":null,\"mode\":\"juniper\",\"name\":false,\"priority\":\"ember\",\"status\":\"indigo-birch-39\",\"type\":143}",
+          "id": "record-patch-v1-behavioral_validation-000025-e4ac1b7428c6",
+          "output": "{\"active\":null,\"mode\":null,\"mode\":null,\"status\":null,\"zone\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"mode\":\"juniper\",\"priority\":\"ember\",\"type\":143,\"color\":null,\"status\":\"indigo-birch-39\",\"name\":false}\npatch\nSET category null\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "delete-existing",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"color\":null,\"tag\":66,\"zone\":null}",
+          "id": "record-patch-v1-behavioral_validation-000026-1a8c790c93ee",
+          "output": "{\"category\":null,\"mode\":null,\"priority\":null,\"zone\":null}",
+          "parsed_output": {
+            "category": null,
+            "mode": null,
+            "priority": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"zone\":null,\"type\":138,\"tag\":66,\"color\":null}\npatch\nDELETE type\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "rename-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"group\":21,\"owner\":false,\"type\":\"amber-kestrel-17\",\"zone\":null}",
+          "id": "record-patch-v1-behavioral_validation-000027-a95d73d8ca9f",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"owner\":false,\"zone\":null,\"mode\":21,\"type\":\"amber-kestrel-17\"}\npatch\nRENAME mode group\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "overwrite-chain",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"priority\":25,\"region\":78,\"status\":false,\"zone\":\"grove-cedar-33\"}",
+          "id": "record-patch-v1-behavioral_validation-000028-1fa1819cc72d",
+          "output": "{\"active\":null,\"mode\":null,\"mode\":null,\"status\":null,\"zone\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"zone\":\"grove-cedar-33\",\"status\":false,\"priority\":25,\"region\":\"indigo-indigo-17\"}\npatch\nSET region null\nSET region 78\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "delete-readd",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"category\":-24,\"priority\":27,\"region\":null,\"status\":68,\"tag\":\"juniper-ember-20\"}",
+          "id": "record-patch-v1-behavioral_validation-000029-6d7cad6e5916",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"status\":null,\"priority\":27,\"tag\":\"juniper-ember-20\",\"category\":-24,\"region\":null}\npatch\nDELETE status\nSET status 68\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "rename-collision",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":\"harbor-harbor-24\",\"group\":null,\"region\":false,\"status\":true,\"tag\":-15}",
+          "id": "record-patch-v1-behavioral_validation-000030-de4908fa3def",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"owner\":true,\"group\":null,\"tag\":-15,\"status\":false,\"region\":false,\"active\":\"harbor-harbor-24\"}\npatch\nRENAME owner status\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "mixed-sequence",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"group\":true,\"mode\":null,\"owner\":\"amber\",\"status\":null}",
+          "id": "record-patch-v1-behavioral_validation-000031-122de1ad4355",
+          "output": "{\"active\":null,\"group\":null,\"priority\":null,\"tag\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "group": null,
+            "priority": null,
+            "tag": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"tier\":true,\"group\":true,\"tag\":null,\"owner\":null}\npatch\nSET owner \"amber\"\nDELETE tier\nRENAME tag mode\nSET status null\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        }
+      ],
+      "step": 256
+    },
+    {
+      "behavioral_guardrails": [
+        {
+          "id": "valid-json-rate",
+          "passed": false,
+          "threshold": 0.95,
+          "value": 0.9375
+        },
+        {
+          "id": "canonical-json-rate",
+          "passed": true,
+          "threshold": 0.9,
+          "value": 0.9375
+        },
+        {
+          "id": "single-operation-exact-match",
+          "passed": false,
+          "threshold": 0.8,
+          "value": 0.0
+        }
+      ],
+      "behavioral_metrics": {
+        "canonical_json": 0.9375,
+        "examples": 32,
+        "record_exact_match": 0.0,
+        "record_exact_match_count": 0,
+        "record_exact_match_wilson_95": {
+          "high": 0.1071791982550706,
+          "low": 0.0
+        },
+        "semantic_match": 0.0,
+        "single_operation_exact_match": 0.0,
+        "valid_json": 0.9375
+      },
+      "component_evaluation": {
+        "answer_mean_loss": 2.154123574953103,
+        "answer_perplexity": 8.620331792577415,
+        "answer_token_accuracy": 0.4504830917874396,
+        "answer_tokens": 828,
+        "method": "teacher-forced public behavioral transcripts split at the prompt character boundary; answer includes target newline and EOS",
+        "prompt_mean_loss": 1.1808974614467118,
+        "prompt_token_accuracy": 0.589185393258427,
+        "prompt_tokens": 1424,
+        "step": 512,
+        "teacher_forced_exact_answers": 0
+      },
+      "conditioning_analysis": {
+        "changed_field_endpoint_match": {
+          "examples_with_all_changed_endpoints_matched": 6,
+          "matched": 18,
+          "ratio": 0.32142857142857145,
+          "total": 56,
+          "warning": "A missing deleted key can match its endpoint even when the rest of the record is wrong. This is diagnostic only."
+        },
+        "examples": 32,
+        "expected_key_recall": {
+          "matched": 44,
+          "ratio": 0.27848101265822783,
+          "total": 158
+        },
+        "expected_key_value_recall": {
+          "matched": 6,
+          "ratio": 0.0379746835443038,
+          "total": 158
+        },
+        "most_common_output_keys": [
+          {
+            "count": 30,
+            "key": "priority"
+          },
+          {
+            "count": 27,
+            "key": "active"
+          },
+          {
+            "count": 24,
+            "key": "mode"
+          },
+          {
+            "count": 16,
+            "key": "tag"
+          },
+          {
+            "count": 10,
+            "key": "tier"
+          },
+          {
+            "count": 9,
+            "key": "zone"
+          },
+          {
+            "count": 8,
+            "key": "region"
+          },
+          {
+            "count": 3,
+            "key": "category"
+          },
+          {
+            "count": 2,
+            "key": "color"
+          },
+          {
+            "count": 1,
+            "key": "status"
+          }
+        ],
+        "most_common_output_values": [
+          {
+            "count": 84,
+            "value": "null"
+          },
+          {
+            "count": 24,
+            "value": "\"amber\""
+          },
+          {
+            "count": 8,
+            "value": "\"amber-amber-93\""
+          },
+          {
+            "count": 7,
+            "value": "\"amber-amber-58\""
+          },
+          {
+            "count": 3,
+            "value": "\"lumen-amber-93\""
+          },
+          {
+            "count": 2,
+            "value": "\"amber-amber-47\""
+          },
+          {
+            "count": 2,
+            "value": "\"lumen\""
+          }
+        ],
+        "output_key_precision": {
+          "matched": 44,
+          "ratio": 0.3384615384615385,
+          "total": 130
+        },
+        "output_key_value_pairs_copied_from_input": {
+          "matched": 4,
+          "ratio": 0.03076923076923077,
+          "total": 130
+        },
+        "scope": "all public behavioral examples; invalid outputs contribute zero matched fields",
+        "unchanged_key_value_retention": {
+          "matched": 3,
+          "ratio": 0.02459016393442623,
+          "total": 122
+        },
+        "unique_outputs": 25,
+        "unique_valid_outputs": 23,
+        "valid_object_examples": 30
+      },
+      "language_evaluation": {
+        "mean_loss": 1.2297416774319931,
+        "path": "evaluations/step-00000512/language.json",
+        "perplexity": 3.4203458696305526,
+        "sha256": "cf01be7e1dd612967147e365e8eb2b5d3c08923e8b4334d6343f914d3cf0065b",
+        "wall_seconds": 24.401941007999994
+      },
+      "model_sha256": "4c224ecc8e5f395c42876d21d47084ae704e208974c4374c8669c947afad02a8",
+      "optimizer_sha256": "9652694c915d28e170bec82778fe12466a44fbc29fa3c74158aa5e1d02db7cbd",
+      "output_analysis": {
+        "classifications": {
+          "duplicate-object-keys": 2,
+          "wrong-record": 30
+        },
+        "ends_with_object": 32,
+        "mean_output_characters": 72.46875,
+        "mentions_prompt_framing": 0,
+        "starts_with_object": 32
+      },
+      "samples": [
+        {
+          "bucket": "set-existing",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"priority\":\"ember-harbor-79\",\"status\":\"ember-harbor-78\",\"tag\":null,\"tier\":\"lumen\",\"type\":\"juniper\",\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000000-e5bf0cb9a7a7",
+          "output": "{\"category\":\"amber-amber-93\",\"priority\":\"amber\",\"priority\":\"amber\",\"tag\":\"amber-amber-58\",\"zone\":\"amber-amber-58\"}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"priority\":\"ember-harbor-79\",\"zone\":true,\"type\":\"juniper\",\"status\":-9,\"tag\":null,\"tier\":\"lumen\"}\npatch\nSET status \"ember-harbor-78\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "set-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"color\":13,\"priority\":true,\"status\":null,\"tier\":40,\"type\":20}",
+          "id": "record-patch-v1-behavioral_validation-000001-6734330f9b1d",
+          "output": "{\"active\":null,\"priority\":null,\"tag\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "priority": null,
+            "tag": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"priority\":true,\"type\":20,\"tier\":40,\"color\":13}\npatch\nSET status null\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "delete-existing",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"color\":null,\"group\":false,\"status\":\"birch-juniper-80\",\"tier\":true}",
+          "id": "record-patch-v1-behavioral_validation-000002-a55acd9a6fa5",
+          "output": "{\"active\":\"amber-amber-93\",\"mode\":\"amber\",\"priority\":null,\"tier\":null}",
+          "parsed_output": {
+            "active": "amber-amber-93",
+            "mode": "amber",
+            "priority": null,
+            "tier": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"group\":false,\"color\":null,\"name\":\"grove\",\"status\":\"birch-juniper-80\",\"tier\":true}\npatch\nDELETE name\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "rename-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":37,\"category\":\"indigo\",\"priority\":\"cedar\",\"status\":true,\"tag\":null,\"zone\":\"indigo-juniper-47\"}",
+          "id": "record-patch-v1-behavioral_validation-000003-31e4cb3e7d88",
+          "output": "{\"active\":\"amber\",\"mode\":null,\"priority\":null,\"region\":null}",
+          "parsed_output": {
+            "active": "amber",
+            "mode": null,
+            "priority": null,
+            "region": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"mode\":\"indigo-juniper-47\",\"status\":true,\"priority\":\"cedar\",\"active\":37,\"category\":\"indigo\",\"tag\":null}\npatch\nRENAME mode zone\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "overwrite-chain",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":false,\"category\":false,\"name\":99,\"priority\":\"harbor-indigo-36\",\"tag\":\"lumen\",\"tier\":\"indigo-birch-24\"}",
+          "id": "record-patch-v1-behavioral_validation-000004-0f86ab7a4330",
+          "output": "{\"active\":\"amber-amber-58\",\"color\":\"amber\",\"mode\":\"amber\",\"priority\":null,\"status\":null,\"tier\":null}",
+          "parsed_output": {
+            "active": "amber-amber-58",
+            "color": "amber",
+            "mode": "amber",
+            "priority": null,
+            "status": null,
+            "tier": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"tier\":false,\"priority\":\"harbor-indigo-36\",\"active\":false,\"category\":false,\"tag\":\"lumen\",\"name\":99}\npatch\nSET tier \"indigo\"\nSET tier \"indigo-birch-24\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "delete-readd",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":null,\"color\":\"cedar-birch-42\",\"group\":null,\"name\":86,\"owner\":-31,\"status\":null}",
+          "id": "record-patch-v1-behavioral_validation-000005-cab65fe40b28",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"region\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "region": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"group\":null,\"owner\":-31,\"color\":\"cedar-birch-42\",\"status\":true,\"name\":86,\"active\":null}\npatch\nDELETE status\nSET status null\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "rename-collision",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":24,\"owner\":null,\"priority\":\"fjord-ember-92\",\"type\":null}",
+          "id": "record-patch-v1-behavioral_validation-000006-6b2d2fb3a9bc",
+          "output": "{\"active\":\"lumen-amber-93\",\"mode\":\"amber\",\"priority\":null,\"tag\":null}",
+          "parsed_output": {
+            "active": "lumen-amber-93",
+            "mode": "amber",
+            "priority": null,
+            "tag": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"owner\":null,\"priority\":\"indigo\",\"type\":null,\"active\":24,\"group\":\"fjord-ember-92\"}\npatch\nRENAME group priority\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "mixed-sequence",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"category\":null,\"color\":\"ember\",\"status\":true,\"tier\":\"kestrel-lumen-90\",\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000007-0fe07045a42b",
+          "output": "{\"active\":\"amber-amber-93\",\"mode\":\"amber\",\"priority\":null,\"region\":null,\"tier\":null}",
+          "parsed_output": {
+            "active": "amber-amber-93",
+            "mode": "amber",
+            "priority": null,
+            "region": null,
+            "tier": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"region\":true,\"category\":null,\"status\":true,\"type\":true,\"color\":null}\npatch\nSET color \"ember\"\nDELETE type\nRENAME region zone\nSET tier \"kestrel-lumen-90\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "set-existing",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"category\":-4,\"color\":false,\"group\":true,\"region\":true,\"tier\":36}",
+          "id": "record-patch-v1-behavioral_validation-000008-e58e102611b3",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"region\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "region": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"color\":false,\"region\":true,\"group\":true,\"category\":true,\"tier\":36}\npatch\nSET category -4\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "set-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"mode\":\"fjord-cedar-70\",\"name\":\"lumen\",\"owner\":14,\"priority\":\"lumen-fjord-84\",\"region\":\"delta\",\"tier\":true}",
+          "id": "record-patch-v1-behavioral_validation-000009-4c9fe337c80d",
+          "output": "{\"active\":\"amber-amber-93\",\"mode\":\"amber\",\"priority\":\"amber\",\"tag\":\"amber-amber-58\",\"zone\":\"amber-amber-58\"}",
+          "parsed_output": {
+            "active": "amber-amber-93",
+            "mode": "amber",
+            "priority": "amber",
+            "tag": "amber-amber-58",
+            "zone": "amber-amber-58"
+          },
+          "prompt": "record_patch_v1\nrecord {\"tier\":true,\"priority\":\"lumen-fjord-84\",\"name\":\"lumen\",\"mode\":\"fjord-cedar-70\",\"owner\":14}\npatch\nSET region \"delta\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "delete-existing",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"owner\":null,\"tier\":-20,\"type\":false}",
+          "id": "record-patch-v1-behavioral_validation-000010-4a49bf743250",
+          "output": "{\"active\":null,\"priority\":null,\"tag\":null}",
+          "parsed_output": {
+            "active": null,
+            "priority": null,
+            "tag": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"tier\":-20,\"type\":false,\"region\":false,\"owner\":null}\npatch\nDELETE region\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "rename-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"color\":null,\"group\":\"ember-fjord-02\",\"name\":\"kestrel\",\"owner\":\"juniper\",\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000011-c284bf891476",
+          "output": "{\"active\":\"lumen-amber-93\",\"mode\":\"amber\",\"priority\":\"amber\",\"tag\":\"amber-amber-58\",\"zone\":\"amber-amber-47\"}",
+          "parsed_output": {
+            "active": "lumen-amber-93",
+            "mode": "amber",
+            "priority": "amber",
+            "tag": "amber-amber-58",
+            "zone": "amber-amber-47"
+          },
+          "prompt": "record_patch_v1\nrecord {\"color\":null,\"group\":\"ember-fjord-02\",\"category\":\"juniper\",\"zone\":true,\"name\":\"kestrel\"}\npatch\nRENAME category owner\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "overwrite-chain",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"group\":false,\"name\":\"lumen\",\"priority\":\"kestrel-cedar-42\",\"region\":-38,\"status\":\"birch\",\"type\":null}",
+          "id": "record-patch-v1-behavioral_validation-000012-ce396c423428",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"tag\":null,\"zone\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "tag": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"type\":null,\"group\":false,\"priority\":\"kestrel-cedar-42\",\"status\":\"birch\",\"name\":\"lumen\",\"region\":false}\npatch\nSET region true\nSET region -38\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "delete-readd",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"category\":-16,\"group\":\"fjord\",\"priority\":\"cedar\",\"status\":false,\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000013-782a7b28c88c",
+          "output": "{\"active\":\"amber\",\"mode\":\"lumen\",\"priority\":null,\"tier\":null}",
+          "parsed_output": {
+            "active": "amber",
+            "mode": "lumen",
+            "priority": null,
+            "tier": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"category\":-16,\"priority\":\"cedar\",\"group\":\"fjord\",\"status\":\"harbor\",\"zone\":true}\npatch\nDELETE status\nSET status false\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "rename-collision",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"color\":\"ember\",\"name\":136,\"priority\":true,\"region\":77,\"tag\":null}",
+          "id": "record-patch-v1-behavioral_validation-000014-02bfaf50533d",
+          "output": "{\"category\":null,\"mode\":null,\"priority\":null,\"tag\":null}",
+          "parsed_output": {
+            "category": null,
+            "mode": null,
+            "priority": null,
+            "tag": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"region\":77,\"name\":136,\"tag\":\"indigo\",\"group\":null,\"priority\":true,\"color\":\"ember\"}\npatch\nRENAME group tag\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "mixed-sequence",
+          "canonical_json": false,
+          "error": "invalid-json",
+          "exact_match": false,
+          "expected": "{\"category\":null,\"color\":\"indigo-ember-18\",\"mode\":107,\"name\":\"harbor-cedar-94\",\"status\":124,\"tier\":null}",
+          "id": "record-patch-v1-behavioral_validation-000015-c36de220cf7f",
+          "output": "{\"active\":\"amber-amber-93\",\"mode\":\"amber-amber-93\",\"priority\":null,\"priority\":null,\"tier\":null,\"zone\":null}",
+          "parsed_output": null,
+          "prompt": "record_patch_v1\nrecord {\"category\":null,\"name\":\"harbor-cedar-94\",\"mode\":\"cedar-ember-89\",\"status\":124,\"priority\":null,\"owner\":null}\npatch\nSET mode 107\nDELETE owner\nRENAME priority tier\nSET color \"indigo-ember-18\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": false
+        },
+        {
+          "bucket": "set-existing",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":null,\"color\":17,\"mode\":null,\"priority\":84,\"tier\":true}",
+          "id": "record-patch-v1-behavioral_validation-000016-7961f71a774e",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"tag\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "tag": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"priority\":84,\"active\":57,\"color\":17,\"tier\":true,\"mode\":null}\npatch\nSET active null\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "set-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"group\":false,\"mode\":\"grove\",\"status\":null,\"tag\":128,\"tier\":\"ember-kestrel-97\",\"type\":null,\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000017-e19ff717275d",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"region\":null,\"tier\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "region": null,
+            "tier": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"zone\":true,\"tier\":\"ember-kestrel-97\",\"tag\":128,\"status\":null,\"group\":false,\"mode\":\"grove\"}\npatch\nSET type null\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "delete-existing",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"category\":null,\"type\":true,\"zone\":null}",
+          "id": "record-patch-v1-behavioral_validation-000018-4cc0829fcf27",
+          "output": "{\"active\":null,\"priority\":null,\"tag\":null}",
+          "parsed_output": {
+            "active": null,
+            "priority": null,
+            "tag": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"mode\":89,\"zone\":null,\"type\":true,\"category\":null}\npatch\nDELETE mode\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "rename-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"name\":\"cedar-indigo-87\",\"owner\":-31,\"priority\":true,\"tier\":108,\"zone\":true}",
+          "id": "record-patch-v1-behavioral_validation-000019-1b8c858cde67",
+          "output": "{\"category\":null,\"priority\":null,\"region\":null,\"zone\":null}",
+          "parsed_output": {
+            "category": null,
+            "priority": null,
+            "region": null,
+            "zone": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"type\":-31,\"zone\":true,\"tier\":108,\"priority\":true,\"name\":\"cedar-indigo-87\"}\npatch\nRENAME type owner\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "overwrite-chain",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"group\":\"lumen\",\"mode\":\"fjord-delta-31\",\"name\":\"birch\",\"region\":\"amber\",\"status\":null}",
+          "id": "record-patch-v1-behavioral_validation-000020-76522a94f83d",
+          "output": "{\"active\":\"amber\",\"mode\":\"amber\",\"priority\":\"amber\",\"tag\":\"amber-amber-93\",\"zone\":\"amber-amber-58\"}",
+          "parsed_output": {
+            "active": "amber",
+            "mode": "amber",
+            "priority": "amber",
+            "tag": "amber-amber-93",
+            "zone": "amber-amber-58"
+          },
+          "prompt": "record_patch_v1\nrecord {\"mode\":\"ember\",\"region\":\"amber\",\"status\":null,\"group\":\"lumen\",\"name\":\"birch\"}\npatch\nSET mode false\nSET mode \"fjord-delta-31\"\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "delete-readd",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"group\":true,\"mode\":null,\"region\":99,\"status\":\"birch\",\"type\":\"indigo\"}",
+          "id": "record-patch-v1-behavioral_validation-000021-fe062610dbdc",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"tag\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "tag": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"type\":\"indigo\",\"status\":\"birch\",\"region\":true,\"group\":true,\"mode\":null}\npatch\nDELETE region\nSET region 99\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "rename-collision",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"category\":-8,\"group\":112,\"zone\":\"cedar-amber-60\"}",
+          "id": "record-patch-v1-behavioral_validation-000022-fa51a4a575b1",
+          "output": "{\"active\":\"amber-amber-93\",\"mode\":\"amber\",\"priority\":\"amber\",\"tag\":\"amber-amber-93\",\"zone\":\"amber-amber-47\"}",
+          "parsed_output": {
+            "active": "amber-amber-93",
+            "mode": "amber",
+            "priority": "amber",
+            "tag": "amber-amber-93",
+            "zone": "amber-amber-47"
+          },
+          "prompt": "record_patch_v1\nrecord {\"category\":-8,\"zone\":\"harbor\",\"group\":112,\"name\":\"cedar-amber-60\"}\npatch\nRENAME name zone\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "mixed-sequence",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":44,\"color\":null,\"mode\":null,\"owner\":\"indigo\",\"tag\":\"cedar\",\"tier\":\"birch\"}",
+          "id": "record-patch-v1-behavioral_validation-000023-7bd034e1ad5b",
+          "output": "{\"active\":\"amber\",\"mode\":\"lumen\",\"priority\":\"amber\",\"tag\":\"amber\",\"zone\":\"amber\"}",
+          "parsed_output": {
+            "active": "amber",
+            "mode": "lumen",
+            "priority": "amber",
+            "tag": "amber",
+            "zone": "amber"
+          },
+          "prompt": "record_patch_v1\nrecord {\"zone\":\"cedar\",\"color\":null,\"active\":\"lumen\",\"type\":\"ember-cedar-11\",\"tier\":\"birch\",\"owner\":\"indigo\"}\npatch\nSET active 44\nDELETE type\nRENAME zone tag\nSET mode null\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "set-existing",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":\"grove-amber-79\",\"color\":\"juniper\",\"priority\":32,\"zone\":-22}",
+          "id": "record-patch-v1-behavioral_validation-000024-dda6b29e0aa1",
+          "output": "{\"active\":\"lumen-amber-93\",\"color\":\"amber\",\"priority\":\"amber\",\"tag\":\"amber-amber-58\",\"zone\":\"amber-amber-58\"}",
+          "parsed_output": {
+            "active": "lumen-amber-93",
+            "color": "amber",
+            "priority": "amber",
+            "tag": "amber-amber-58",
+            "zone": "amber-amber-58"
+          },
+          "prompt": "record_patch_v1\nrecord {\"zone\":-22,\"priority\":true,\"active\":\"grove-amber-79\",\"color\":\"juniper\"}\npatch\nSET priority 32\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "set-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"category\":null,\"color\":null,\"mode\":\"juniper\",\"name\":false,\"priority\":\"ember\",\"status\":\"indigo-birch-39\",\"type\":143}",
+          "id": "record-patch-v1-behavioral_validation-000025-e4ac1b7428c6",
+          "output": "{\"active\":\"amber\",\"mode\":null,\"priority\":null,\"region\":null,\"tier\":null}",
+          "parsed_output": {
+            "active": "amber",
+            "mode": null,
+            "priority": null,
+            "region": null,
+            "tier": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"mode\":\"juniper\",\"priority\":\"ember\",\"type\":143,\"color\":null,\"status\":\"indigo-birch-39\",\"name\":false}\npatch\nSET category null\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "delete-existing",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"color\":null,\"tag\":66,\"zone\":null}",
+          "id": "record-patch-v1-behavioral_validation-000026-1a8c790c93ee",
+          "output": "{\"active\":null,\"priority\":null,\"tag\":null}",
+          "parsed_output": {
+            "active": null,
+            "priority": null,
+            "tag": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"zone\":null,\"type\":138,\"tag\":66,\"color\":null}\npatch\nDELETE type\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "rename-new",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"group\":21,\"owner\":false,\"type\":\"amber-kestrel-17\",\"zone\":null}",
+          "id": "record-patch-v1-behavioral_validation-000027-a95d73d8ca9f",
+          "output": "{\"active\":\"amber-amber-93\",\"mode\":\"amber\",\"priority\":null,\"tier\":null}",
+          "parsed_output": {
+            "active": "amber-amber-93",
+            "mode": "amber",
+            "priority": null,
+            "tier": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"owner\":false,\"zone\":null,\"mode\":21,\"type\":\"amber-kestrel-17\"}\npatch\nRENAME mode group\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "overwrite-chain",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"priority\":25,\"region\":78,\"status\":false,\"zone\":\"grove-cedar-33\"}",
+          "id": "record-patch-v1-behavioral_validation-000028-1fa1819cc72d",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"tier\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "tier": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"zone\":\"grove-cedar-33\",\"status\":false,\"priority\":25,\"region\":\"indigo-indigo-17\"}\npatch\nSET region null\nSET region 78\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "delete-readd",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"category\":-24,\"priority\":27,\"region\":null,\"status\":68,\"tag\":\"juniper-ember-20\"}",
+          "id": "record-patch-v1-behavioral_validation-000029-6d7cad6e5916",
+          "output": "{\"active\":null,\"mode\":null,\"priority\":null,\"tier\":null}",
+          "parsed_output": {
+            "active": null,
+            "mode": null,
+            "priority": null,
+            "tier": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"status\":null,\"priority\":27,\"tag\":\"juniper-ember-20\",\"category\":-24,\"region\":null}\npatch\nDELETE status\nSET status 68\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "rename-collision",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"active\":\"harbor-harbor-24\",\"group\":null,\"region\":false,\"status\":true,\"tag\":-15}",
+          "id": "record-patch-v1-behavioral_validation-000030-de4908fa3def",
+          "output": "{\"active\":\"amber-amber-93\",\"mode\":null,\"priority\":null,\"region\":null,\"tier\":null}",
+          "parsed_output": {
+            "active": "amber-amber-93",
+            "mode": null,
+            "priority": null,
+            "region": null,
+            "tier": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"owner\":true,\"group\":null,\"tag\":-15,\"status\":false,\"region\":false,\"active\":\"harbor-harbor-24\"}\npatch\nRENAME owner status\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        },
+        {
+          "bucket": "mixed-sequence",
+          "canonical_json": true,
+          "error": "wrong-record",
+          "exact_match": false,
+          "expected": "{\"group\":true,\"mode\":null,\"owner\":\"amber\",\"status\":null}",
+          "id": "record-patch-v1-behavioral_validation-000031-122de1ad4355",
+          "output": "{\"category\":null,\"mode\":null,\"priority\":null,\"tag\":null}",
+          "parsed_output": {
+            "category": null,
+            "mode": null,
+            "priority": null,
+            "tag": null
+          },
+          "prompt": "record_patch_v1\nrecord {\"tier\":true,\"group\":true,\"tag\":null,\"owner\":null}\npatch\nSET owner \"amber\"\nDELETE tier\nRENAME tag mode\nSET status null\nresult\n",
+          "semantic_match": false,
+          "valid_json": true
+        }
+      ],
+      "step": 512
+    }
+  ],
+  "contamination_and_similarity": {
+    "exact_prompt_overlaps": 0,
+    "method": "difflib.SequenceMatcher character matching-block ratio with autojunk disabled, restricted to the same frozen bucket; ties use the lowest training ID",
+    "nearest_similarity": {
+      "max": 0.8640776699029126,
+      "mean": 0.7827922867838754,
+      "median": 0.7796629982799219,
+      "min": 0.7180851063829787,
+      "p25": 0.7552447552447552,
+      "p75": 0.7985611510791367
+    },
+    "nearest_target_equal": 0,
+    "samples": [
+      {
+        "bucket": "set-existing",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000000-e5bf0cb9a7a7",
+        "nearest_prompt": "record_patch_v1\nrecord {\"priority\":null,\"region\":true,\"type\":91,\"status\":\"lumen\"}\npatch\nSET status \"ember-birch-88\"\nresult\n",
+        "nearest_prompt_similarity": 0.7552447552447552,
+        "nearest_target": "{\"priority\":null,\"region\":true,\"status\":\"ember-birch-88\",\"type\":91}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-032736-a66ee0adf5fd",
+        "prompt": "record_patch_v1\nrecord {\"priority\":\"ember-harbor-79\",\"zone\":true,\"type\":\"juniper\",\"status\":-9,\"tag\":null,\"tier\":\"lumen\"}\npatch\nSET status \"ember-harbor-78\"\nresult\n",
+        "target": "{\"priority\":\"ember-harbor-79\",\"status\":\"ember-harbor-78\",\"tag\":null,\"tier\":\"lumen\",\"type\":\"juniper\",\"zone\":true}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "set-new",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000001-6734330f9b1d",
+        "nearest_prompt": "record_patch_v1\nrecord {\"priority\":130,\"region\":90,\"tier\":29,\"color\":true,\"tag\":90}\npatch\nSET status 128\nresult\n",
+        "nearest_prompt_similarity": 0.7981220657276995,
+        "nearest_target": "{\"color\":true,\"priority\":130,\"region\":90,\"status\":128,\"tag\":90,\"tier\":29}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-001457-af9c694b6f88",
+        "prompt": "record_patch_v1\nrecord {\"priority\":true,\"type\":20,\"tier\":40,\"color\":13}\npatch\nSET status null\nresult\n",
+        "target": "{\"color\":13,\"priority\":true,\"status\":null,\"tier\":40,\"type\":20}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "delete-existing",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000002-a55acd9a6fa5",
+        "nearest_prompt": "record_patch_v1\nrecord {\"priority\":false,\"color\":null,\"zone\":true,\"tier\":\"ember\",\"status\":\"delta-juniper-90\",\"name\":139}\npatch\nDELETE name\nresult\n",
+        "nearest_prompt_similarity": 0.7985611510791367,
+        "nearest_target": "{\"color\":null,\"priority\":false,\"status\":\"delta-juniper-90\",\"tier\":\"ember\",\"zone\":true}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-021314-4c23938c6a69",
+        "prompt": "record_patch_v1\nrecord {\"group\":false,\"color\":null,\"name\":\"grove\",\"status\":\"birch-juniper-80\",\"tier\":true}\npatch\nDELETE name\nresult\n",
+        "target": "{\"color\":null,\"group\":false,\"status\":\"birch-juniper-80\",\"tier\":true}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "rename-new",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000003-31e4cb3e7d88",
+        "nearest_prompt": "record_patch_v1\nrecord {\"name\":\"indigo-juniper-18\",\"status\":null,\"priority\":\"lumen\",\"category\":119,\"tier\":\"juniper-juniper-57\"}\npatch\nRENAME name zone\nresult\n",
+        "nearest_prompt_similarity": 0.7658227848101266,
+        "nearest_target": "{\"category\":119,\"priority\":\"lumen\",\"status\":null,\"tier\":\"juniper-juniper-57\",\"zone\":\"indigo-juniper-18\"}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-011099-d4176a20a138",
+        "prompt": "record_patch_v1\nrecord {\"mode\":\"indigo-juniper-47\",\"status\":true,\"priority\":\"cedar\",\"active\":37,\"category\":\"indigo\",\"tag\":null}\npatch\nRENAME mode zone\nresult\n",
+        "target": "{\"active\":37,\"category\":\"indigo\",\"priority\":\"cedar\",\"status\":true,\"tag\":null,\"zone\":\"indigo-juniper-47\"}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "overwrite-chain",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000004-0f86ab7a4330",
+        "nearest_prompt": "record_patch_v1\nrecord {\"tier\":false,\"priority\":\"indigo\",\"group\":false,\"mode\":true,\"region\":\"juniper\"}\npatch\nSET tier \"ember-indigo-50\"\nSET tier false\nresult\n",
+        "nearest_prompt_similarity": 0.7235294117647059,
+        "nearest_target": "{\"group\":false,\"mode\":true,\"priority\":\"indigo\",\"region\":\"juniper\",\"tier\":false}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-009924-ca2d7a57a4d9",
+        "prompt": "record_patch_v1\nrecord {\"tier\":false,\"priority\":\"harbor-indigo-36\",\"active\":false,\"category\":false,\"tag\":\"lumen\",\"name\":99}\npatch\nSET tier \"indigo\"\nSET tier \"indigo-birch-24\"\nresult\n",
+        "target": "{\"active\":false,\"category\":false,\"name\":99,\"priority\":\"harbor-indigo-36\",\"tag\":\"lumen\",\"tier\":\"indigo-birch-24\"}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "delete-readd",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000005-cab65fe40b28",
+        "nearest_prompt": "record_patch_v1\nrecord {\"active\":null,\"type\":\"birch\",\"status\":true,\"category\":true,\"zone\":null}\npatch\nDELETE status\nSET status false\nresult\n",
+        "nearest_prompt_similarity": 0.7702702702702703,
+        "nearest_target": "{\"active\":null,\"category\":true,\"status\":false,\"type\":\"birch\",\"zone\":null}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-028949-c8791d24e96a",
+        "prompt": "record_patch_v1\nrecord {\"group\":null,\"owner\":-31,\"color\":\"cedar-birch-42\",\"status\":true,\"name\":86,\"active\":null}\npatch\nDELETE status\nSET status null\nresult\n",
+        "target": "{\"active\":null,\"color\":\"cedar-birch-42\",\"group\":null,\"name\":86,\"owner\":-31,\"status\":null}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "rename-collision",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000006-6b2d2fb3a9bc",
+        "nearest_prompt": "record_patch_v1\nrecord {\"owner\":null,\"priority\":48,\"group\":null,\"active\":-20}\npatch\nRENAME group priority\nresult\n",
+        "nearest_prompt_similarity": 0.8235294117647058,
+        "nearest_target": "{\"active\":-20,\"owner\":null,\"priority\":null}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-008046-0bc72454c0cb",
+        "prompt": "record_patch_v1\nrecord {\"owner\":null,\"priority\":\"indigo\",\"type\":null,\"active\":24,\"group\":\"fjord-ember-92\"}\npatch\nRENAME group priority\nresult\n",
+        "target": "{\"active\":24,\"owner\":null,\"priority\":\"fjord-ember-92\",\"type\":null}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "mixed-sequence",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000007-0fe07045a42b",
+        "nearest_prompt": "record_patch_v1\nrecord {\"category\":true,\"name\":null,\"status\":false,\"type\":null}\npatch\nSET status \"fjord\"\nDELETE type\nRENAME name region\nSET tier \"juniper\"\nresult\n",
+        "nearest_prompt_similarity": 0.7514450867052023,
+        "nearest_target": "{\"category\":true,\"region\":null,\"status\":\"fjord\",\"tier\":\"juniper\"}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-007375-9af73a1b22b1",
+        "prompt": "record_patch_v1\nrecord {\"region\":true,\"category\":null,\"status\":true,\"type\":true,\"color\":null}\npatch\nSET color \"ember\"\nDELETE type\nRENAME region zone\nSET tier \"kestrel-lumen-90\"\nresult\n",
+        "target": "{\"category\":null,\"color\":\"ember\",\"status\":true,\"tier\":\"kestrel-lumen-90\",\"zone\":true}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "set-existing",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000008-e58e102611b3",
+        "nearest_prompt": "record_patch_v1\nrecord {\"color\":true,\"group\":true,\"region\":null,\"category\":-18,\"owner\":null}\npatch\nSET category 96\nresult\n",
+        "nearest_prompt_similarity": 0.7901234567901234,
+        "nearest_target": "{\"category\":96,\"color\":true,\"group\":true,\"owner\":null,\"region\":null}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-025152-3a5104d31055",
+        "prompt": "record_patch_v1\nrecord {\"color\":false,\"region\":true,\"group\":true,\"category\":true,\"tier\":36}\npatch\nSET category -4\nresult\n",
+        "target": "{\"category\":-4,\"color\":false,\"group\":true,\"region\":true,\"tier\":36}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "set-new",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000009-4c9fe337c80d",
+        "nearest_prompt": "record_patch_v1\nrecord {\"type\":\"lumen-kestrel-66\",\"priority\":\"amber\",\"group\":false,\"mode\":\"harbor-cedar-65\",\"owner\":null}\npatch\nSET region 37\nresult\n",
+        "nearest_prompt_similarity": 0.7432432432432432,
+        "nearest_target": "{\"group\":false,\"mode\":\"harbor-cedar-65\",\"owner\":null,\"priority\":\"amber\",\"region\":37,\"type\":\"lumen-kestrel-66\"}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-011673-6b17be102d7b",
+        "prompt": "record_patch_v1\nrecord {\"tier\":true,\"priority\":\"lumen-fjord-84\",\"name\":\"lumen\",\"mode\":\"fjord-cedar-70\",\"owner\":14}\npatch\nSET region \"delta\"\nresult\n",
+        "target": "{\"mode\":\"fjord-cedar-70\",\"name\":\"lumen\",\"owner\":14,\"priority\":\"lumen-fjord-84\",\"region\":\"delta\",\"tier\":true}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "delete-existing",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000010-4a49bf743250",
+        "nearest_prompt": "record_patch_v1\nrecord {\"owner\":-42,\"type\":false,\"region\":-42,\"name\":null}\npatch\nDELETE name\nresult\n",
+        "nearest_prompt_similarity": 0.8627450980392157,
+        "nearest_target": "{\"owner\":-42,\"region\":-42,\"type\":false}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-012210-7aa3bbf56f3d",
+        "prompt": "record_patch_v1\nrecord {\"tier\":-20,\"type\":false,\"region\":false,\"owner\":null}\npatch\nDELETE region\nresult\n",
+        "target": "{\"owner\":null,\"tier\":-20,\"type\":false}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "rename-new",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000011-c284bf891476",
+        "nearest_prompt": "record_patch_v1\nrecord {\"color\":false,\"zone\":1,\"tag\":\"juniper\",\"owner\":true,\"name\":\"ember\"}\npatch\nRENAME tag region\nresult\n",
+        "nearest_prompt_similarity": 0.7675276752767528,
+        "nearest_target": "{\"color\":false,\"name\":\"ember\",\"owner\":true,\"region\":\"juniper\",\"zone\":1}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-027955-63717fe84865",
+        "prompt": "record_patch_v1\nrecord {\"color\":null,\"group\":\"ember-fjord-02\",\"category\":\"juniper\",\"zone\":true,\"name\":\"kestrel\"}\npatch\nRENAME category owner\nresult\n",
+        "target": "{\"color\":null,\"group\":\"ember-fjord-02\",\"name\":\"kestrel\",\"owner\":\"juniper\",\"zone\":true}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "overwrite-chain",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000012-ce396c423428",
+        "nearest_prompt": "record_patch_v1\nrecord {\"status\":false,\"mode\":\"kestrel-cedar-92\",\"tag\":\"delta-birch-49\",\"region\":false,\"category\":null}\npatch\nSET region true\nSET region \"amber\"\nresult\n",
+        "nearest_prompt_similarity": 0.7470588235294118,
+        "nearest_target": "{\"category\":null,\"mode\":\"kestrel-cedar-92\",\"region\":\"amber\",\"status\":false,\"tag\":\"delta-birch-49\"}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-026620-62446d8a4287",
+        "prompt": "record_patch_v1\nrecord {\"type\":null,\"group\":false,\"priority\":\"kestrel-cedar-42\",\"status\":\"birch\",\"name\":\"lumen\",\"region\":false}\npatch\nSET region true\nSET region -38\nresult\n",
+        "target": "{\"group\":false,\"name\":\"lumen\",\"priority\":\"kestrel-cedar-42\",\"region\":-38,\"status\":\"birch\",\"type\":null}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "delete-readd",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000013-782a7b28c88c",
+        "nearest_prompt": "record_patch_v1\nrecord {\"category\":107,\"group\":\"juniper\",\"status\":false,\"mode\":null}\npatch\nDELETE status\nSET status null\nresult\n",
+        "nearest_prompt_similarity": 0.7870036101083032,
+        "nearest_target": "{\"category\":107,\"group\":\"juniper\",\"mode\":null,\"status\":null}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-011933-973df6ee9ef9",
+        "prompt": "record_patch_v1\nrecord {\"category\":-16,\"priority\":\"cedar\",\"group\":\"fjord\",\"status\":\"harbor\",\"zone\":true}\npatch\nDELETE status\nSET status false\nresult\n",
+        "target": "{\"category\":-16,\"group\":\"fjord\",\"priority\":\"cedar\",\"status\":false,\"zone\":true}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "rename-collision",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000014-02bfaf50533d",
+        "nearest_prompt": "record_patch_v1\nrecord {\"zone\":43,\"tag\":\"indigo-grove-79\",\"priority\":null,\"color\":95}\npatch\nRENAME priority tag\nresult\n",
+        "nearest_prompt_similarity": 0.7782101167315175,
+        "nearest_target": "{\"color\":95,\"tag\":null,\"zone\":43}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-029174-02b012421ec0",
+        "prompt": "record_patch_v1\nrecord {\"region\":77,\"name\":136,\"tag\":\"indigo\",\"group\":null,\"priority\":true,\"color\":\"ember\"}\npatch\nRENAME group tag\nresult\n",
+        "target": "{\"color\":\"ember\",\"name\":136,\"priority\":true,\"region\":77,\"tag\":null}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "mixed-sequence",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000015-c36de220cf7f",
+        "nearest_prompt": "record_patch_v1\nrecord {\"category\":null,\"name\":null,\"mode\":\"amber-delta-47\",\"status\":-11,\"type\":null,\"color\":null}\npatch\nSET mode null\nDELETE status\nRENAME name tag\nSET active \"juniper\"\nresult\n",
+        "nearest_prompt_similarity": 0.7215496368038741,
+        "nearest_target": "{\"active\":\"juniper\",\"category\":null,\"color\":null,\"mode\":null,\"tag\":null,\"type\":null}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-003055-9043b06a34fa",
+        "prompt": "record_patch_v1\nrecord {\"category\":null,\"name\":\"harbor-cedar-94\",\"mode\":\"cedar-ember-89\",\"status\":124,\"priority\":null,\"owner\":null}\npatch\nSET mode 107\nDELETE owner\nRENAME priority tier\nSET color \"indigo-ember-18\"\nresult\n",
+        "target": "{\"category\":null,\"color\":\"indigo-ember-18\",\"mode\":107,\"name\":\"harbor-cedar-94\",\"status\":124,\"tier\":null}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "set-existing",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000016-7961f71a774e",
+        "nearest_prompt": "record_patch_v1\nrecord {\"category\":false,\"active\":\"fjord\",\"type\":true,\"mode\":null}\npatch\nSET type null\nresult\n",
+        "nearest_prompt_similarity": 0.8266666666666667,
+        "nearest_target": "{\"active\":\"fjord\",\"category\":false,\"mode\":null,\"type\":null}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-024944-558a0936da35",
+        "prompt": "record_patch_v1\nrecord {\"priority\":84,\"active\":57,\"color\":17,\"tier\":true,\"mode\":null}\npatch\nSET active null\nresult\n",
+        "target": "{\"active\":null,\"color\":17,\"mode\":null,\"priority\":84,\"tier\":true}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "set-new",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000017-e19ff717275d",
+        "nearest_prompt": "record_patch_v1\nrecord {\"name\":true,\"type\":false,\"status\":null,\"zone\":\"grove\"}\npatch\nSET mode null\nresult\n",
+        "nearest_prompt_similarity": 0.7469879518072289,
+        "nearest_target": "{\"mode\":null,\"name\":true,\"status\":null,\"type\":false,\"zone\":\"grove\"}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-018097-5e8e40b7bd0b",
+        "prompt": "record_patch_v1\nrecord {\"zone\":true,\"tier\":\"ember-kestrel-97\",\"tag\":128,\"status\":null,\"group\":false,\"mode\":\"grove\"}\npatch\nSET type null\nresult\n",
+        "target": "{\"group\":false,\"mode\":\"grove\",\"status\":null,\"tag\":128,\"tier\":\"ember-kestrel-97\",\"type\":null,\"zone\":true}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "delete-existing",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000018-4cc0829fcf27",
+        "nearest_prompt": "record_patch_v1\nrecord {\"mode\":85,\"name\":28,\"type\":false,\"owner\":null}\npatch\nDELETE mode\nresult\n",
+        "nearest_prompt_similarity": 0.8571428571428571,
+        "nearest_target": "{\"name\":28,\"owner\":null,\"type\":false}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-011978-a63b8cf390aa",
+        "prompt": "record_patch_v1\nrecord {\"mode\":89,\"zone\":null,\"type\":true,\"category\":null}\npatch\nDELETE mode\nresult\n",
+        "target": "{\"category\":null,\"type\":true,\"zone\":null}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "rename-new",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000019-1b8c858cde67",
+        "nearest_prompt": "record_patch_v1\nrecord {\"type\":true,\"tier\":\"cedar\",\"priority\":true,\"active\":\"harbor\"}\npatch\nRENAME priority owner\nresult\n",
+        "nearest_prompt_similarity": 0.8015873015873016,
+        "nearest_target": "{\"active\":\"harbor\",\"owner\":true,\"tier\":\"cedar\",\"type\":true}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-028531-cf5b88f71b4f",
+        "prompt": "record_patch_v1\nrecord {\"type\":-31,\"zone\":true,\"tier\":108,\"priority\":true,\"name\":\"cedar-indigo-87\"}\npatch\nRENAME type owner\nresult\n",
+        "target": "{\"name\":\"cedar-indigo-87\",\"owner\":-31,\"priority\":true,\"tier\":108,\"zone\":true}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "overwrite-chain",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000020-76522a94f83d",
+        "nearest_prompt": "record_patch_v1\nrecord {\"name\":\"ember\",\"region\":\"juniper-cedar-77\",\"mode\":null,\"tier\":\"ember\",\"active\":false}\npatch\nSET mode false\nSET mode \"harbor\"\nresult\n",
+        "nearest_prompt_similarity": 0.75,
+        "nearest_target": "{\"active\":false,\"mode\":\"harbor\",\"name\":\"ember\",\"region\":\"juniper-cedar-77\",\"tier\":\"ember\"}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-032492-3fd1f8ee390f",
+        "prompt": "record_patch_v1\nrecord {\"mode\":\"ember\",\"region\":\"amber\",\"status\":null,\"group\":\"lumen\",\"name\":\"birch\"}\npatch\nSET mode false\nSET mode \"fjord-delta-31\"\nresult\n",
+        "target": "{\"group\":\"lumen\",\"mode\":\"fjord-delta-31\",\"name\":\"birch\",\"region\":\"amber\",\"status\":null}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "delete-readd",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000021-fe062610dbdc",
+        "nearest_prompt": "record_patch_v1\nrecord {\"status\":\"grove\",\"region\":false,\"group\":false,\"mode\":null}\npatch\nDELETE region\nSET region \"birch\"\nresult\n",
+        "nearest_prompt_similarity": 0.8239700374531835,
+        "nearest_target": "{\"group\":false,\"mode\":null,\"region\":\"birch\",\"status\":\"grove\"}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-032469-4fc8d7921e84",
+        "prompt": "record_patch_v1\nrecord {\"type\":\"indigo\",\"status\":\"birch\",\"region\":true,\"group\":true,\"mode\":null}\npatch\nDELETE region\nSET region 99\nresult\n",
+        "target": "{\"group\":true,\"mode\":null,\"region\":99,\"status\":\"birch\",\"type\":\"indigo\"}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "rename-collision",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000022-fa51a4a575b1",
+        "nearest_prompt": "record_patch_v1\nrecord {\"region\":false,\"category\":null,\"group\":14,\"owner\":\"cedar-amber-60\"}\npatch\nRENAME category owner\nresult\n",
+        "nearest_prompt_similarity": 0.782258064516129,
+        "nearest_target": "{\"group\":14,\"owner\":null,\"region\":false}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-014270-7c01d57fa309",
+        "prompt": "record_patch_v1\nrecord {\"category\":-8,\"zone\":\"harbor\",\"group\":112,\"name\":\"cedar-amber-60\"}\npatch\nRENAME name zone\nresult\n",
+        "target": "{\"category\":-8,\"group\":112,\"zone\":\"cedar-amber-60\"}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "mixed-sequence",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000023-7bd034e1ad5b",
+        "nearest_prompt": "record_patch_v1\nrecord {\"mode\":8,\"color\":\"juniper\",\"category\":\"ember-cedar-60\",\"type\":102,\"zone\":true}\npatch\nSET category null\nDELETE type\nRENAME mode priority\nSET name null\nresult\n",
+        "nearest_prompt_similarity": 0.7180851063829787,
+        "nearest_target": "{\"category\":null,\"color\":\"juniper\",\"name\":null,\"priority\":8,\"zone\":true}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-026615-6a2f9e9ca73f",
+        "prompt": "record_patch_v1\nrecord {\"zone\":\"cedar\",\"color\":null,\"active\":\"lumen\",\"type\":\"ember-cedar-11\",\"tier\":\"birch\",\"owner\":\"indigo\"}\npatch\nSET active 44\nDELETE type\nRENAME zone tag\nSET mode null\nresult\n",
+        "target": "{\"active\":44,\"color\":null,\"mode\":null,\"owner\":\"indigo\",\"tag\":\"cedar\",\"tier\":\"birch\"}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "set-existing",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000024-dda6b29e0aa1",
+        "nearest_prompt": "record_patch_v1\nrecord {\"tier\":121,\"priority\":true,\"group\":\"amber\",\"owner\":-3}\npatch\nSET priority 11\nresult\n",
+        "nearest_prompt_similarity": 0.7811158798283262,
+        "nearest_target": "{\"group\":\"amber\",\"owner\":-3,\"priority\":11,\"tier\":121}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-025248-7afb0fa231a7",
+        "prompt": "record_patch_v1\nrecord {\"zone\":-22,\"priority\":true,\"active\":\"grove-amber-79\",\"color\":\"juniper\"}\npatch\nSET priority 32\nresult\n",
+        "target": "{\"active\":\"grove-amber-79\",\"color\":\"juniper\",\"priority\":32,\"zone\":-22}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "set-new",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000025-e4ac1b7428c6",
+        "nearest_prompt": "record_patch_v1\nrecord {\"mode\":\"harbor-juniper-40\",\"priority\":\"ember\",\"color\":\"ember\",\"status\":\"amber\"}\npatch\nSET name null\nresult\n",
+        "nearest_prompt_similarity": 0.7665505226480837,
+        "nearest_target": "{\"color\":\"ember\",\"mode\":\"harbor-juniper-40\",\"name\":null,\"priority\":\"ember\",\"status\":\"amber\"}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-001545-4d81af08af90",
+        "prompt": "record_patch_v1\nrecord {\"mode\":\"juniper\",\"priority\":\"ember\",\"type\":143,\"color\":null,\"status\":\"indigo-birch-39\",\"name\":false}\npatch\nSET category null\nresult\n",
+        "target": "{\"category\":null,\"color\":null,\"mode\":\"juniper\",\"name\":false,\"priority\":\"ember\",\"status\":\"indigo-birch-39\",\"type\":143}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "delete-existing",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000026-1a8c790c93ee",
+        "nearest_prompt": "record_patch_v1\nrecord {\"active\":true,\"region\":null,\"type\":-37,\"tag\":33,\"color\":null}\npatch\nDELETE type\nresult\n",
+        "nearest_prompt_similarity": 0.8640776699029126,
+        "nearest_target": "{\"active\":true,\"color\":null,\"region\":null,\"tag\":33}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-026946-746e01cca3a5",
+        "prompt": "record_patch_v1\nrecord {\"zone\":null,\"type\":138,\"tag\":66,\"color\":null}\npatch\nDELETE type\nresult\n",
+        "target": "{\"color\":null,\"tag\":66,\"zone\":null}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "rename-new",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000027-a95d73d8ca9f",
+        "nearest_prompt": "record_patch_v1\nrecord {\"owner\":false,\"tag\":null,\"priority\":true,\"type\":\"kestrel-cedar-15\"}\npatch\nRENAME type zone\nresult\n",
+        "nearest_prompt_similarity": 0.7916666666666666,
+        "nearest_target": "{\"owner\":false,\"priority\":true,\"tag\":null,\"zone\":\"kestrel-cedar-15\"}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-000331-ce6af4915c4f",
+        "prompt": "record_patch_v1\nrecord {\"owner\":false,\"zone\":null,\"mode\":21,\"type\":\"amber-kestrel-17\"}\npatch\nRENAME mode group\nresult\n",
+        "target": "{\"group\":21,\"owner\":false,\"type\":\"amber-kestrel-17\",\"zone\":null}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "overwrite-chain",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000028-1fa1819cc72d",
+        "nearest_prompt": "record_patch_v1\nrecord {\"type\":\"kestrel\",\"mode\":false,\"tag\":85,\"region\":\"lumen-indigo-75\"}\npatch\nSET region null\nSET region 147\nresult\n",
+        "nearest_prompt_similarity": 0.795774647887324,
+        "nearest_target": "{\"mode\":false,\"region\":147,\"tag\":85,\"type\":\"kestrel\"}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-021228-5a343a24204a",
+        "prompt": "record_patch_v1\nrecord {\"zone\":\"grove-cedar-33\",\"status\":false,\"priority\":25,\"region\":\"indigo-indigo-17\"}\npatch\nSET region null\nSET region 78\nresult\n",
+        "target": "{\"priority\":25,\"region\":78,\"status\":false,\"zone\":\"grove-cedar-33\"}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "delete-readd",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000029-6d7cad6e5916",
+        "nearest_prompt": "record_patch_v1\nrecord {\"tier\":108,\"priority\":false,\"status\":\"juniper-fjord-90\",\"category\":\"cedar\",\"color\":null,\"mode\":null}\npatch\nDELETE status\nSET status 22\nresult\n",
+        "nearest_prompt_similarity": 0.7770700636942676,
+        "nearest_target": "{\"category\":\"cedar\",\"color\":null,\"mode\":null,\"priority\":false,\"status\":22,\"tier\":108}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-031213-0bb153e764d1",
+        "prompt": "record_patch_v1\nrecord {\"status\":null,\"priority\":27,\"tag\":\"juniper-ember-20\",\"category\":-24,\"region\":null}\npatch\nDELETE status\nSET status 68\nresult\n",
+        "target": "{\"category\":-24,\"priority\":27,\"region\":null,\"status\":68,\"tag\":\"juniper-ember-20\"}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "rename-collision",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000030-de4908fa3def",
+        "nearest_prompt": "record_patch_v1\nrecord {\"owner\":15,\"active\":false,\"tag\":\"delta\",\"status\":false,\"group\":\"harbor\"}\npatch\nRENAME owner status\nresult\n",
+        "nearest_prompt_similarity": 0.7659574468085106,
+        "nearest_target": "{\"active\":false,\"group\":\"harbor\",\"status\":15,\"tag\":\"delta\"}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-007022-0dd36317c05f",
+        "prompt": "record_patch_v1\nrecord {\"owner\":true,\"group\":null,\"tag\":-15,\"status\":false,\"region\":false,\"active\":\"harbor-harbor-24\"}\npatch\nRENAME owner status\nresult\n",
+        "target": "{\"active\":\"harbor-harbor-24\",\"group\":null,\"region\":false,\"status\":true,\"tag\":-15}",
+        "target_occurrences_in_train": 0
+      },
+      {
+        "bucket": "mixed-sequence",
+        "exact_prompt_in_train": false,
+        "id": "record-patch-v1-behavioral_validation-000031-122de1ad4355",
+        "nearest_prompt": "record_patch_v1\nrecord {\"tier\":true,\"owner\":null,\"group\":true,\"mode\":null,\"color\":null}\npatch\nSET group \"grove\"\nDELETE tier\nRENAME color active\nSET status null\nresult\n",
+        "nearest_prompt_similarity": 0.8164556962025317,
+        "nearest_target": "{\"active\":null,\"group\":\"grove\",\"mode\":null,\"owner\":null,\"status\":null}",
+        "nearest_target_equal": false,
+        "nearest_train_id": "record-patch-v1-train-003951-7f8c9b7276f5",
+        "prompt": "record_patch_v1\nrecord {\"tier\":true,\"group\":true,\"tag\":null,\"owner\":null}\npatch\nSET owner \"amber\"\nDELETE tier\nRENAME tag mode\nSET status null\nresult\n",
+        "target": "{\"group\":true,\"mode\":null,\"owner\":\"amber\",\"status\":null}",
+        "target_occurrences_in_train": 0
+      }
+    ],
+    "train_examples": 32768,
+    "validation_examples": 32,
+    "validation_targets_seen_in_train": 0
+  },
+  "coverage": {
+    "continuation_packed_sequences": 1536,
+    "continuation_steps": 384,
+    "final_step": 512,
+    "proposed_campaign_steps": 2048,
+    "proposed_sequence_epochs": 1.7739281074058033,
+    "resume_step": 128,
+    "total_loss_weight_sum": 1048576,
+    "total_packed_sequences_seen": 2048,
+    "total_sequence_epochs": 0.44348202685145083,
+    "total_token_epochs": 0.443392951303041,
+    "train_packed_sequences": 4618,
+    "train_tokens": 2364891
+  },
+  "credit": {
+    "community_campaign": false,
+    "donated_compute": false,
+    "statement": "This was owner-operated local benchmark qualification, not a community campaign. No community compute contribution is claimed in this result."
+  },
+  "dataset_revision": "4e71f26b3e06b15360eef333ced96a16791dc2bc9ad9c29ff11d8b728106baae",
+  "disposition": {
+    "benchmark_gate_passed": false,
+    "community_campaign_authorized_by_this_result": false,
+    "general_capability_claim_evaluated": false,
+    "language_diagnostic_passed": true,
+    "model_promotion_authorized_by_this_result": false,
+    "narrow_task_claim_supported": false,
+    "record_exact_match_gate_passed": false,
+    "selected_checkpoint": {
+      "model_sha256": "4c224ecc8e5f395c42876d21d47084ae704e208974c4374c8669c947afad02a8",
+      "step": 512
+    }
+  },
+  "format": "orcacolony_record_patch_continuation_analysis_v1",
+  "holdout": {
+    "behavioral_final_holdout_opened": false,
+    "language_final_holdout_evaluated": false
+  },
+  "hypotheses": [
+    {
+      "basis": "Canonical JSON reached 30/32 while exact and semantic record matches stayed at zero. Expected key-value recall was also low.",
+      "id": "syntax-before-task-conditioning",
+      "status": "observed_pattern"
+    },
+    {
+      "basis": "Prompt loss continued to improve through step 512 while answer loss was best at step 256 and no complete answer was correct under teacher forcing.",
+      "id": "all-token-objective-efficiency",
+      "status": "plausible_not_proven"
+    },
+    {
+      "basis": "The trajectory covered less than half of one packed-data epoch, but added exposure improved formatting without producing a task-correct example.",
+      "id": "insufficient-exposure",
+      "status": "still_possible_not_isolated"
+    }
+  ],
+  "limitations": [
+    "This deterministic continuation does not estimate variation across random seeds.",
+    "The continuation schedule was chosen after inspecting the failed 128-step public run, so it is a new control rather than a preregistered extension of that run.",
+    "Repeated public validation can guide later recipe choices and may overfit those public diagnostics.",
+    "Public behavioral validation is diagnostic and cannot replace the reserved promotion holdout.",
+    "The all-target causal transcript objective trains prompt tokens as well as answer tokens.",
+    "A passed continuation gate permits planning volunteer training; it does not classify or promote a capability model.",
+    "The 32-example public suite gives a coarse task estimate and has been used repeatedly for recipe decisions.",
+    "Teacher-forced token accuracy is diagnostic and does not replace free-running exact task evaluation.",
+    "The simple reference scores are derived directly from the public task records; Hugging Face publication should retain the runnable evaluator and exact revisions."
+  ],
+  "observations": [
+    "Public language mean loss fell from 1.56358497243532 at step 128 to 1.2297416774319931 at step 512.",
+    "Strict canonical JSON rose from 0.0 at step 128 to 0.9375 at step 512.",
+    "The selected checkpoint remained 0/32 exact and 0.0 semantic match.",
+    "Across all public examples, the selected checkpoint reproduced 6 of 158 expected key-value pairs.",
+    "Teacher-forced answer-token accuracy improved, but no checkpoint produced a complete teacher-forced answer.",
+    "The complete trajectory covered 2048/4618 packed sequences, or 0.443 epochs."
+  ],
+  "optimizer_diagnostics": {
+    "clipped_step_ratio": 0.3671875,
+    "clipped_steps": 141,
+    "first_step": 129,
+    "gradient_global_norm_before_clipping": {
+      "max": 2.544095277786255,
+      "mean": 0.9661105467627445,
+      "median": 0.9013716280460358,
+      "min": 0.544594407081604,
+      "p25": 0.7744702696800232,
+      "p75": 1.087497591972351
+    },
+    "last_step": 512,
+    "milestones": [
+      {
+        "clipped": true,
+        "gradient_global_norm_before_clipping": 1.5723870992660522,
+        "relative_update_global_norm": 0.0020386644065102486,
+        "step": 129,
+        "training_mean_loss": 1.5602467060089111,
+        "update_global_norm": 0.24946146926318957
+      },
+      {
+        "clipped": true,
+        "gradient_global_norm_before_clipping": 1.0923067331314087,
+        "relative_update_global_norm": 0.002273404010619307,
+        "step": 160,
+        "training_mean_loss": 1.54556405544281,
+        "update_global_norm": 0.28217462592651676
+      },
+      {
+        "clipped": true,
+        "gradient_global_norm_before_clipping": 1.2047706842422485,
+        "relative_update_global_norm": 0.002297984364407311,
+        "step": 192,
+        "training_mean_loss": 1.4757734537124634,
+        "update_global_norm": 0.2908050139775354
+      },
+      {
+        "clipped": true,
+        "gradient_global_norm_before_clipping": 1.1270942687988281,
+        "relative_update_global_norm": 0.002384216235484532,
+        "step": 224,
+        "training_mean_loss": 1.4543871879577637,
+        "update_global_norm": 0.30873889421745326
+      },
+      {
+        "clipped": true,
+        "gradient_global_norm_before_clipping": 1.0239074230194092,
+        "relative_update_global_norm": 0.002613081717588602,
+        "step": 256,
+        "training_mean_loss": 1.3853203058242798,
+        "update_global_norm": 0.3473741874684631
+      },
+      {
+        "clipped": false,
+        "gradient_global_norm_before_clipping": 0.924106240272522,
+        "relative_update_global_norm": 0.0025144058388776383,
+        "step": 320,
+        "training_mean_loss": 1.2817317247390747,
+        "update_global_norm": 0.3538607180925073
+      },
+      {
+        "clipped": false,
+        "gradient_global_norm_before_clipping": 0.7803208231925964,
+        "relative_update_global_norm": 0.002340060835134689,
+        "step": 384,
+        "training_mean_loss": 1.2011187076568604,
+        "update_global_norm": 0.3494157929262429
+      },
+      {
+        "clipped": false,
+        "gradient_global_norm_before_clipping": 0.9024791121482849,
+        "relative_update_global_norm": 0.00176719667241337,
+        "step": 448,
+        "training_mean_loss": 1.239937424659729,
+        "update_global_norm": 0.2775197700491421
+      },
+      {
+        "clipped": false,
+        "gradient_global_norm_before_clipping": 0.6611686944961548,
+        "relative_update_global_norm": 0.0016339735660689811,
+        "step": 512,
+        "training_mean_loss": 1.2454975843429565,
+        "update_global_norm": 0.2675609058166536
+      }
+    ],
+    "relative_update_global_norm": {
+      "max": 0.0027328069362808597,
+      "mean": 0.002231648848958812,
+      "median": 0.0022933412768914065,
+      "min": 0.0014729762176149467,
+      "p25": 0.002081991234533068,
+      "p75": 0.0024469003525557625
+    },
+    "steps": 384,
+    "training_mean_loss": {
+      "max": 1.6262627840042114,
+      "mean": 1.3315813206136227,
+      "median": 1.298143982887268,
+      "min": 1.1653841733932495,
+      "p25": 1.2423224449157715,
+      "p75": 1.4177800416946411
+    },
+    "update_global_norm": {
+      "max": 0.3817967397084423,
+      "mean": 0.31341663032451655,
+      "median": 0.3182284189936313,
+      "min": 0.23641024521347653,
+      "p25": 0.2884919185573874,
+      "p75": 0.33964694847530236
+    }
+  },
+  "recommended_next_control": {
+    "change": "Add an explicit answer-token mask and compare an answer-only causal objective from the same initialization for 512 steps.",
+    "constants": "Keep the model, tokenizer, examples, order, batch size, optimizer, learning rate, decoding, public milestones, and task evaluator fixed.",
+    "holdout_policy": "Use only public validation and keep both reserved final holdouts closed.",
+    "reason": "This tests whether spending loss weight on the prompt is preventing efficient learning of the output transformation."
+  },
+  "reporting_position": {
+    "author_type": "software_agent",
+    "statement": "These are the agent's findings from the bounded local continuation. The frozen benchmark data, evaluator, model revision, and public scores are the reproducible record."
+  },
+  "resources": {
+    "behavioral_evaluation_wall_seconds": 91.89820161699754,
+    "clipped_continuation_steps": 141,
+    "continuation_loss_weight_sum": 786432,
+    "continuation_step_wall_seconds": 1733.158534292059,
+    "continuation_steps_completed": 384,
+    "continuation_training_wall_seconds": 1740.9558716909996,
+    "donated_compute": false,
+    "execution": "owner-operated centralized CPU reference",
+    "final_step": 512,
+    "language_evaluation_wall_seconds": 75.18649568900219,
+    "maximum_peak_rss_bytes": 3221225472,
+    "peak_rss_bytes": 1590751232,
+    "resume_step": 128,
+    "total_trajectory_loss_weight_sum": 1048576,
+    "total_wall_seconds_before_packaging": 1914.6915368079972
+  },
+  "run_checksums_sha256": "60321e950d8dd7e4389324961fabde928bc5762710f6bf8e12fc517c8ac5111a",
+  "run_evidence_sha256": "2f21e2a4feac7dc6a6a9c7c20afee700212190781c0eb9a4b140b43a1b2441f6",
+  "source_commit": {
+    "commit": "2cd4a38f6b6153621064f721720649ae9c453c2b",
+    "dirty": false
+  }
+}

@@ -42,8 +42,8 @@
 </head>
 <body>
 <main>
-  <div class="eyebrow">OrcaColony / Report 011 / Capability qualification</div>
-  <div class="status">GATE FAILED · VOLUNTEER TRAINING REMAINS BLOCKED</div>
+  <div class="eyebrow">OrcaColony / Report 011 / Task benchmark preflight</div>
+  <div class="status">TASK GATE FAILED · NO COMMUNITY CAMPAIGN STARTED</div>
   <div class="hero">
     <div>
       <h1>Language loss fell 83%. Exact patch execution stayed at zero.</h1>
@@ -51,7 +51,7 @@
     </div>
     <aside class="verdict">
       <strong>The recipe learned structure, not the task.</strong>
-      <p>Step 128 was selected only by public language loss. It scored 0/32 exact, 0/32 semantic, and 0/32 strict valid JSON. No donated compute or model promotion is justified by this result.</p>
+      <p>Step 128 was selected only by public language loss. It scored 0/32 exact, 0/32 semantic, and 0/32 strict valid JSON. No community compute or task-model promotion is justified by this result.</p>
     </aside>
   </div>
 
@@ -175,8 +175,8 @@
     <h2>What follows from this result</h2>
     <ol>
       <li>Do not request volunteer compute for the current checkpoint yet.</li>
-      <li>Freeze a continuation protocol and resume the exact step-128 model, AdamW state, data cursor, objective, learning rate, and decoding policy at later public milestones.</li>
-      <li>If exact behavior appears, repeat the bounded check and then prepare a reviewed volunteer launch. If it does not, test target-only loss and a lower or scheduled learning rate as separate controlled experiments.</li>
+      <li>The exposure-only continuation has now been completed through step 512. See <a href="record-patch-t2-continuation-v1.html">Report 012</a>.</li>
+      <li>Because exact behavior remained at zero, test answer-only loss next while keeping the model, data, order, optimizer, learning rate, decoding, and evaluator fixed.</li>
       <li>Keep both reserved holdouts closed until checkpoint selection under a campaign that has actually passed its public learnability gate.</li>
     </ol>
   </section>
@@ -210,7 +210,7 @@ uv run python -m orcacolony.record_patch_learnability \
   --output reports/evidence/record-patch-t2-learnability-v1.json</pre>
   </section>
 
-  <footer>OrcaColony Report 011 · 2026-07-26 · Negative pre-volunteer qualification result, not a model release</footer>
+  <footer>OrcaColony Report 011 · 2026-07-26 · Agent findings from a failed narrow task-benchmark preflight</footer>
 </main>
 </body>
 </html>
