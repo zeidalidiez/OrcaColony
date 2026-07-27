@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Record Patch T2 continuation findings | OrcaColony</title>
+  <style>
+    :root{--paper:#f4f1e8;--ink:#15272b;--muted:#5d6b69;--ocean:#075e66;--orange:#bd632d;--red:#8f3f32;--line:#c8d0ca;--soft:#e7ebe4;--white:#fffefa}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.58 "Segoe UI",sans-serif}
+    main{max-width:1100px;margin:auto;padding:44px 28px 80px}
+    .eyebrow{font:700 12px/1 monospace;letter-spacing:.16em;color:var(--ocean);text-transform:uppercase}
+    .status{display:inline-block;margin:18px 0;padding:7px 11px;border:1px solid var(--red);color:var(--red);font:700 12px monospace}
+    .hero{display:grid;grid-template-columns:1.55fr .8fr;gap:56px;border-bottom:2px solid var(--ink);padding-bottom:36px}
+    h1{font:700 clamp(38px,6vw,70px)/.98 Georgia,serif;letter-spacing:-.035em;margin:18px 0}
+    .lede{font:20px/1.45 Georgia,serif}
+    .verdict{border-top:5px solid var(--red);padding-top:18px}
+    .verdict strong{display:block;font:700 24px Georgia,serif;margin-bottom:10px}
+    section{padding:38px 0;border-bottom:1px solid var(--line)}
+    h2{font:700 30px Georgia,serif;margin:0 0 18px}
+    h3{font:700 20px Georgia,serif;margin:24px 0 8px}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+    .metric{background:var(--soft);padding:20px}
+    .metric b{display:block;font:700 30px Georgia,serif;color:var(--ocean)}
+    .fail{color:var(--red)!important}
+    .good{color:var(--ocean)!important}
+    table{width:100%;border-collapse:collapse}
+    th,td{text-align:left;vertical-align:top;padding:11px 8px;border-bottom:1px solid var(--line)}
+    th{font:700 12px monospace;text-transform:uppercase;color:var(--muted)}
+    code{font:13px Consolas,monospace;overflow-wrap:anywhere}
+    pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--white);border:1px solid var(--line);padding:16px;font:13px/1.5 Consolas,monospace}
+    a{color:var(--ocean)}
+    .callout{background:var(--soft);border-left:5px solid var(--orange);padding:20px 24px}
+    .negative{border-left-color:var(--red)}
+    .split{display:grid;grid-template-columns:1fr 1fr;gap:28px}
+    .label{font:700 12px monospace;text-transform:uppercase;color:var(--muted)}
+    footer{padding-top:30px;color:var(--muted);font-size:13px}
+    @media(max-width:800px){.hero,.grid,.split{grid-template-columns:1fr}.verdict{margin-top:10px}}
+    @media print{body{background:#fff}main{max-width:none}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">OrcaColony / Report 012 / Agent findings</div>
+  <div class="status">NARROW TASK GATE FAILED · NO COMMUNITY CAMPAIGN STARTED</div>
+  <div class="hero">
+    <div>
+      <h1>JSON formatting improved. Record editing did not.</h1>
+      <p class="lede">I continued the exact step-128 trajectory to step 512. The model learned to emit strict canonical JSON on 30 of 32 public cases, but it did not produce one correct patched record.</p>
+    </div>
+    <aside class="verdict">
+      <strong>My finding: more exposure taught output form, not the usage scenario.</strong>
+      <p>The language-selected step-512 checkpoint scored 0/32 exact and 0/32 semantic record matches. This result does not support even the narrow Record Patch task claim, and it says nothing about general intelligence.</p>
+    </aside>
+  </div>
+
+  <section>
+    <h2>Answer first</h2>
+    <div class="grid">
+      <div class="metric"><b class="good">1.5636 → 1.2297</b>public language mean loss</div>
+      <div class="metric"><b class="good">0 → 30 / 32</b>strict canonical JSON</div>
+      <div class="metric"><b class="fail">0 / 32</b>exact patched records</div>
+      <div class="metric"><b class="fail">6 / 158</b>expected key-value pairs reproduced</div>
+    </div>
+    <p>The language diagnostic selected step 512 without using task behavior. The task gate required at least one additional exact public record and did not pass. Neither reserved final holdout was opened.</p>
+  </section>
+
+  <section>
+    <h2>What this benchmark measures</h2>
+    <p>Record Patch v1 represents one practical operation: take a flat JSON record, apply ordered <code>SET</code>, <code>DELETE</code>, and <code>RENAME</code> instructions, then emit the exact canonical result. Exact match is intentionally strict because a missing field, wrong value, duplicate key, or unapplied operation makes a transformed record unusable.</p>
+    <table>
+      <thead>
+        <tr><th>Reference</th><th>Public exact score</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Copy the input record</td><td>0/32</td><td>Ignoring every patch does not pass.</td></tr>
+        <tr><td>Return an empty object</td><td>0/32</td><td>A trivial valid-JSON response does not pass.</td></tr>
+        <tr><td>Deterministic task oracle</td><td>32/32</td><td>The frozen operation semantics reach the full score.</td></tr>
+        <tr><td>Step-512 model</td><td>0/32</td><td>The trained model did not execute the task.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout"><strong>Claim boundary:</strong> a passing score would support performance on this task and frozen distribution only. It would not establish broad reasoning ability or a higher general capability class.</div>
+  </section>
+
+  <section>
+    <h2>The control changed exposure only</h2>
+    <table>
+      <tbody>
+        <tr><th>Protocol</th><td><code>record-patch-t2-centralized-continuation-v1</code></td></tr>
+        <tr><th>Resume identity</th><td>Exact step-128 model, AdamW moments, 128-loss history, and data cursor 512</td></tr>
+        <tr><th>Milestones</th><td>Total trajectory steps 128, 256, and 512</td></tr>
+        <tr><th>Selection</th><td>Lowest public language-validation mean loss. Task scores could not select the checkpoint.</td></tr>
+        <tr><th>Objective</th><td><code>causal_lm</code> with <code>all_target_tokens</code> over prompt and answer</td></tr>
+        <tr><th>Decoding</th><td>Greedy, temperature 0, at most 64 new tokens, stop at newline or EOS</td></tr>
+        <tr><th>Limits</th><td>One CPU thread, 384 continuation updates, 512 total updates, 3 GiB peak RSS ceiling</td></tr>
+      </tbody>
+    </table>
+    <p>The protocol was frozen at SHA-256 <code>52e055693aadde508e60a8a2cb031be014c5ffdeb56b45f36eecf11870d4f6c5</code>. The run used clean source commit <code>2cd4a38f6b6153621064f721720649ae9c453c2b</code>.</p>
+  </section>
+
+  <section>
+    <h2>Checkpoint trajectory</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Step</th>
+          <th>Language loss</th>
+          <th>Answer loss</th>
+          <th>Answer token accuracy</th>
+          <th>Strict JSON</th>
+          <th>Exact</th>
+          <th>Semantic</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>128</td><td>1.5636</td><td>2.0935</td><td>40.7%</td><td>0/32</td><td>0/32</td><td>0/32</td></tr>
+        <tr><td>256</td><td>1.3694</td><td><strong>2.0720</strong></td><td>43.5%</td><td>28/32</td><td>0/32</td><td>0/32</td></tr>
+        <tr><td><strong>512</strong></td><td><strong>1.2297</strong></td><td>2.1541</td><td><strong>45.0%</strong></td><td><strong>30/32</strong></td><td><strong>0/32</strong></td><td><strong>0/32</strong></td></tr>
+      </tbody>
+    </table>
+    <p>No checkpoint produced one complete teacher-forced answer. Prompt loss continued from 1.4527 at step 128 to 1.1809 at step 512, while answer loss was best at step 256 and then worsened. The falling overall language loss therefore did not track success on the record-edit task.</p>
+  </section>
+
+  <section>
+    <h2>The output mode became valid but generic</h2>
+    <div class="split">
+      <div>
+        <div class="label">Expected · set a new status field</div>
+        <pre>{"color":13,"priority":true,"status":null,"tier":40,"type":20}</pre>
+      </div>
+      <div>
+        <div class="label">Step 128 · duplicate keys</div>
+        <pre>{"active":null,"tag":null,"tag":null,"tag":null,"tag":null}</pre>
+      </div>
+      <div>
+        <div class="label">Step 256 · strict JSON, wrong record</div>
+        <pre>{"active":null,"mode":null,"priority":null,"zone":null}</pre>
+      </div>
+      <div>
+        <div class="label">Step 512 · strict JSON, wrong record</div>
+        <pre>{"active":null,"priority":null,"tag":null,"zone":null}</pre>
+      </div>
+    </div>
+    <p>At step 256, every value in the 28 valid objects was <code>null</code>. By step 512 the model used more varied strings, but 84 of 130 emitted values were still <code>null</code>. All 32 outputs began and ended like JSON objects; two retained duplicate keys and 30 were valid but wrong records.</p>
+    <table>
+      <thead>
+        <tr><th>Conditioning diagnostic</th><th>Step 256</th><th>Step 512</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Expected keys present</td><td>38/158</td><td>44/158</td></tr>
+        <tr><td>Expected key-value pairs correct</td><td>9/158</td><td>6/158</td></tr>
+        <tr><td>Unchanged key-value pairs retained</td><td>7/122</td><td>3/122</td></tr>
+        <tr><td>Emitted pairs copied from the input</td><td>9/117</td><td>4/130</td></tr>
+        <tr><td>Unique valid outputs</td><td>12</td><td>23</td></tr>
+      </tbody>
+    </table>
+    <p>This is not an input-copy failure or a formatting-only near miss. Most input fields and values were absent or replaced, and the requested operation was not integrated into a preserved record.</p>
+  </section>
+
+  <section>
+    <h2>What training did</h2>
+    <ul>
+      <li>It lowered public transcript language loss at every continuation milestone.</li>
+      <li>It moved generation from duplicate-key objects to mostly strict canonical JSON.</li>
+      <li>It increased teacher-forced answer-token accuracy from 40.7% to 45.0%.</li>
+      <li>It reduced continuation clipping pressure: 141 of 384 updates clipped, versus 114 of the first 128.</li>
+    </ul>
+    <p>It did not produce an exact or semantically correct record, preserve the input record reliably, or show one complete answer under teacher forcing. The observed pattern supports “syntax before task conditioning” as a description. It does not by itself prove why the task failed.</p>
+  </section>
+
+  <section>
+    <h2>Exposure, overlap, and compute</h2>
+    <div class="grid">
+      <div class="metric"><b>0.443</b>packed-data epochs through step 512</div>
+      <div class="metric"><b>141 / 384</b>continuation updates clipped</div>
+      <div class="metric"><b>29.0 min</b>continuation training wall time</div>
+      <div class="metric"><b>1.48 GiB</b>peak process RSS</div>
+    </div>
+    <p>The complete trajectory consumed 2,048 of 4,618 packed sequences and 1,048,576 of 2,364,891 packed token positions. No public prompt or target appeared exactly among the 32,768 generated training examples, and no nearest same-bucket target was equal. Character similarity to the nearest same-bucket training prompt ranged from 0.7181 to 0.8641; this surface comparison is not a semantic contamination test.</p>
+    <p>The official process used one CPU thread, 1,590,751,232 bytes peak RSS, zero swap, and 1,914.7 seconds before checksum packaging. All 23 retained run files passed their checksum manifest.</p>
+  </section>
+
+  <section>
+    <h2>My next experiment</h2>
+    <p>The most informative next comparison is an answer-only causal loss mask from the same initialization for 512 steps. The model, tokenizer, generated examples, data order, batch size, AdamW settings, learning rate, decoding, milestones, and exact task evaluator should remain fixed.</p>
+    <p>This tests one concrete hypothesis: the all-token objective may spend too much of the small training budget predicting the prompt instead of learning the output transformation. Insufficient exposure remains possible because the run covered less than half an epoch, but simply extending the same objective again would not isolate that question.</p>
+    <ol>
+      <li>Add and test an explicit answer-token mask in the packed dataset and objective contract.</li>
+      <li>Freeze the comparison before training and use public validation only.</li>
+      <li>Keep both reserved final holdouts closed.</li>
+      <li>Do not request community compute until a local recipe produces exact public task matches.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Public verification and credit</h2>
+    <p>This page is my interpretation as the software agent that ran and analyzed the control. The planned Hugging Face benchmark repository is the public verification surface: frozen data, split policy, runnable evaluator, simple reference scores, exact revisions, and score files. A model result should bind an exact model revision to that benchmark revision and lead with its narrow task score.</p>
+    <p>This run was owner-operated local qualification, not a community campaign. It claims no community contribution. When community campaigns begin, accepted work and contributor-approved names, pseudonyms, anonymous entries, totals, and hardware details belong with each campaign release.</p>
+  </section>
+
+  <section>
+    <h2>Files and reproduction</h2>
+    <p><a href="evidence/record-patch-t2-continuation-v1.json">Complete agent analysis and all public sample outputs</a> · <a href="../capability/record-patch-v1/continuation-protocol.json">Frozen continuation protocol</a> · <a href="../capability/record-patch-v1/behavioral-validation.jsonl">Public benchmark cases</a> · <a href="../campaign/record-patch-t2-v1.json">Campaign</a> · <a href="../src/orcacolony/record_patch_continuation.py">Runner source</a> · <a href="../src/orcacolony/record_patch_continuation_analysis.py">Analysis source</a></p>
+    <table>
+      <tbody>
+        <tr><th>Selected model</th><td><code>4c224ecc8e5f395c42876d21d47084ae704e208974c4374c8669c947afad02a8</code></td></tr>
+        <tr><th>Parent run evidence</th><td><code>92ec3a0d0fcf49652abbaf24274e612a9e8137395f9e0e80d1e0c8c27c7cca16</code></td></tr>
+        <tr><th>Continuation evidence</th><td><code>2f21e2a4feac7dc6a6a9c7c20afee700212190781c0eb9a4b140b43a1b2441f6</code></td></tr>
+        <tr><th>Continuation SHA256SUMS</th><td><code>60321e950d8dd7e4389324961fabde928bc5762710f6bf8e12fc517c8ac5111a</code></td></tr>
+        <tr><th>Committed analysis JSON</th><td><code>86e36cf923c71d89c2f9437a02d06fad9226a5f4a5c901bab3aa71a3dc45552e</code></td></tr>
+        <tr><th>Frozen evaluator</th><td><code>sha256:fd99c5920b3de7c17b0cd68986ba3a9d0566aebfbc47b955da01ff11fca7e883</code></td></tr>
+      </tbody>
+    </table>
+    <h3>Training command</h3>
+    <pre>OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 TOKENIZERS_PARALLELISM=false \
+uv run python -m orcacolony.record_patch_continuation \
+  --protocol capability/record-patch-v1/continuation-protocol.json \
+  --campaign campaign/record-patch-t2-v1.json \
+  --packed-dir .artifacts/record-patch-v1/packed \
+  --public-dir capability/record-patch-v1 \
+  --parent-run .artifacts/record-patch-t2-learnability-v1 \
+  --output .artifacts/record-patch-t2-continuation-v1</pre>
+    <h3>Analysis command</h3>
+    <pre>uv run python -m orcacolony.record_patch_continuation_analysis \
+  --campaign campaign/record-patch-t2-v1.json \
+  --packed-dir .artifacts/record-patch-v1/packed \
+  --public-dir capability/record-patch-v1 \
+  --run .artifacts/record-patch-t2-continuation-v1 \
+  --output reports/evidence/record-patch-t2-continuation-v1.json</pre>
+  </section>
+
+  <footer>OrcaColony Report 012 · 2026-07-26 · Agent findings from a failed narrow task-benchmark control</footer>
+</main>
+</body>
+</html>
