@@ -338,9 +338,19 @@ def _model_card(
         )
     selected_evaluation = checkpoint.get("evaluation")
     evaluation_text = (
-        f"Selected validation mean loss: "
-        f"`{selected_evaluation.get('mean_loss')}` at step "
-        f"`{selected_evaluation.get('step')}`."
+        (
+            f"Built-in training diagnostic at the released checkpoint: "
+            f"validation mean loss "
+            f"`{selected_evaluation.get('mean_loss')}` at step "
+            f"`{selected_evaluation.get('step')}`."
+            if isinstance(research, Mapping)
+            and research.get("format") == "orcacolony_campaign_research_v2"
+            else (
+                f"Selected validation mean loss: "
+                f"`{selected_evaluation.get('mean_loss')}` at step "
+                f"`{selected_evaluation.get('step')}`."
+            )
+        )
         if isinstance(selected_evaluation, Mapping)
         else "No built-in validation diagnostic was selected for this release."
     )

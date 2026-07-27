@@ -45,6 +45,18 @@ The older `orcacolony_capability_research_v1` format is retained only so the
 Record Patch prototype and its exact historical artifacts remain loadable. It
 must not be copied into a new campaign.
 
+Validate a completed draft and print the exact campaign and research revisions
+without creating or changing a campaign:
+
+```bash
+uv run python -m orcacolony.campaign_lifecycle inspect \
+  --config campaign/<campaign>.json
+```
+
+The output repeats the owner-supplied evaluator, inputs, metrics, publication
+settings, question, and usage scenario so they can be reviewed together with
+the two content identities. It does not fill in missing choices.
+
 ## Evaluation evidence
 
 After the campaign owner has run the evaluations they chose, use
@@ -68,6 +80,21 @@ The evaluation identified by `release_evaluation_id` must bind the exact
 released checkpoint. This prevents a model card from presenting measurements
 from different weights.
 
+Preflight the completed evidence and its local `bundle:` files before building
+an operational release:
+
+```bash
+uv run python -m orcacolony.campaign_lifecycle validate-evidence \
+  --config campaign/<campaign>.json \
+  --evidence <campaign-evaluation.json> \
+  --evaluation-artifacts <evaluation-artifact-directory> \
+  --release-checkpoint-sha256 <owner-selected-checkpoint-sha256>
+```
+
+This checks campaign and research identities, every declared measurement,
+comparison, finding, limitation, release-checkpoint binding, and bundled file
+digest. JSON with duplicate keys is rejected.
+
 Artifact URIs beginning with `bundle:` are paths below the directory passed to
 `orcacolony.release --evaluation-artifacts`. The release builder verifies their
 hashes and copies them into `campaign-evaluation-artifacts/`. Other durable URIs
@@ -79,6 +106,14 @@ verified files.
 A completed campaign can be released whether its measurements improved,
 regressed, or remained inconclusive. A failed optional training diagnostic is
 recorded in the dashboard and release; it does not block packaging.
+
+For a v2 campaign, the release builder does not select the lowest built-in
+language-loss diagnostic. It uses the checkpoint named by
+`release_evaluation_id` when that revision identifies exactly one built-in
+evaluated checkpoint. Otherwise the owner must pass
+`--release-checkpoint-step`. In both cases, supplied evaluation evidence must
+bind the checkpoint bytes that are actually packaged. Legacy systems studies
+retain their frozen historical selection behavior.
 
 When evaluation evidence is supplied, the release contains:
 
@@ -106,8 +141,12 @@ uv run python -m orcacolony.release \
   --browser-root spikes/burn-browser-gradient/www \
   --evaluation-evidence <campaign-evaluation.json> \
   --evaluation-artifacts <evaluation-artifact-directory> \
+  --release-checkpoint-step <step-selected-by-campaign-owner> \
   --output .artifacts/<campaign>-release
 ```
+
+`--release-checkpoint-step` is optional when the release evaluation identifies
+exactly one built-in evaluated checkpoint.
 
 Publication remains an explicit second step. See
 [`../HUGGINGFACE.md`](../HUGGINGFACE.md) for deterministic package review and

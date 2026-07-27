@@ -683,6 +683,28 @@ def campaign_to_mapping(campaign: CampaignConfig) -> dict[str, object]:
     return payload
 
 
+def campaign_identity_payload(campaign: CampaignConfig) -> dict[str, object]:
+    """Return the normalized payload used by campaign locks and releases."""
+
+    payload = campaign_to_mapping(campaign)
+    payload["dataset"] = (
+        dict(campaign.dataset) if campaign.dataset is not None else None
+    )
+    return payload
+
+
+def campaign_revision(campaign: CampaignConfig) -> str:
+    """Return the campaign lock identity used by coordinators and releases."""
+
+    canonical = json.dumps(
+        campaign_identity_payload(campaign),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def load_campaign(path: str | Path) -> CampaignConfig:
     payload = json.loads(
         Path(path).read_text(encoding="utf-8"),

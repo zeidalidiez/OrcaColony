@@ -85,6 +85,28 @@ For CI or a hosted Space, use a scoped secret named `HF_TOKEN`; never store its
 value in Git. A read token is sufficient for downloading private artifacts. A
 write token is required only for creating or updating repositories.
 
+## Preflight campaign evidence
+
+Before building a v2 operational release, validate the owner-supplied campaign
+and evidence contracts:
+
+```bash
+uv run python -m orcacolony.campaign_lifecycle inspect \
+  --config campaign/<campaign>.json
+
+uv run python -m orcacolony.campaign_lifecycle validate-evidence \
+  --config campaign/<campaign>.json \
+  --evidence <campaign-evaluation.json> \
+  --evaluation-artifacts <evaluation-artifact-directory> \
+  --release-checkpoint-sha256 <owner-selected-checkpoint-sha256>
+```
+
+These commands expose exact content revisions and verify the evidence without
+creating a Hub repository or choosing a campaign metric, checkpoint, or
+publication outcome. During release, the evidence-selected checkpoint is used
+when it identifies exactly one built-in evaluation. Otherwise the campaign
+owner supplies `--release-checkpoint-step`.
+
 ## Build locally first
 
 The operational release must exist before Hub packaging. Then build two

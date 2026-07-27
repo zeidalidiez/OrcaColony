@@ -11,6 +11,7 @@ from orcacolony.reference import (
     _save_checkpoint,
     build_model,
     campaign_from_mapping,
+    campaign_revision,
     campaign_to_mapping,
     compute_fixture,
     evaluation_slice,
@@ -33,6 +34,17 @@ def test_campaign_mapping_round_trip_uses_wire_schema() -> None:
     assert payload["campaign"]["objective"] == campaign.objective.name
     assert payload["campaign"]["loss_mask"] == campaign.objective.loss_mask
     assert campaign_from_mapping(payload) == campaign
+
+
+def test_campaign_revision_normalizes_an_absent_dataset_to_null() -> None:
+    payload = json.loads(CONFIG.read_text(encoding="utf-8"))
+    without_dataset = campaign_from_mapping(payload)
+    payload["dataset"] = None
+    with_explicit_null = campaign_from_mapping(payload)
+
+    assert campaign_revision(without_dataset) == campaign_revision(
+        with_explicit_null
+    )
 
 
 @pytest.mark.parametrize(

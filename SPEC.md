@@ -504,6 +504,13 @@ metric, a training diagnostic, a fixed final step, human review, or another
 reproducible rule. The release records the chosen rule and exact checkpoint
 without treating it as a framework-wide policy.
 
+The v2 release path never applies the framework's legacy lowest-language-loss
+rule by default. It uses the checkpoint revision bound by the owner-supplied
+`release_evaluation_id` when that revision identifies one built-in evaluated
+checkpoint. If it does not, the owner supplies the exact checkpoint step to the
+release command, and any accompanying evaluation evidence must still match the
+packaged checkpoint bytes.
+
 ---
 
 ## 9. Deployment architecture

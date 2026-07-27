@@ -5,6 +5,7 @@ import json
 import math
 import re
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 
 _ID_PATTERN = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*\Z")
@@ -141,6 +142,29 @@ def _canonical_json(payload: Mapping[str, object]) -> bytes:
         )
         + "\n"
     ).encode("utf-8")
+
+
+def _reject_duplicate_json_keys(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise ValueError(f"duplicate campaign evaluation JSON key: {key}")
+        payload[key] = value
+    return payload
+
+
+def load_campaign_evaluation_evidence(
+    path: str | Path,
+) -> Mapping[str, object]:
+    """Load one unambiguous campaign evaluation evidence document."""
+
+    payload = json.loads(
+        Path(path).read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_json_keys,
+    )
+    return _mapping(payload, "campaign evaluation evidence")
 
 
 def campaign_research_revision(payload: Mapping[str, object]) -> str:
@@ -620,3 +644,152 @@ def build_campaign_evaluation_summary(
         "limitations": limitations,
         "reproduction": normalized_reproduction,
     }
+
+
+def campaign_evaluation_release_revision(
+    research: Mapping[str, object],
+    evidence_payload: Mapping[str, object],
+    *,
+    campaign_id: str,
+    campaign_revision: str,
+) -> str:
+    """Return the owner-declared release subject after full evidence validation."""
+
+    evidence = _mapping(evidence_payload, "campaign evaluation evidence")
+    release_evaluation_id = _identifier(
+        evidence.get("release_evaluation_id"),
+        "campaign evaluation release evaluation id",
+    )
+    release_revision: str | None = None
+    for raw_evaluation in _sequence(
+        evidence.get("evaluations"),
+        "campaign evaluation evidence evaluations",
+    ):
+        evaluation = _mapping(
+            raw_evaluation,
+            "campaign evaluation evidence evaluation",
+        )
+        if evaluation.get("id") != release_evaluation_id:
+            continue
+        subject = _mapping(
+            evaluation.get("subject"),
+            "campaign evaluation evidence subject",
+        )
+        release_revision = _subject_revision(
+            subject.get("revision"),
+            "campaign evaluation evidence subject revision",
+        )
+        break
+    if release_revision is None:
+        raise ValueError("release evaluation is absent from campaign evidence")
+
+    build_campaign_evaluation_summary(
+        research,
+        evidence,
+        campaign_id=campaign_id,
+        campaign_revision=campaign_revision,
+        release_checkpoint_sha256=release_revision,
+    )
+    return release_revision
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_campaign_evaluation_artifacts(
+    evidence_payload: Mapping[str, object],
+    artifact_root: str | Path | None,
+) -> dict[str, str]:
+    """Verify every local ``bundle:`` artifact and return its bound digest."""
+
+    evidence = _mapping(evidence_payload, "campaign evaluation evidence")
+    bindings: list[tuple[str, str]] = []
+    for raw_evaluation in _sequence(
+        evidence.get("evaluations"),
+        "campaign evaluation evidence evaluations",
+    ):
+        evaluation = _mapping(
+            raw_evaluation,
+            "campaign evaluation evidence evaluation",
+        )
+        for raw_artifact in _sequence(
+            evaluation.get("artifacts"),
+            "campaign evaluation evidence artifacts",
+        ):
+            artifact = _mapping(
+                raw_artifact,
+                "campaign evaluation evidence artifact",
+            )
+            uri = artifact.get("uri")
+            if not isinstance(uri, str) or not uri.startswith("bundle:"):
+                continue
+            bindings.append(
+                (
+                    uri.removeprefix("bundle:"),
+                    _sha256(
+                        artifact.get("sha256"),
+                        "campaign evaluation evidence artifact SHA-256",
+                    ),
+                )
+            )
+
+    if not bindings:
+        return {}
+    if artifact_root is None:
+        raise ValueError(
+            "bundled campaign evaluation artifacts require an artifact root"
+        )
+    unresolved_root = Path(artifact_root)
+    if unresolved_root.is_symlink() or not unresolved_root.is_dir():
+        raise ValueError(
+            "campaign evaluation artifact root must be a regular directory"
+        )
+    root = unresolved_root.resolve()
+    verified: dict[str, str] = {}
+    for raw_relative, expected_sha256 in bindings:
+        relative = Path(raw_relative)
+        if (
+            relative.is_absolute()
+            or raw_relative.startswith(("/", "\\"))
+            or "\\" in raw_relative
+            or not relative.parts
+            or any(part in {"", ".", ".."} for part in relative.parts)
+        ):
+            raise ValueError("campaign evaluation artifact path is unsafe")
+        unresolved = root / relative
+        if any(
+            candidate.is_symlink()
+            for candidate in (
+                root.joinpath(*relative.parts[:index])
+                for index in range(1, len(relative.parts) + 1)
+            )
+        ):
+            raise ValueError(
+                "campaign evaluation artifact path may not contain symlinks"
+            )
+        source = unresolved.resolve()
+        if (
+            not source.is_relative_to(root)
+            or not source.is_file()
+            or source.is_symlink()
+        ):
+            raise ValueError(
+                f"campaign evaluation artifact is missing: {raw_relative}"
+            )
+        if _sha256_file(source) != expected_sha256:
+            raise ValueError(
+                f"campaign evaluation artifact digest differs: {raw_relative}"
+            )
+        relative_name = relative.as_posix()
+        previous = verified.get(relative_name)
+        if previous is not None and previous != expected_sha256:
+            raise ValueError(
+                "campaign evaluation artifact path has conflicting digests"
+            )
+        verified[relative_name] = expected_sha256
+    return dict(sorted(verified.items()))

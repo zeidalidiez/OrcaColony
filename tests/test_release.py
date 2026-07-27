@@ -454,15 +454,21 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
     released_samples.write_text('{"score":0.2}\n', encoding="utf-8")
     dashboard = coordinator.dashboard()
     assert dashboard["evaluation_gate"]["state"] == "failed"
-    selected_evaluation = min(
+    diagnostic_selected_evaluation = min(
         dashboard["evaluations"],
         key=lambda entry: (entry["mean_loss"], entry["step"]),
+    )
+    assert diagnostic_selected_evaluation["step"] == 1
+    owner_selected_evaluation = next(
+        entry for entry in dashboard["evaluations"] if entry["step"] == 0
     )
     evidence = _campaign_evidence(
         campaign.research,  # type: ignore[arg-type]
         campaign_id=str(campaign.campaign["id"]),
         campaign_revision=str(coordinator._lock_payload()["campaign_revision"]),
-        release_checkpoint_sha256=str(selected_evaluation["checkpoint_sha256"]),
+        release_checkpoint_sha256=str(
+            owner_selected_evaluation["checkpoint_sha256"]
+        ),
         initial_artifact_sha256=hashlib.sha256(initial_samples.read_bytes()).hexdigest(),
         released_artifact_sha256=hashlib.sha256(
             released_samples.read_bytes()
@@ -530,7 +536,10 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
     assert "Hidden Name" not in public_text
     assert "release-a" not in public_text
     assert "release-b" not in public_text
-    assert first_manifest["checkpoint"]["step"] == 1
+    assert first_manifest["checkpoint"]["step"] == 0
+    assert first_manifest["checkpoint"]["selection"] == (
+        "campaign_evaluation_evidence"
+    )
     assert first_manifest["numerical_profile"] == peft.EXACT_CPU_FP32_PROFILE
     assert first_manifest["checkpoint"]["numerical_profile"] == (
         peft.EXACT_CPU_FP32_PROFILE
@@ -560,6 +569,21 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
         public_dashboard["checkpoint"]["download_url"]
         == "checkpoint/model.safetensors"
     )
+    with pytest.raises(
+        ValueError,
+        match="requires an owner-supplied checkpoint step or campaign "
+        "evaluation evidence",
+    ):
+        build_release_bundle(
+            campaign,
+            coordinator,
+            dataset_root=dataset_root,
+            browser_root=browser_root,
+            project_license=project_license,
+            third_party_notice=third_party_notice,
+            public_coordinator_url=None,
+            output_dir=tmp_path / "release-without-owner-selection",
+        )
     with pytest.raises(ValueError, match="may not be inside an input directory"):
         build_release_bundle(
             campaign,

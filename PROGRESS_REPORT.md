@@ -1,8 +1,8 @@
 # OrcaColony Progress Report
 
-**Last updated:** 2026-07-26
+**Last updated:** 2026-07-27
 
-**Current phase:** Parallel P7 systems research and campaign-framework generalization
+**Current phase:** Parallel P7 systems research and campaign-framework lifecycle hardening
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -70,6 +70,13 @@ metric changes, verifies bundled evidence files, records limitations, and
 packages positive, negative, unchanged, or inconclusive results without a
 mandatory success gate. Deterministic Hugging Face model and dataset packages
 include the evaluation record and contributor-selected credit.
+
+The v2 release path now takes its checkpoint authority from the owner-supplied
+release evaluation or an explicit owner-supplied step. It no longer applies the
+legacy lowest-language-loss rule to a new campaign. A standalone lifecycle
+preflight reports exact campaign/research revisions, rejects ambiguous evidence
+JSON, verifies bundled evidence bytes, and checks the released-checkpoint
+binding before an operational release is attempted.
 
 Record Patch v1 is retained as a historical owner-operated prototype with two
 negative training-effect results. Its fixed thresholds, holdout policy,
@@ -320,10 +327,10 @@ Completed within the first P3 measurement and native-baseline slice:
 Run two explicitly separate bounded tracks:
 
 1. **Campaign framework track:** review and merge the owner-defined v2 campaign
-   research, evaluation-evidence, release, Hugging Face packaging, report, and
-   credit contracts. The next practical campaign remains intentionally unset
-   until its owner supplies the campaign definition. Record Patch does not
-   choose it.
+   lifecycle hardening: exact contract inspection, evidence preflight, and
+   owner-controlled release-checkpoint selection. The next practical campaign
+   remains intentionally unset until its owner supplies the campaign
+   definition. Record Patch does not choose it.
 2. **P7 systems track:** freeze and persistently cache the untied final
    norm/output head in both centralized and distributed sparse controls. Train
    only router, shared trunk, and experts, preserve byte-exact canonical AdamW,
@@ -362,6 +369,10 @@ Run two explicitly separate bounded tracks:
   participation; the diagnostic oracle-gradient endpoint is not a production
   proof that donated computation occurred.
 - Operator-owned remote trusted campaign when deployment inputs are available.
+- Restructure the root README as a separate information-architecture pass so
+  the project overview, current status, operator path, research evidence, and
+  detailed reference material are easier to navigate without mixing that work
+  into functional changes.
 
 ## Current blockers and hold-ups
 
@@ -377,6 +388,36 @@ Run two explicitly separate bounded tracks:
 - Larger-model execution methods are hypotheses until measured; none should be described as supported merely because a paper or prototype demonstrates the general idea.
 
 ## Change record
+
+### 2026-07-27
+
+- Corrected a remaining v2 scope leak in operational release construction.
+  New research campaigns no longer inherit the legacy lowest-language-loss
+  checkpoint rule. The release uses the checkpoint revision named by the
+  owner-supplied release evaluation when unambiguous, or requires an explicit
+  owner-supplied checkpoint step, and verifies any supplied evidence against
+  the bytes actually packaged.
+- Added `orcacolony.campaign_lifecycle` contract inspection and evidence
+  preflight commands. They expose the canonical campaign and research
+  revisions, repeat the supplied evaluator/inputs/metrics for review, reject
+  duplicate-key evidence JSON, compute only owner-requested comparisons, and
+  verify local `bundle:` artifact digests without generating campaign choices.
+- Added a public canonical campaign-revision calculation and centralized the
+  normalized campaign payload used by lifecycle tools, coordinator locks, and
+  releases. Updated generated v2 model-card wording so a built-in language-loss
+  value is labeled as a training diagnostic rather than the reason the
+  checkpoint was selected.
+- Published the merged organization-card source and verified the remote bytes
+  at Hugging Face revision
+  `d22495c0f5b6256058e74e31c9deca7d4f127155`, with README SHA-256
+  `0059da86e74417079ce0ec1bfc6c4498834835104d1a429487bcb7cd1beec1a1`.
+- The repository gate passed all `307` tests in one-thread mode. Focused
+  campaign/release/Hugging Face coverage passed `48` tests, all changed CLI
+  entry points parsed, the diff passed whitespace and credential-pattern
+  checks, and the retained Hub publication record was reverified remotely.
+- No practical campaign, model, dataset, metric, threshold, training run,
+  follow-up experiment, model repository, or dataset repository was created or
+  selected in this change.
 
 ### 2026-07-26
 

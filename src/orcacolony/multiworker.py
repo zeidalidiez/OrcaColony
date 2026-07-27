@@ -13,7 +13,7 @@ import stat
 import tempfile
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -62,6 +62,7 @@ from .reference import (
     _save_checkpoint,
     _sha256_file,
     build_model,
+    campaign_identity_payload,
     fixture_batch,
     objective_loss_sum,
     run_training,
@@ -852,19 +853,7 @@ def _exact_json_equal(left: object, right: object) -> bool:
 
 
 def _campaign_payload(campaign: CampaignConfig) -> dict[str, object]:
-    payload: dict[str, object] = {
-        "campaign": dict(campaign.campaign),
-        "model": asdict(campaign.model),
-        "training": asdict(campaign.training),
-        "dataset": dict(campaign.dataset) if campaign.dataset is not None else None,
-    }
-    if campaign.evaluation is not None:
-        payload["evaluation"] = dict(campaign.evaluation)
-    if campaign.research is not None:
-        payload["research"] = dict(campaign.research)
-    if campaign.publication is not None:
-        payload["publication"] = dict(campaign.publication)
-    return payload
+    return campaign_identity_payload(campaign)
 
 
 class GlobalStepCoordinator:
