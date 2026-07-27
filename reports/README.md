@@ -48,3 +48,10 @@ The first practical task record is
 zero-exact-match initialization result, sample outputs, withheld-holdout
 boundary, and byte-identical reproduction under the supported Python 3.11
 runtime before any training.
+
+The first training-effect record is
+[`record-patch-t2-learnability-v1.html`](record-patch-t2-learnability-v1.html).
+It preserves the failed 128-step public learnability gate, all checkpoint
+outputs, prompt and answer diagnostics, optimizer measurements, train-to-public
+similarity checks, resource use, and the decision to keep volunteer training
+blocked while a same-trajectory continuation is tested.

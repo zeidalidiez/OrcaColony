@@ -28,8 +28,10 @@ workflow to demonstrate.
 The first capability contract reserves
 `OrcaColony/record-patch-t2-v1` and `OrcaColony/record-patch-v1`. These
 repositories have not been created. Reservation in a campaign file is not a
-release, and the publisher should not create them until the bounded learning
-check, private package, and human review are complete.
+release. The first 128-step bounded check failed its exact behavioral gate, so
+the publisher must not create them yet. Creation remains blocked until a
+predeclared continuation or recipe control passes public learnability, followed
+by a private package and human review.
 
 ## Authentication
 

@@ -107,6 +107,26 @@ No Hugging Face model or dataset repository should be created from this task
 until the frozen artifacts and baseline have passed review. Creating a
 destination is not evidence that a useful model exists.
 
+## Bounded learnability protocol
+
+[`learnability-protocol.json`](learnability-protocol.json) fixes the first
+centralized check before its result is known. It evaluates checkpoints at steps
+`0`, `1`, `8`, `32`, and `128`. Checkpoint selection uses only the lowest public
+language-validation mean loss. Public behavioral validation is recorded at
+every milestone but cannot select the checkpoint.
+
+The pre-volunteer gate requires both:
+
+- at least `0.1` lower language-validation mean loss than initialization; and
+- at least one additional exact match on the 32 public behavioral cases at the
+  language-selected checkpoint.
+
+The run is limited to one CPU thread, 128 updates, and 3 GiB peak process RSS.
+It records every step's training loss, pre-clipping gradient norm, clipping
+decision, parameter-update norm, checkpoint digest, evaluation, timing, and
+environment. This is owner-operated qualification work, not donated compute.
+Passing permits planning a volunteer run; it is not capability promotion.
+
 ## Commands
 
 Freeze the task, private holdout, packed causal dataset, campaign, and exact
@@ -131,6 +151,21 @@ uv run python -m orcacolony.record_patch baseline \
 
 The final holdout is intentionally not an argument to that command.
 
+Run the predeclared bounded learnability check:
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+TOKENIZERS_PARALLELISM=false \
+uv run python -m orcacolony.record_patch_learnability \
+  --protocol capability/record-patch-v1/learnability-protocol.json \
+  --campaign campaign/record-patch-t2-v1.json \
+  --packed-dir .artifacts/record-patch-v1/packed \
+  --public-dir capability/record-patch-v1 \
+  --output .artifacts/record-patch-t2-learnability-v1
+```
+
+The learnability command has no final-holdout or holdout-key argument.
+
 The first measured run scored `0/32` exact and `2/32` valid JSON. It is retained
 in [`../../reports/record-patch-t2-baseline.html`](../../reports/record-patch-t2-baseline.html).
 Python 3.11.15 reproduced the initialization identity, all 32 predictions, and
@@ -139,6 +174,27 @@ runs used CPU-only PyTorch 2.13.0. A fresh Python 3.11 freeze also reproduced
 the public suite, private holdout digest, source corpora, packed dataset,
 campaign bytes, and initialization identity. The final holdout remained
 unopened by evaluation.
+
+## Measured qualification result
+
+The 128-step check did not pass. Public language-validation mean loss improved
+from `9.120742341162453` to `1.56358497243532`, so step 128 was selected without
+using behavior. It remained `0/32` exact, `0/32` semantic, and `0/32` strict
+valid JSON. Every output had become object-shaped, but all 32 repeated at least
+one key.
+
+The run covered 512 of 4,618 packed training sequences, about `0.111` epochs.
+It clipped 114 of 128 updates. Public answer-token loss improved from `9.1174`
+to `2.0935`, but teacher-forced answer-token accuracy was only `40.7%` and no
+complete teacher-forced answer was correct. None of the 32 public prompts or
+targets occurred exactly in training.
+
+This is a negative pre-volunteer result. It does not authorize donated compute
+or model publication. The next control will continue the exact step-128 model,
+optimizer, data cursor, objective, and decoding policy to later predeclared
+public milestones before testing a target-only objective or different learning
+rate. See
+[`../../reports/record-patch-t2-learnability-v1.html`](../../reports/record-patch-t2-learnability-v1.html).
 
 ## Required evidence after training
 

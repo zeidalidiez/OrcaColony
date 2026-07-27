@@ -59,10 +59,12 @@ synthetic recipe, private final holdout, exact evaluator, campaign, and measured
 initialization outputs. Python 3.11.15 reproduced the initialization identity,
 all 32 predictions, and the evaluation JSON byte for byte from the earlier
 Python 3.14 run. The complete v0.1 public-research acceptance path is still not
-proven: it needs a centralized learnability check, real training-effect report,
-reviewed release and clean load/generation test, actual model/data Hub commit
-revisions, and a several-day campaign with distinct remote owner-approved
-participants.
+proven. The first centralized learnability check completed and failed its
+behavioral gate despite a large language-loss improvement. It now needs a
+passing same-trajectory continuation or a measured recipe revision, followed
+by a reviewed release and clean load/generation test, actual model/data Hub
+commit revisions, and a several-day campaign with distinct remote
+owner-approved participants.
 
 The current architecture uses replicated full-model data parallelism: every direct-gradient worker can execute its complete assignment independently against one canonical checkpoint. The complete model may eventually be placed across that worker's GPU VRAM, system RAM, and local storage; it does not have to remain entirely in GPU VRAM. Cross-worker partial-model methods are a post-v0.1 research track rather than part of the proven baseline.
 
@@ -303,10 +305,13 @@ Completed within the first P3 measurement and native-baseline slice:
 Run two explicitly separate bounded tracks:
 
 1. **Capability track:** use the reproduced Python 3.11 Record Patch baseline
-   and run a bounded centralized learning check against public training and
-   validation data. Do not open the 128-example final holdout or request donated
-   compute until the task shows measurable learnability and the campaign's
-   runtime identity is final.
+   and the failed 128-step public qualification as the fixed starting evidence.
+   Freeze a continuation schedule, resume the exact step-128 model, AdamW state,
+   data cursor, objective, learning rate, and decoding policy, and evaluate only
+   later public milestones. Do not open either reserved holdout or request
+   donated compute until exact behavioral learning appears. If same-trajectory
+   exposure still fails, test target-only loss and learning-rate changes as
+   separate controls.
 2. **P7 systems track:** freeze and persistently cache the untied final
    norm/output head in both centralized and distributed sparse controls. Train
    only router, shared trunk, and experts, preserve byte-exact canonical AdamW,
@@ -320,17 +325,17 @@ Run two explicitly separate bounded tracks:
 - P7 cached-head, authenticated-data, process-memory, retry, and quality qualification.
 - Complete the first useful specialization campaign at the specification's
   17,538,816-parameter T2 tier. Record Patch v1 now freezes its task and starting
-  measurement, but no learnability result, trained checkpoint, volunteer work,
+  measurement and retains an initial negative learnability result plus a
+  step-128 trained checkpoint, but no passing learnability gate, volunteer work,
   or promotion evidence exists. The historical 91,544,064-parameter files and
   P3/P4 evidence retain their existing `t2` identifiers for provenance but are
   treated as a legacy 91M memory-stress tier, not as the current T2 capability
   tier.
-- Extend the frozen Record Patch evaluator into the full training-effect
-  analyzer: checkpoint output deltas, error taxonomy, data-bucket performance,
-  gradient/update diagnostics, memorization/contamination checks, forgetting
+- Extend the new Record Patch training-effect analyzer with forgetting
   guardrails, ablations, and repeated-seed uncertainty where relevant. The
-  task-level sample evaluator and initialization measurements exist; trained
-  comparisons do not.
+  first trained comparison now includes checkpoint output deltas, error
+  taxonomy, data buckets, gradient/update diagnostics, prompt/answer loss, and
+  exact plus nearest-training-record checks.
 - Promotion records currently validate artifact IDs, hashes, and locations, but
   the capability release path does not yet fetch or snapshot arbitrary external
   evaluator/sample-result URIs. The first real campaign must put those artifacts
@@ -364,10 +369,11 @@ Run two explicitly separate bounded tracks:
 ## Current blockers and hold-ups
 
 - No blocker prevents the specification and research-framework work.
-- Volunteer training remains blocked on the bounded centralized learnability
-  check. The supported Python 3.11 baseline reproduction is complete, but no
-  donated compute should be requested until the frozen task shows measurable
-  learning on public training and behavioral-validation data.
+- Volunteer training remains blocked. The first bounded centralized check
+  passed its language-loss condition but failed at `0/32` public exact matches
+  and `0/32` strict valid JSON. No donated compute should be requested until a
+  predeclared continuation or recipe control shows exact behavioral learning on
+  public data.
 - Remote trusted deployment still requires operator-owned HTTPS hosting choices and approved participants, but that does not block local research milestones.
 - Native GPU and GPU-plus-system-RAM placement were not qualified on the CPU-only PyTorch host; browser WebGPU remains a separate measured numerical/runtime profile rather than evidence for a native offload path.
 - Larger-model execution methods are hypotheses until measured; none should be described as supported merely because a paper or prototype demonstrates the general idea.
@@ -376,6 +382,33 @@ Run two explicitly separate bounded tracks:
 
 ### 2026-07-26
 
+- Added a separate post-run analysis command that verifies every retained run
+  checksum, preserves all public sample outputs, splits teacher-forced prompt
+  and answer metrics, classifies output failures, summarizes gradient and
+  update trajectories, and recomputes exact and nearest training-record
+  comparisons without accepting a private-holdout input.
+- Completed the predeclared 128-step centralized check under clean source
+  revision `96d2af5bcde7a872b0521c9ca5ab95c6f760d673`. Step 128 lowered
+  public language mean loss from `9.120742341162453` to
+  `1.56358497243532`, but scored `0/32` exact, `0/32` semantic, and `0/32`
+  strict valid JSON. All 32 outputs became object-shaped with duplicate keys,
+  so the behavioral gate failed and volunteer training remains blocked.
+- Preserved the negative result in Report 011 with all public checkpoint
+  outputs, 128 step diagnostics, prompt/answer token metrics, exact and nearest
+  training comparisons, compute measurements, checksums, credit boundary, and
+  next control. The run covered about `0.111` packed-data epochs, clipped 114
+  updates, used 1,631,789,056 bytes peak RSS, and opened neither reserved
+  holdout.
+- Froze the first Record Patch centralized learnability protocol before the
+  measured run. It fixes checkpoints `0`, `1`, `8`, `32`, and `128`, selects
+  only by public language-validation loss, requires at least `0.1` language-loss
+  improvement plus one additional exact public behavioral match, caps execution
+  at one CPU thread and 3 GiB peak RSS, and excludes both reserved holdouts.
+- Added a separate learnability runner without modifying the hash-pinned frozen
+  evaluator. It records every step's loss, pre-clipping gradient norm, clipping
+  decision, update norm, checkpoint identity, public language and behavioral
+  results, timings, environment, and checksums. Its diagnostic trajectory is
+  regression-tested against the established centralized reference.
 - Audited the progress report, specification, campaign files, research records,
   release path, and current implementation as a research vehicle rather than
   treating systems correctness as model-capability evidence.

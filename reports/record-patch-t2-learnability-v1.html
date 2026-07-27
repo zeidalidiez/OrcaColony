@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Record Patch T2 bounded learnability check | OrcaColony</title>
+  <style>
+    :root{--paper:#f4f1e8;--ink:#15272b;--muted:#5d6b69;--ocean:#075e66;--orange:#bd632d;--red:#8f3f32;--line:#c8d0ca;--soft:#e7ebe4;--white:#fffefa}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.58 "Segoe UI",sans-serif}
+    main{max-width:1100px;margin:auto;padding:44px 28px 80px}
+    .eyebrow{font:700 12px/1 monospace;letter-spacing:.16em;color:var(--ocean);text-transform:uppercase}
+    .status{display:inline-block;margin:18px 0;padding:7px 11px;border:1px solid var(--red);color:var(--red);font:700 12px monospace}
+    .hero{display:grid;grid-template-columns:1.55fr .8fr;gap:56px;border-bottom:2px solid var(--ink);padding-bottom:36px}
+    h1{font:700 clamp(38px,6vw,70px)/.98 Georgia,serif;letter-spacing:-.035em;margin:18px 0}
+    .lede{font:20px/1.45 Georgia,serif}
+    .verdict{border-top:5px solid var(--red);padding-top:18px}
+    .verdict strong{display:block;font:700 24px Georgia,serif;margin-bottom:10px}
+    section{padding:38px 0;border-bottom:1px solid var(--line)}
+    h2{font:700 30px Georgia,serif;margin:0 0 18px}
+    h3{font:700 20px Georgia,serif;margin:24px 0 8px}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+    .metric{background:var(--soft);padding:20px}
+    .metric b{display:block;font:700 30px Georgia,serif;color:var(--ocean)}
+    .fail{color:var(--red)!important}
+    .good{color:var(--ocean)!important}
+    table{width:100%;border-collapse:collapse}
+    th,td{text-align:left;vertical-align:top;padding:11px 8px;border-bottom:1px solid var(--line)}
+    th{font:700 12px monospace;text-transform:uppercase;color:var(--muted)}
+    code{font:13px Consolas,monospace;overflow-wrap:anywhere}
+    pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--white);border:1px solid var(--line);padding:16px;font:13px/1.5 Consolas,monospace}
+    a{color:var(--ocean)}
+    .callout{background:var(--soft);border-left:5px solid var(--orange);padding:20px 24px}
+    .negative{border-left-color:var(--red)}
+    .split{display:grid;grid-template-columns:1fr 1fr;gap:28px}
+    .label{font:700 12px monospace;text-transform:uppercase;color:var(--muted)}
+    footer{padding-top:30px;color:var(--muted);font-size:13px}
+    @media(max-width:800px){.hero,.grid,.split{grid-template-columns:1fr}.verdict{margin-top:10px}}
+    @media print{body{background:#fff}main{max-width:none}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">OrcaColony / Report 011 / Capability qualification</div>
+  <div class="status">GATE FAILED · VOLUNTEER TRAINING REMAINS BLOCKED</div>
+  <div class="hero">
+    <div>
+      <h1>Language loss fell 83%. Exact patch execution stayed at zero.</h1>
+      <p class="lede">After 128 centralized CPU updates, the T2 model generated JSON-shaped records on every public case, but every record repeated an object key. The predeclared learnability gate correctly rejected the checkpoint.</p>
+    </div>
+    <aside class="verdict">
+      <strong>The recipe learned structure, not the task.</strong>
+      <p>Step 128 was selected only by public language loss. It scored 0/32 exact, 0/32 semantic, and 0/32 strict valid JSON. No donated compute or model promotion is justified by this result.</p>
+    </aside>
+  </div>
+
+  <section>
+    <h2>Answer first</h2>
+    <div class="grid">
+      <div class="metric"><b class="good">9.1207 → 1.5636</b>public language mean loss</div>
+      <div class="metric"><b class="fail">0 / 32</b>exact records at selected step 128</div>
+      <div class="metric"><b>40.7%</b>teacher-forced answer-token accuracy</div>
+      <div class="metric"><b class="fail">32 / 32</b>outputs with duplicate object keys</div>
+    </div>
+    <p>The language half of the gate passed by 7.5572 loss points. The behavioral half required at least one additional exact public case and did not pass. The final behavioral and reserved language holdouts were not evaluated.</p>
+  </section>
+
+  <section>
+    <h2>The test was fixed before training</h2>
+    <table>
+      <tbody>
+        <tr><th>Protocol</th><td><code>record-patch-t2-centralized-learnability-v1</code></td></tr>
+        <tr><th>Milestones</th><td>Steps 0, 1, 8, 32, and 128</td></tr>
+        <tr><th>Selection</th><td>Lowest public language-validation mean loss. Behavioral scores could not select the checkpoint.</td></tr>
+        <tr><th>Gate</th><td>At least 0.1 lower language loss and at least one additional exact public behavioral case</td></tr>
+        <tr><th>Resource ceiling</th><td>One CPU thread, at most 128 updates, at most 3 GiB peak process RSS</td></tr>
+        <tr><th>Objective</th><td><code>causal_lm</code> with <code>all_target_tokens</code> over the complete prompt-and-answer transcript</td></tr>
+        <tr><th>Decoding</th><td>Greedy, temperature 0, at most 64 new tokens, stop at newline or EOS</td></tr>
+      </tbody>
+    </table>
+    <p>The protocol was committed at <code>96d2af5bcde7a872b0521c9ca5ab95c6f760d673</code> before the official run. The training worktree was clean.</p>
+  </section>
+
+  <section>
+    <h2>Checkpoint trajectory</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Step</th>
+          <th>Language loss</th>
+          <th>Answer loss</th>
+          <th>Answer token accuracy</th>
+          <th>Exact</th>
+          <th>Strict valid JSON</th>
+          <th>Observed output mode</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>0</td><td>9.1207</td><td>9.1174</td><td>0.0%</td><td>0/32</td><td>2/32</td><td>Empty, malformed, or scalar fragments</td></tr>
+        <tr><td>1</td><td>8.1970</td><td>8.2680</td><td>8.2%</td><td>0/32</td><td>0/32</td><td>Repeated punctuation and empty output</td></tr>
+        <tr><td>8</td><td>10.1702</td><td>9.0475</td><td>9.4%</td><td>0/32</td><td>0/32</td><td>Prompt framing and malformed records</td></tr>
+        <tr><td>32</td><td>2.7813</td><td>2.9881</td><td>39.0%</td><td>0/32</td><td>0/32</td><td>Malformed objects and prompt framing</td></tr>
+        <tr><td><strong>128</strong></td><td><strong>1.5636</strong></td><td><strong>2.0935</strong></td><td><strong>40.7%</strong></td><td><strong>0/32</strong></td><td><strong>0/32</strong></td><td><strong>32 objects with duplicate keys</strong></td></tr>
+      </tbody>
+    </table>
+    <p>No checkpoint had a teacher-forced exact answer. The true prior answer tokens were supplied for that diagnostic, so the failure cannot be assigned only to free-running error accumulation.</p>
+  </section>
+
+  <section>
+    <h2>Training changed the shape of the failure</h2>
+    <div class="split">
+      <div>
+        <div class="label">Initialization · set existing</div>
+        <pre>activedddd</pre>
+      </div>
+      <div>
+        <div class="label">Step 128 · same public case</div>
+        <pre>{"active":null,"tag":null,"tag":null,"tag":null}</pre>
+      </div>
+    </div>
+    <p>At step 128 all 32 outputs began with <code>{</code> and ended with <code>}</code>. All 32 were syntactically object-shaped but repeated at least one key, which the frozen evaluator rejects. This is measured structural movement. It is not exact patch execution, semantic correctness, or valid output under the task contract.</p>
+    <div class="callout negative"><strong>Why the zero is retained:</strong> ordinary JSON parsers often keep the last duplicate key, but Record Patch v1 forbids that ambiguity. Relaxing the evaluator after seeing these outputs would change the task and turn a failed gate into a post hoc success.</div>
+  </section>
+
+  <section>
+    <h2>Optimization and exposure</h2>
+    <div class="grid">
+      <div class="metric"><b>114 / 128</b>steps clipped at global norm 1.0</div>
+      <div class="metric"><b>1.5927</b>median pre-clip gradient norm</div>
+      <div class="metric"><b>73.2864</b>maximum pre-clip gradient norm</div>
+      <div class="metric"><b>0.111</b>packed-data epochs observed</div>
+    </div>
+    <p>The first 128 steps consumed 512 of 4,618 packed training sequences and 262,144 of 2,364,891 packed token positions. The proposed 2,048-step campaign would cover about 1.774 packed-sequence epochs. This bounded check stopped after roughly 6.25% of the proposed updates.</p>
+    <p>Training loss decreased overall, but the early path was not smooth. Public validation improved after step 1, regressed above initialization at step 8, then recovered strongly by steps 32 and 128. Gradient clipping was active on 89.1% of updates. Those facts make insufficient exposure and aggressive early optimization plausible explanations, not proven causes.</p>
+  </section>
+
+  <section>
+    <h2>Prompt loss did not explain away the result</h2>
+    <p>The all-token objective spends loss weight on both the prompt and answer. At step 128 the prompt mean loss was 1.4527 and the answer mean loss was 2.0935. Answer loss still improved by 7.0239 points from initialization, and answer-token accuracy reached 40.7%. Training therefore affected the answer distribution, but it had not produced one complete correct answer.</p>
+    <p>A target-only objective could be more sample-efficient, but this run did not test it. The first follow-up should continue the same checkpoint and optimizer so that exposure is changed without also changing the objective, learning rate, data order, or decoding policy.</p>
+  </section>
+
+  <section>
+    <h2>No exact train-to-validation overlap</h2>
+    <table>
+      <tbody>
+        <tr><th>Training examples</th><td>32,768</td></tr>
+        <tr><th>Public behavioral examples</th><td>32</td></tr>
+        <tr><th>Exact validation prompts in training</th><td>0</td></tr>
+        <tr><th>Exact validation targets in training</th><td>0</td></tr>
+        <tr><th>Nearest same-bucket target equal</th><td>0</td></tr>
+        <tr><th>Nearest prompt similarity</th><td>0.7181 minimum, 0.7797 median, 0.8641 maximum</td></tr>
+      </tbody>
+    </table>
+    <p>Nearest records use the standard-library <code>difflib.SequenceMatcher</code> character matching-block ratio with automatic junk filtering disabled, restricted to the same frozen operation bucket. This is a descriptive surface comparison, not a semantic contamination detector. Every nearest ID, prompt, target, and ratio is present in the evidence JSON.</p>
+  </section>
+
+  <section>
+    <h2>Compute, privacy, and credit</h2>
+    <table>
+      <tbody>
+        <tr><th>Runtime</th><td>Python 3.11.15, CPU-only PyTorch 2.13.0, WSL2 x86-64</td></tr>
+        <tr><th>Threading</th><td>One Torch, OpenMP, MKL, and OpenBLAS thread; CUDA unavailable</td></tr>
+        <tr><th>Training wall time</th><td>557.1 seconds</td></tr>
+        <tr><th>Total before evidence packaging</th><td>995.6 seconds</td></tr>
+        <tr><th>Peak process RSS</th><td>1,631,789,056 bytes, below the 3 GiB ceiling</td></tr>
+        <tr><th>Contribution status</th><td>Owner-operated local qualification; no donated compute claimed</td></tr>
+      </tbody>
+    </table>
+    <p>The operator has not frozen a public name or hardware-class preference for this local check, so the report does not infer one. Future accepted volunteer work remains subject to participant-selected credit and the release attribution snapshot.</p>
+  </section>
+
+  <section>
+    <h2>What follows from this result</h2>
+    <ol>
+      <li>Do not request volunteer compute for the current checkpoint yet.</li>
+      <li>Freeze a continuation protocol and resume the exact step-128 model, AdamW state, data cursor, objective, learning rate, and decoding policy at later public milestones.</li>
+      <li>If exact behavior appears, repeat the bounded check and then prepare a reviewed volunteer launch. If it does not, test target-only loss and a lower or scheduled learning rate as separate controlled experiments.</li>
+      <li>Keep both reserved holdouts closed until checkpoint selection under a campaign that has actually passed its public learnability gate.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Evidence and reproduction</h2>
+    <p><a href="evidence/record-patch-t2-learnability-v1.json">Complete analysis and all public sample outputs</a> · <a href="../capability/record-patch-v1/learnability-protocol.json">Predeclared protocol</a> · <a href="../capability/record-patch-v1/behavioral-validation.jsonl">Frozen public suite</a> · <a href="../campaign/record-patch-t2-v1.json">Campaign</a> · <a href="../src/orcacolony/record_patch_learnability.py">Runner source</a> · <a href="../src/orcacolony/record_patch_learnability_analysis.py">Analysis source</a></p>
+    <table>
+      <tbody>
+        <tr><th>Selected model</th><td><code>2beb87e85d33284b80c882a458e30d8285c947002d1e8c5284292bebd1a70d1b</code></td></tr>
+        <tr><th>Run evidence</th><td><code>92ec3a0d0fcf49652abbaf24274e612a9e8137395f9e0e80d1e0c8c27c7cca16</code></td></tr>
+        <tr><th>Run SHA256SUMS</th><td><code>8fec574438ac824ccb9564f828a8389beed2d65711bccb8a31bea21fc277bf08</code></td></tr>
+        <tr><th>Committed analysis JSON</th><td><code>4b7308878a8f2f649b38452c70ec2b08d981846aa50be98e2cc164f61b564a15</code></td></tr>
+        <tr><th>Frozen evaluator</th><td><code>sha256:fd99c5920b3de7c17b0cd68986ba3a9d0566aebfbc47b955da01ff11fca7e883</code></td></tr>
+      </tbody>
+    </table>
+    <h3>Training command</h3>
+    <pre>OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 TOKENIZERS_PARALLELISM=false \
+uv run python -m orcacolony.record_patch_learnability \
+  --protocol capability/record-patch-v1/learnability-protocol.json \
+  --campaign campaign/record-patch-t2-v1.json \
+  --packed-dir .artifacts/record-patch-v1/packed \
+  --public-dir capability/record-patch-v1 \
+  --output .artifacts/record-patch-t2-learnability-v1</pre>
+    <h3>Analysis command</h3>
+    <pre>uv run python -m orcacolony.record_patch_learnability_analysis \
+  --campaign campaign/record-patch-t2-v1.json \
+  --packed-dir .artifacts/record-patch-v1/packed \
+  --public-dir capability/record-patch-v1 \
+  --run-dir .artifacts/record-patch-t2-learnability-v1 \
+  --output reports/evidence/record-patch-t2-learnability-v1.json</pre>
+  </section>
+
+  <footer>OrcaColony Report 011 · 2026-07-26 · Negative pre-volunteer qualification result, not a model release</footer>
+</main>
+</body>
+</html>
