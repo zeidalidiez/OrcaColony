@@ -175,6 +175,27 @@ the public suite, private holdout digest, source corpora, packed dataset,
 campaign bytes, and initialization identity. The final holdout remained
 unopened by evaluation.
 
+## Measured qualification result
+
+The 128-step check did not pass. Public language-validation mean loss improved
+from `9.120742341162453` to `1.56358497243532`, so step 128 was selected without
+using behavior. It remained `0/32` exact, `0/32` semantic, and `0/32` strict
+valid JSON. Every output had become object-shaped, but all 32 repeated at least
+one key.
+
+The run covered 512 of 4,618 packed training sequences, about `0.111` epochs.
+It clipped 114 of 128 updates. Public answer-token loss improved from `9.1174`
+to `2.0935`, but teacher-forced answer-token accuracy was only `40.7%` and no
+complete teacher-forced answer was correct. None of the 32 public prompts or
+targets occurred exactly in training.
+
+This is a negative pre-volunteer result. It does not authorize donated compute
+or model publication. The next control will continue the exact step-128 model,
+optimizer, data cursor, objective, and decoding policy to later predeclared
+public milestones before testing a target-only objective or different learning
+rate. See
+[`../../reports/record-patch-t2-learnability-v1.html`](../../reports/record-patch-t2-learnability-v1.html).
+
 ## Required evidence after training
 
 The capability report must publish sample-level outputs, bucketed regressions,
