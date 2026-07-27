@@ -18,6 +18,7 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 from .artifacts import PackedDataset
+from .campaign_research import validate_campaign_research_contract
 
 
 def _reject_duplicate_json_keys(
@@ -403,7 +404,42 @@ def _required_license_id(value: object, label: str) -> str:
     return license_id
 
 
-def _validate_capability_contract(campaign: CampaignConfig) -> None:
+def _validate_publication_contract(
+    publication: Mapping[str, object] | None,
+) -> None:
+    if publication is None:
+        return
+    if publication.get("format") != "orcacolony_huggingface_publication_v1":
+        raise ValueError("unsupported campaign publication contract")
+    required_publication = {
+        "format",
+        "model_repo_id",
+        "dataset_repo_id",
+        "model_license",
+        "dataset_license",
+        "visibility_policy",
+    }
+    if set(publication) != required_publication:
+        raise ValueError("campaign publication contract is invalid")
+    for field in ("model_repo_id", "dataset_repo_id"):
+        _required_huggingface_repo_id(
+            publication.get(field),
+            f"publication {field}",
+        )
+    for field in ("model_license", "dataset_license"):
+        _required_license_id(
+            publication.get(field),
+            f"publication {field}",
+        )
+    if publication.get("visibility_policy") not in {
+        "private",
+        "public",
+        "private_review_then_public",
+    }:
+        raise ValueError("publication visibility policy is invalid")
+
+
+def _validate_legacy_capability_contract(campaign: CampaignConfig) -> None:
     research = campaign.research
     if research is None:
         return
@@ -556,37 +592,22 @@ def _validate_capability_contract(campaign: CampaignConfig) -> None:
             "campaign validation and final holdout ranges must be disjoint"
         )
 
-    publication = campaign.publication
-    if not isinstance(publication, Mapping):
+    if campaign.publication is None:
         raise ValueError("capability research requires publication settings")
-    if publication.get("format") != "orcacolony_huggingface_publication_v1":
-        raise ValueError("unsupported campaign publication contract")
-    required_publication = {
-        "format",
-        "model_repo_id",
-        "dataset_repo_id",
-        "model_license",
-        "dataset_license",
-        "visibility_policy",
-    }
-    if set(publication) != required_publication:
-        raise ValueError("campaign publication contract is invalid")
-    for field in ("model_repo_id", "dataset_repo_id"):
-        _required_huggingface_repo_id(
-            publication.get(field),
-            f"publication {field}",
-        )
-    for field in ("model_license", "dataset_license"):
-        _required_license_id(
-            publication.get(field),
-            f"publication {field}",
-        )
-    if publication.get("visibility_policy") not in {
-        "private",
-        "public",
-        "private_review_then_public",
-    }:
-        raise ValueError("publication visibility policy is invalid")
+
+
+def _validate_campaign_contract(campaign: CampaignConfig) -> None:
+    _validate_publication_contract(campaign.publication)
+    research = campaign.research
+    if research is None:
+        return
+    research_format = research.get("format")
+    if research_format == "orcacolony_capability_research_v1":
+        _validate_legacy_capability_contract(campaign)
+    elif research_format == "orcacolony_campaign_research_v2":
+        validate_campaign_research_contract(research)
+    else:
+        raise ValueError("unsupported campaign research contract")
 
 
 def campaign_from_mapping(payload: Mapping[str, object]) -> CampaignConfig:
@@ -639,7 +660,7 @@ def campaign_from_mapping(payload: Mapping[str, object]) -> CampaignConfig:
         research=cast(Mapping[str, object] | None, research_payload),
         publication=cast(Mapping[str, object] | None, publication_payload),
     )
-    _validate_capability_contract(config)
+    _validate_campaign_contract(config)
     return config
 
 

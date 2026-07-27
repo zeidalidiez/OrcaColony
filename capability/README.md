@@ -1,22 +1,14 @@
-# Capability tasks
+# Historical campaign-specific evaluations
 
-This directory holds frozen behavioral tasks for practical model research.
-Systems studies under `research/` answer whether an execution method is correct
-or resource-feasible. A capability task answers whether training changed one
-declared behavior.
+This directory currently contains the frozen Record Patch prototype. Its task,
+data, evaluator, splits, thresholds, and protocols were choices inside that
+experiment. They are not requirements imposed on new OrcaColony campaigns.
 
-Each task must provide:
+New campaign owners define their own usage scenario and evaluation contract
+through
+[`../research/CAMPAIGN_FRAMEWORK.md`](../research/CAMPAIGN_FRAMEWORK.md).
+Campaign-specific evaluator files may live here, in the campaign's data
+repository, or in another durable location chosen by the owner, provided the
+campaign pins their exact revisions and the release preserves the evidence.
 
-- an exact task and oracle;
-- legal and reproducible data generation;
-- a public behavioral-validation split;
-- a separately keyed final holdout that stays outside Git until checkpoint
-  selection;
-- a sample-level evaluator with frozen thresholds and guardrails;
-- an initialization baseline before volunteer training;
-- contributor-credit intake and private-first Hugging Face destinations.
-
-The final holdout lock may be committed before training, but its examples and
-generation key must not be committed or uploaded until the release evaluation.
-
-The first task is [`record-patch-v1`](record-patch-v1/TASK.md).
+The retained prototype is [`record-patch-v1`](record-patch-v1/TASK.md).

@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-07-26
 
-**Current phase:** Parallel P7 systems research and Record Patch benchmark recipe qualification
+**Current phase:** Parallel P7 systems research and campaign-framework generalization
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -26,16 +26,21 @@ OrcaColony is both:
 
 The participation model is community accumulation, not a permanent cluster of weak computers. A contributor may arrive, complete one or several bounded pieces of accepted work, receive attribution according to their preference, and leave. The coordinator reconciles many such contributions into a canonical campaign result.
 
-The project will preserve a stable correctness baseline while testing additional execution methods through bounded studies. Methods graduate into supported framework capabilities only after they pass declared correctness, reliability, resource, provenance, and use-case evaluation gates.
+The project will preserve a stable correctness baseline while testing additional execution methods through bounded studies. Systems methods enter the supported framework only after their correctness, reliability, resource, and provenance claims have measured evidence.
 
-P5–P7 method engineering and human-directed practical campaigns are parallel tracks. Mechanism work continues through measured executable slices without waiting for time-consuming manual evaluation. The campaign owner remains responsible for practical goals, data selection, example review, evaluation rubrics, checkpoint interpretation, and promotion decisions; automation preserves evidence rather than replacing those judgments.
+P5–P7 method engineering and owner-directed practical campaigns are parallel
+tracks. Mechanism work continues through measured executable slices. When an
+owner creates a practical campaign, that owner supplies its goal, model, data,
+training recipe, usage scenario, evaluator, metrics, comparisons, decision
+criteria, and next-step decisions. The framework validates, runs, records, and
+packages those choices. It does not choose them.
 
-Agent-authored HTML reports are findings and interpretation. Public task
-verification belongs with the runnable Hugging Face benchmark, exact model
-revision, evaluator outputs, and narrow claim. Accepted-work records and
-contributor-approved credit belong with each actual community campaign. A task
-score must never be presented as evidence of broader intelligence than the
-benchmark measures.
+Agent-authored HTML reports are findings and interpretation. The durable public
+record belongs with the exact Hugging Face model and data revisions,
+campaign-owner-defined evaluator, score files, bundled evidence, limitations,
+accepted-work records, and contributor-approved credit. A report may state the
+agent's findings, but it may not invent campaign choices or present one metric
+as evidence of broader intelligence.
 
 ## Overall build position
 
@@ -56,25 +61,23 @@ benchmark measures.
 ### Current boundary
 
 The local numerical, coordinator, restart, and operational-release preflight is
-proven. Capability/release infrastructure now fails closed on unsupported
-objectives, separates behavioral promotion from language-loss diagnostics,
-freezes baseline-improvement and evaluation-suite identities, snapshots
-contributor-selected credit, verifies committed research artifacts, captures
-environment context, and builds separate deterministic Hugging Face model/data
-packages. Record Patch v1 now supplies the first frozen true-T2 task, legal
-synthetic recipe, private final holdout, exact evaluator, campaign, and measured
-initialization outputs. Python 3.11.15 reproduced the initialization identity,
-all 32 predictions, and the evaluation JSON byte for byte from the earlier
-Python 3.14 run. The complete v0.1 public-research acceptance path is still not
-proven. The first centralized learnability check completed and failed its
-behavioral gate despite a large language-loss improvement. The exact
-same-trajectory continuation to step 512 also failed: canonical JSON reached
-`30/32`, but exact and semantic record matches remained `0/32`. The next
-isolated recipe control is answer-token-only loss from the same initialization.
-The public benchmark package can proceed independently of model success; model
-promotion still needs a passing narrow task result, reviewed release, clean
-load/generation test, exact Hub revisions, and a several-day campaign with
-distinct remote owner-approved participants.
+proven. New campaign research uses
+`orcacolony_campaign_research_v2`: the campaign owner supplies the question,
+usage scenario, versioned evaluator, inputs, metrics, and analysis plan. Release
+evidence can contain any owner-labeled model evaluations and comparisons. The
+framework binds the released checkpoint, computes raw and declared-direction
+metric changes, verifies bundled evidence files, records limitations, and
+packages positive, negative, unchanged, or inconclusive results without a
+mandatory success gate. Deterministic Hugging Face model and dataset packages
+include the evaluation record and contributor-selected credit.
+
+Record Patch v1 is retained as a historical owner-operated prototype with two
+negative training-effect results. Its fixed thresholds, holdout policy,
+checkpoint-selection rule, and proposed follow-up are not the default campaign
+framework and do not determine the project's next practical campaign. The
+complete v0.1 public path still needs a real owner-defined campaign, remote
+approved participants, reviewed model and data releases, load/generation
+testing, and exact Hub revisions.
 
 The current architecture uses replicated full-model data parallelism: every direct-gradient worker can execute its complete assignment independently against one canonical checkpoint. The complete model may eventually be placed across that worker's GPU VRAM, system RAM, and local storage; it does not have to remain entirely in GPU VRAM. Cross-worker partial-model methods are a post-v0.1 research track rather than part of the proven baseline.
 
@@ -86,11 +89,11 @@ The current architecture uses replicated full-model data parallelism: every dire
 - Keep the current replicated-model path as the numerical and operational oracle.
 - Separate training method from execution topology and memory placement.
 - Compare methods through reproducible studies rather than unsupported claims.
-- Require every campaign to declare a concrete use case and a fixed evaluation contract.
+- Require the owner of each practical research campaign to supply its concrete
+  usage scenario and evaluation contract when that campaign is created.
 - Treat every task metric as evidence about that use case only, not general intelligence.
-- Evaluate checkpoints throughout a campaign on frozen validation data; reserve a final holdout for promotion.
 - Record failed and inconclusive experiments as first-class findings.
-- Promote one measured capability at a time; do not productionize every research idea.
+- Keep systems-method support decisions separate from model-result publication.
 - Publish important findings as self-contained human-readable HTML under `reports/`; retain `research/` unchanged as the existing machine-readable study-record system.
 
 ## Priority order
@@ -102,14 +105,14 @@ The current architecture uses replicated full-model data parallelism: every dire
 - Clarify replicated full-model data parallelism and why it remains the correctness baseline.
 - Clarify that a complete-local worker may use VRAM, system RAM, memory mapping, and local storage offload.
 - Define campaigns, studies, execution topologies, numerical profiles, and experimental graduation.
-- Require a concrete use-case evaluation contract for every campaign.
+- Keep campaign research choices owner-supplied rather than framework-defined.
 - Record future partial-model and asynchronous reconciliation tracks without pretending they are already implemented.
 
 ### P1 — Add the research study and experiment contract
 
 **Status:** Complete
 
-- Machine-readable study manifest tying comparable campaigns to one hypothesis and use case.
+- Machine-readable study manifest tying comparable systems experiments to one hypothesis and use case.
 - Experiment status: proposed, active, validated, rejected, inconclusive, or promoted.
 - Reproducibility fields for model/data/code revisions, worker profiles, execution topology, numerical profile, resource use, and evaluation results.
 - A standard result report that includes negative findings and limitations.
@@ -118,10 +121,11 @@ Completed within P1:
 
 - Added the fail-closed `orcacolony_study_v1` validator.
 - Kept research variables and experiment roles open through identified, display-ready descriptors instead of a narrow fixed method menu.
-- Locked the hypothesis, use-case baseline, primary metric and threshold, repeated validation suite, final holdout, guardrails, controlled variables, and safe experiment references.
+- Locked the historical systems-study hypothesis, metric contract, controlled
+  variables, and safe experiment references.
 - Added linked `orcacolony_experiment_v1` and `orcacolony_experiment_evidence_v1` contracts for exact subjects, artifact revisions, method/topology/placement descriptions, worker profiles, budgets, reproduction commands, measurements, evaluation, findings, and limitations.
 - Added deterministic, atomic experiment-result bundles containing canonical source manifests, source hashes, a machine-readable decision, a human-readable `RESULT.md`, and `SHA256SUMS`.
-- Enforced that validated or promoted evidence passes the declared primary metric and every guardrail while preserving rejected and inconclusive findings as publishable outcomes.
+- Preserved rejected and inconclusive systems findings as publishable outcomes.
 - Added the real `python -m orcacolony.research record` command with duplicate-key rejection and exact study-to-experiment path binding.
 - Committed a self-contained contract study pinned to the exact CLI implementation revision and proved its real result bundle and checksums through the command line.
 
@@ -315,14 +319,11 @@ Completed within the first P3 measurement and native-baseline slice:
 
 Run two explicitly separate bounded tracks:
 
-1. **Benchmark recipe track:** use the failed Record Patch step-512 result as
-   the fixed comparison. Add an explicit answer-token mask to the packed data
-   and objective, then freeze a 512-step control from the same initialization
-   with model, examples, order, batch size, AdamW settings, learning rate,
-   decoding, and evaluator unchanged. Do not open either reserved holdout or
-   request community compute. Separately package the benchmark data, simple
-   reference scores, evaluator, split policy, and exact revisions for
-   Hugging Face review; benchmark publication does not require a model pass.
+1. **Campaign framework track:** review and merge the owner-defined v2 campaign
+   research, evaluation-evidence, release, Hugging Face packaging, report, and
+   credit contracts. The next practical campaign remains intentionally unset
+   until its owner supplies the campaign definition. Record Patch does not
+   choose it.
 2. **P7 systems track:** freeze and persistently cache the untied final
    norm/output head in both centralized and distributed sparse controls. Train
    only router, shared trunk, and experts, preserve byte-exact canonical AdamW,
@@ -334,26 +335,13 @@ Run two explicitly separate bounded tracks:
 ## Remaining major work
 
 - P7 cached-head, authenticated-data, process-memory, retry, and quality qualification.
-- Complete the first useful specialization campaign at the specification's
-  17,538,816-parameter T2 tier. Record Patch v1 now freezes its task and starting
-  measurement and retains negative 128-step and 512-step all-token results plus
-  exact restartable checkpoints, but no passing task gate, community work, or
-  promotion evidence exists. The historical 91,544,064-parameter files and
-  P3/P4 evidence retain their existing `t2` identifiers for provenance but are
-  treated as a legacy 91M memory-stress tier, not as the current T2 task-model
-  tier.
-- Extend the new Record Patch training-effect analyzer with forgetting
-  guardrails, ablations, and repeated-seed uncertainty where relevant. The
-  first trained comparison now includes checkpoint output deltas, error
-  taxonomy, data buckets, gradient/update diagnostics, prompt/answer loss, and
-  exact plus nearest-training-record checks.
-- Promotion records currently validate artifact IDs, hashes, and locations, but
-  the capability release path does not yet fetch or snapshot arbitrary external
-  evaluator/sample-result URIs. The first real campaign must put those artifacts
-  in a digest-verified `repo:` research bundle or extend the publisher to bundle
-  them; a link and a claimed hash alone are not durable proof. Holdout separation
-  is likewise enforced by the release workflow, not by a cryptographic
-  prohibition against an operator inspecting it early.
+- Run the first practical campaign after its owner supplies the model, data,
+  training recipe, usage scenario, evaluator, metrics, comparisons, publication
+  settings, and participants. No default task or model size is selected by the
+  framework.
+- Exercise the v2 campaign evidence path with a real campaign. The implementation
+  already verifies and bundles `bundle:` evaluator/sample-result artifacts;
+  other URIs remain declared external references rather than implied proof.
 - Exercise contributor credit-profile v2 with real volunteer choices and review
   the generated release snapshot. The implementation separates worker authority
   from reloadable credit choices and accounts for accepted tokens,
@@ -366,13 +354,10 @@ Run two explicitly separate bounded tracks:
   digest-verifiable locations. Committed `repo:` artifacts now verify and bundle;
   other URI schemes are explicitly reported as unresolved rather than implied
   proof.
-- Build a deterministic Hugging Face benchmark package for
-  `OrcaColony/record-patch-v1` with its CC0 data, runnable evaluator, split
-  policy, simple reference scores, exact revisions, and narrow claim. Model
-  packaging remains separate: choose the weights license, run the custom
-  load/generation smoke test, clearly classify failed checkpoints as
-  experimental, and record exact Hub commits. Neither reserved repository
-  exists and no model/data package has been uploaded.
+- Build and review deterministic Hugging Face model and data packages for the
+  first owner-defined campaign, including its evaluation evidence, bundled
+  artifacts, reports, limitations, and contributor credit. Record exact Hub
+  commits. No campaign model or data package has yet been uploaded.
 - Hidden-canary or replicated-work compute integrity before untrusted public
   participation; the diagnostic oracle-gradient endpoint is not a production
   proof that donated computation occurred.
@@ -381,12 +366,13 @@ Run two explicitly separate bounded tracks:
 ## Current blockers and hold-ups
 
 - No blocker prevents the specification and research-framework work.
-- Community training remains blocked. The 512-step continuation passed its
-  language-loss condition and reached `30/32` strict canonical JSON, but still
-  scored `0/32` exact and `0/32` semantic record matches. No community compute
-  should be requested until a predeclared recipe control shows exact task
-  learning on public data.
-- Remote trusted deployment still requires operator-owned HTTPS hosting choices and approved participants, but that does not block local research milestones.
+- No practical community campaign is currently defined. Starting one requires
+  an owner-supplied campaign contract, participants, and deployment inputs.
+  Record Patch's negative result is evidence about that historical experiment,
+  not a framework-wide block on other campaigns.
+- Remote trusted deployment still requires operator-owned HTTPS hosting choices
+  and approved participants, but that does not block local framework or systems
+  milestones.
 - Native GPU and GPU-plus-system-RAM placement were not qualified on the CPU-only PyTorch host; browser WebGPU remains a separate measured numerical/runtime profile rather than evidence for a native offload path.
 - Larger-model execution methods are hypotheses until measured; none should be described as supported merely because a paper or prototype demonstrates the general idea.
 
@@ -394,6 +380,27 @@ Run two explicitly separate bounded tracks:
 
 ### 2026-07-26
 
+- Corrected the campaign boundary. OrcaColony builds the framework; the campaign
+  owner later supplies the model, data, training recipe, usage scenario,
+  evaluator, metrics, comparisons, interpretation criteria, publication
+  targets, and next-step decisions for that campaign.
+- Added `orcacolony_campaign_research_v2` without mandatory thresholds,
+  guardrails, holdouts, checkpoint-selection rules, benchmark repositories, or
+  promotion states. The legacy Record Patch capability contract remains
+  loadable only for historical reproducibility.
+- Added `orcacolony_campaign_evaluation_evidence_v1`. It binds arbitrary
+  owner-labeled evaluations to exact subject revisions, requires every declared
+  metric and evidence hashes, binds the released checkpoint, computes raw and
+  declared-direction changes for requested comparisons, and records findings,
+  limitations, and reproduction without assigning pass/fail.
+- Removed the release-time requirement that an optional training diagnostic
+  gate pass. Completed negative and inconclusive campaigns can now be packaged
+  honestly.
+- Added digest-verified `bundle:` evaluation artifacts to operational releases
+  and both Hugging Face packages, alongside contributor-approved attribution.
+  Added neutral campaign and report templates and marked the Record Patch
+  thresholds, holdouts, and proposed answer-only control as historical
+  experiment choices rather than the project roadmap.
 - Completed the exact same-trajectory Record Patch continuation under clean
   source revision `2cd4a38f6b6153621064f721720649ae9c453c2b`. Step 512
   was selected by public language loss at `1.2297416774319931`, but remained

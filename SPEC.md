@@ -31,7 +31,7 @@ This section records the implementation decisions that govern v0.1. Where an ill
 
 ## Project summary
 
-> OrcaColony is a self-hostable, Folding@home-style framework and research vehicle for community model training. A campaign host freezes the model, data, learning objective, concrete use case, evaluation contract, and release destination. Contributors may arrive briefly, complete one or several bounded pieces of accepted work, and leave; the framework reconciles those contributions into one canonical campaign result and records attribution according to contributor preference. The project preserves replicated full-model data parallelism as its correctness baseline while experimentally evaluating PEFT, local RAM and storage offload, partial-model reconciliation, exact tiled computation, and later sparse or model-parallel methods. It prefers the smallest model that meets the declared use case but does not impose the memory limits of one weak GPU as the project's permanent ceiling. Every released model or research finding publishes the exact artifacts, configuration, evaluation, provenance, and limitations needed to reproduce it.
+> OrcaColony is a self-hostable, Folding@home-style framework and research vehicle for community model training. A campaign host freezes the model, data, learning objective, and release destination and, for practical research, supplies the usage scenario and evaluation contract. Contributors may arrive briefly, complete one or several bounded pieces of accepted work, and leave; the framework reconciles those contributions into one canonical campaign result and records attribution according to contributor preference. The project preserves replicated full-model data parallelism as its correctness baseline while experimentally evaluating PEFT, local RAM and storage offload, partial-model reconciliation, exact tiled computation, and later sparse or model-parallel methods. Model size remains an owner decision informed by measured resource and campaign evidence rather than the memory limit of one weak GPU. Every released model or research finding publishes the exact artifacts, configuration, supplied evaluation, provenance, and limitations needed to reproduce it.
 
 ## 1. Executive decision and v0.1 baseline
 
@@ -83,7 +83,8 @@ Before a worker submits its first work unit, the site asks how that contributor 
 The campaign owner controls:
 
 - Campaign goal and description.
-- Concrete intended use case and the claim the campaign will test.
+- Research question and concrete usage scenario, when the campaign is intended
+  to study model behavior.
 - Model architecture and parameter count.
 - Random initialization or exact base-checkpoint revision.
 - Tokenizer and tokenizer revision.
@@ -92,14 +93,15 @@ The campaign owner controls:
 - Corpus or structured training dataset.
 - Source licenses and redistribution policy.
 - Filtering, deduplication, normalization, and formatting rules.
-- Train, validation, and test splits.
+- Any train, validation, test, holdout, or review splits the owner chooses.
 - Objective and loss masking.
 - Optimizer and learning-rate schedule.
 - Global batch target.
 - Token or example budget.
 - Checkpoint cadence.
-- Evaluation suite and success thresholds.
-- Repeated validation cadence, final holdout, baseline, and guardrails for the declared use case.
+- Evaluator, evaluation inputs, metrics, and requested comparisons.
+- Optional success thresholds, repeated-validation cadence, holdouts, baselines,
+  guardrails, and decision criteria.
 - Contribution-credit rules and contributor-attribution options.
 - Canonical public corpus or dataset page and source-manifest links.
 - Hugging Face organization and repository.
@@ -422,46 +424,54 @@ The model card must not use vague descriptions such as “trained on public data
 
 ---
 
-## 8. Determining whether the model improved at the target
+## 8. Recording what training changed
 
-Training loss alone is insufficient. Every campaign begins with a concrete use-case claim and a frozen evaluation contract. A systems-proof campaign may define its use case as validating distributed correctness, but it must not turn lower language-model loss alone into a broader usefulness claim.
+Training loss is a useful diagnostic, but it is not automatically evidence that
+a model became more useful. The framework therefore preserves
+campaign-owner-defined usage evaluations separately from training diagnostics.
+It does not supply a universal task, metric, threshold, baseline, holdout, or
+checkpoint-selection policy.
 
-### 8.1 Required use-case evaluation contract
+### 8.1 Owner-defined campaign research contract
 
-Before training begins, the campaign lock declares:
+When an owner creates a practical research campaign, the campaign lock records:
 
-- **Use-case claim:** the behavior or capability the campaign is intended to improve.
-- **Baseline:** the initialization or base checkpoint and any relevant comparison model.
-- **Repeated validation suite:** frozen examples used to evaluate initialization and selected checkpoints throughout the campaign.
-- **Primary metric and thresholds:** both an absolute result threshold and a
-  positive minimum improvement from the exact frozen baseline.
-- **Guardrails:** behaviors, formats, or general capabilities that must not regress beyond declared limits.
-- **Behavioral suite identity:** exact evaluation-data and evaluator revisions,
-  with distinct repeated-validation and final-holdout split names.
-- **Final holdouts:** a disjoint reserved language-loss slice for diagnostics and
-  a separately identified behavioral suite split used for promotion rather than
-  repeated checkpoint selection.
-- **Evaluation cadence:** which checkpoints are evaluated and how failures affect continuation or release.
+- **Research question:** what the owner wants the campaign to investigate.
+- **Usage scenario:** the concrete situation in which the owner intends to
+  evaluate the model.
+- **Evaluator identity:** exact evaluator revision and reproduction command.
+- **Evaluation inputs:** exact revisions and durable locations for prompt sets,
+  datasets, rubrics, tools, or other inputs selected by the owner.
+- **Metrics:** owner-defined calculations, units, and `maximize`, `minimize`, or
+  `observe` direction.
+- **Analysis plan:** the comparisons and reviews the owner wants performed.
 
-The repeated validation suite answers whether training is moving toward the
-fixed use case. A final holdout reduces the risk of selecting and tuning
-repeatedly against the only test. The current executable capability contract
-selects the checkpoint by frozen validation language loss, then evaluates the
-reserved language-loss diagnostic and separately supplied behavioral promotion
-record. A research study compares methods using the same use-case contract
-wherever the hypothesis permits.
+The owner may additionally define baselines, repeated validation, holdouts,
+guardrails, thresholds, checkpoint selection, or stopping rules. Those are
+campaign choices, not framework requirements.
 
-### 8.2 Baseline
+The executable `orcacolony_campaign_research_v2` contract intentionally has no
+mandatory success state. The older
+`orcacolony_capability_research_v1` threshold-and-promotion contract remains
+loadable only for historical Record Patch evidence.
 
-Before volunteer training starts, run the full evaluation suite against:
+### 8.2 Evaluation records
 
-- The initialization checkpoint.
-- Any relevant existing comparison model.
-- A trivial or rule-based baseline where useful.
+The owner may evaluate initialization, existing models, intermediate
+checkpoints, final checkpoints, ablations, or any other declared subject. Each
+record binds the exact subject revision, every declared metric, and
+digest-identified evidence artifacts. The evaluation identified as the release
+evaluation must bind the exact released checkpoint.
 
-### 8.3 Held-out evaluation
+### 8.3 Comparisons
 
-Checkpoints are evaluated on examples excluded from training. Metrics depend on the goal:
+The owner chooses which evaluation records to compare. The framework calculates
+the raw metric difference and, where the owner declared a preferred direction,
+the signed change in that direction. It does not decide whether the difference
+is important, statistically meaningful, sufficient for publication, or a
+reason to run another campaign.
+
+Metrics depend on the owner-defined goal:
 
 | Goal | Suitable measures |
 |---|---|
@@ -473,9 +483,9 @@ Checkpoints are evaluated on examples excluded from training. Metrics depend on 
 | Question answering | Exact match, rubric score, citation or retrieval checks |
 | Summarization | Task-specific rubric plus factuality checks |
 
-### 8.4 Success gates
+### 8.4 Optional decision criteria
 
-A campaign should declare thresholds before training, for example:
+A campaign owner may declare decision criteria before training, for example:
 
 ```text
 Primary: unit-test pass rate rises from 31% to at least 55%
@@ -484,9 +494,15 @@ Format: valid JSON on at least 99% of held-out inputs
 Efficiency: target task completes within the deployment latency budget
 ```
 
+These criteria belong to that campaign's protocol and report. Meeting or missing
+them does not determine whether the framework can package an honest result.
+
 ### 8.5 Checkpoint selection
 
-The final release is not necessarily the checkpoint with the lowest training loss. The campaign selects the best checkpoint using the declared held-out metric and guardrails.
+The owner chooses the checkpoint-selection rule. It may use a declared usage
+metric, a training diagnostic, a fixed final step, human review, or another
+reproducible rule. The release records the chosen rule and exact checkpoint
+without treating it as a framework-wide policy.
 
 ---
 
@@ -706,31 +722,38 @@ The first public evaluation stays small:
 
 It does not need a broad benchmark suite.
 
-### 12.3 Promotion gates
+### 12.3 Optional model-size review
 
-The project moves up exactly one rung only when all of the following are true:
+The tier ladder is a planning aid, not a mandatory campaign sequence. A
+campaign owner considering a larger model should review:
 
 1. **Reference parity:** distributed gradients and optimizer steps match the single-process implementation within the declared numerical tolerance.
 2. **Completed campaign:** the current tier has finished an end-to-end campaign, published a checkpoint, and produced a valid contribution ledger.
-3. **Stable learning:** training and held-out loss follow a sane curve without unexplained divergence, and the declared task metric improves where the campaign claims specialization.
+3. **Stable learning:** training and any owner-selected diagnostics follow a sane curve without unexplained divergence.
 4. **Hardware fit:** the next tier has been benchmarked on the weakest hardware class the campaign intends to admit, with practical memory headroom rather than a one-off out-of-memory near miss.
 5. **Useful compute-to-transfer ratio:** median work-unit compute time is at least five times median result-upload time, or compression has already fixed the imbalance.
 6. **Acceptable churn:** expired and rejected work do not consume enough capacity to make the larger campaign wasteful.
-7. **A reason to scale:** evaluation indicates under-capacity, underfitting, or a capability benefit likely to come from a larger model. "The next model is bigger" is not by itself a reason.
+7. **A reason to scale:** owner-reviewed evidence indicates under-capacity,
+   underfitting, or another benefit likely to come from a larger model. "The
+   next model is bigger" is not by itself a reason.
 8. **One major variable at a time:** the first comparison at the next rung reuses the prior corpus, objective, tokenizer, and context where practical.
-9. **Fixed use-case evidence:** the next rung is evaluated against the campaign's predeclared use-case contract, including its guardrails and final promotion holdout.
+9. **Comparable evidence:** when the owner wants a size comparison, the relevant
+   evaluation inputs, evaluator, and metrics remain comparable across sizes.
 
-Failure at a gate means running another campaign at the current size, fixing the measured bottleneck, or opening a bounded study of a different training method, placement profile, or execution topology. It does not promote a wider redesign automatically.
+The owner may remain at the current size, change the campaign, or choose a
+different model for reasons outside this checklist. The framework records that
+choice; it does not make it.
 
 ### 12.4 Expected participation by tier
 
 - **T0–T1:** browser CPU, browser WebGPU, and native workers are all first-class direct-training participants.
-- **T2:** direct CPU participation remains a target, but admission is based on the benchmark rather than a promise that every laptop will be fast.
+- **T2:** direct CPU participation remains a target, but admission is based on measured runtime and resource evidence rather than a promise that every laptop will be fast.
 - **T3:** browser GPUs and native consumer GPUs become the main throughput source; sufficiently capable CPUs can still contribute smaller work units.
 - **T4:** browser GPU and native workers are expected to dominate. CPU-only direct training remains available only when the compute-to-transfer admission rule passes.
 - **T5:** native workers are the primary path. Browser participation is experimental unless real measurements show otherwise.
 
-A campaign should remain at a smaller tier when moving upward would exclude most of the community without producing a clear capability gain.
+A campaign owner should consider remaining at a smaller tier when moving upward
+would exclude most of the community without serving the campaign's stated goal.
 
 ### 12.5 Sizing rationale
 
@@ -961,7 +984,9 @@ hand.
 
 Target-state `campaign.yaml` example. The current executable JSON schema keeps
 `objective: causal_lm` and `loss_mask: all_target_tokens` inside `campaign` and
-rejects the supervised target-only values shown below:
+rejects the supervised target-only values shown below. Every research field in
+this example is a choice made by this example campaign's owner, not a framework
+default:
 
 ```yaml
 campaign:
@@ -971,11 +996,32 @@ campaign:
     A small open model specialized in deterministic source-code transformations.
   owner: example-org
   model_license: Apache-2.0
-  use_case:
-    claim: >-
-      Improve deterministic source-code transformation success on the frozen
-      project task suite without unacceptable general-language regression.
-    baseline: initialization
+
+research:
+  format: orcacolony_campaign_research_v2
+  question: >-
+    What changes on the owner's deterministic source-code transformation use
+    case after this training recipe?
+  usage_scenario: >-
+    Apply the owner-selected transformations to held-out project examples.
+  evaluation_contract:
+    evaluator:
+      id: owner-code-transform-evaluator
+      revision: <exact-git-commit>
+      command: [python, evaluate.py]
+    artifacts:
+      - id: owner-evaluation-inputs
+        kind: dataset
+        revision: sha256:<exact-digest>
+        uri: hf://datasets/example-org/code-transform-evaluation@<commit>
+    metrics:
+      - id: owner-task-score
+        label: Owner task score
+        description: Exact calculation supplied by the campaign owner.
+        direction: maximize
+        unit: ratio
+  analysis_plan:
+    - Compare the owner-selected evaluation records and inspect failures.
 
 model:
   architecture: volunteer_decoder_v1
@@ -1097,7 +1143,7 @@ The generated `README.md` model card visibly states:
 - The exact corpus or dataset revision.
 - Total accepted training tokens or examples.
 - Training objective and major optimizer settings.
-- Primary held-out evaluation results and guardrails.
+- Owner-defined evaluation results, evidence, and limitations when supplied.
 - Intended uses and limitations.
 - Model and dataset licenses.
 - Total contributor count and a direct acknowledgment link.
@@ -1130,8 +1176,11 @@ model/
   campaign.json
   campaign-lock.json
   evaluations.json
-  language-model-final-holdout-evaluation.json  # capability candidates/models
-  promotion-evidence.json                       # when supplied
+  campaign-evaluation-evidence.json              # when supplied by owner
+  campaign-evaluation-summary.json               # validated comparisons
+  campaign-evaluation-artifacts/                 # verified bundle: files
+  language-model-final-holdout-evaluation.json   # legacy v1 when present
+  promotion-evidence.json                        # legacy v1 when present
   public-ledger.json
   attribution-snapshot.json
   dataset-manifest.json
@@ -1148,6 +1197,9 @@ dataset/
   train.safetensors
   validation.safetensors
   DATASET-NOTICE.md
+  campaign-evaluation-evidence.json  # when supplied by owner
+  campaign-evaluation-summary.json   # validated comparisons
+  campaign-evaluation-artifacts/     # verified bundle: files
   THIRD_PARTY_DATA.md
   attribution-snapshot.json
   orcacolony-release.json
@@ -1290,15 +1342,18 @@ Every implementation task should name the milestone and acceptance criterion it 
 
 Every active experiment declares before implementation:
 
-1. The hypothesis and why it could improve volunteer participation or model usefulness.
-2. The fixed campaign use case and baseline it will compare against.
+1. The question or hypothesis selected by the experiment owner.
+2. The exact references or evaluation records the owner wants compared.
 3. The smallest runnable artifact that can falsify the hypothesis.
-4. Correctness, resource, reliability, and use-case evaluation gates.
+4. The measurements and any owner-selected decision criteria.
 5. The variables held constant and the one major variable being tested.
 6. The evidence and artifacts that will be published.
-7. A terminal disposition: validated, rejected, inconclusive, or promoted.
+7. A factual result record, including negative, mixed, unchanged, or
+   inconclusive findings.
 
-Negative and inconclusive results are retained when reproducible. A successful spike proves only its declared hypothesis; promotion into the stable framework requires the graduation rules in Section 25.
+Negative and inconclusive results are retained when reproducible. A successful
+systems spike proves only its declared hypothesis; admission of a systems
+method into the stable framework uses the qualification rules in Section 25.
 
 ---
 
@@ -1358,18 +1413,24 @@ Negative and inconclusive results are retained when reproducible. A successful s
 
 ### Milestone 5: useful specialization campaign
 
-- Use T2 (approximately 17.5M parameters) by default, or T3 only when T2 promotion gates pass and evaluation justifies the increase.
-- Select an openly licensed compatible checkpoint or train the chosen small architecture from scratch.
-- Build a task-specific corpus or SFT dataset.
-- Use available AI inference for candidate-data generation where useful.
-- Declare one concrete use-case claim; freeze its repeated validation suite, final holdout, baseline, guardrails, and success criteria before training.
+- The campaign owner selects the model size and explains how it serves the
+  campaign. T2 is available as a planning profile, not a default imposed by the
+  framework.
+- Select an openly licensed compatible checkpoint or train the owner's chosen architecture from scratch.
+- Build the corpus or training dataset selected by the campaign owner.
+- Use available inference for candidate-data generation only when the owner
+  chooses it and the release records the source and filtering.
+- Record the owner's research question, usage scenario, versioned evaluator,
+  evaluation inputs, metrics, requested comparisons, and analysis plan.
 - Run a public volunteer campaign.
-- Publish the best checkpoint, linked corpus, contributor acknowledgments, and complete provenance on Hugging Face.
+- Publish the owner-selected checkpoint, linked data, evaluation evidence,
+  contributor acknowledgments, and complete provenance on Hugging Face whether
+  the result is positive, negative, unchanged, or inconclusive.
 
 ### Milestone 6: reproducible research-study contract
 
 - Add machine-readable study and experiment manifests.
-- Tie comparable campaigns to one hypothesis and one fixed use-case evaluation contract.
+- Tie comparable campaigns to one owner-selected question and evaluation contract when comparison is intended.
 - Record code, model, dataset, topology, numerical profile, worker profile, resource, reliability, and evaluation evidence.
 - Publish validated, rejected, and inconclusive outcomes with reproduction instructions.
 - Keep the stable v0.1 campaign path unchanged while the research harness is introduced.
@@ -1380,7 +1441,7 @@ Negative and inconclusive results are retained when reproducible. A successful s
 - Declare the complete trainable-adapter tensor manifest.
 - Preserve summed-loss gradients, coordinator normalization, one global clip, canonical optimizer ownership, restart, provenance, evaluation, and release semantics over the adapter state.
 - Prove the base remains immutable and adapter updates match a single-process reference within tolerance.
-- Run a bounded multi-worker PEFT campaign against a fixed use case.
+- Run a bounded multi-worker PEFT campaign against its owner-defined contract.
 
 ### Milestone 8: local memory tiers and mixed-profile qualification
 
@@ -1388,15 +1449,16 @@ Negative and inconclusive results are retained when reproducible. A successful s
 - Implement bounded caches, content-addressed shards, prefetching, eviction, and storage quotas for native workers where needed.
 - Measure peak memory, storage I/O, network transfer, throughput, completion, and evaluation behavior.
 - Prove mixed-profile aggregation against a homogeneous reference before allowing profiles to share a campaign.
-- Advance model size only when Section 12 gates and the campaign's use-case evidence justify it.
+- Record the campaign owner's model-size choice and the measured resource tradeoffs.
 
 ### Milestone 9: rolling partial-model study
 
 - Extract capability-sized subnetworks or parameter slices from a larger canonical model.
 - Rotate coverage across frozen checkpoint rounds and reconcile overlapping updates deterministically.
 - Preserve leases, retries, provenance, attribution, and checkpoint lineage.
-- Compare convergence and the fixed use-case result with replicated full-model training.
-- Promote the method only if a global model larger than the admitted worker slices delivers a justified benefit.
+- Compare convergence and any owner-selected usage evaluation with replicated full-model training.
+- Admit the systems method only when its measured correctness and operational
+  tradeoffs justify support.
 
 ### Milestone 10: exact asynchronous tiled-computation study
 
@@ -1433,9 +1495,12 @@ Version 0.1 is complete when:
 
 ---
 
-## 23. Recommended first two campaigns
+## 23. Example campaign shapes
 
-### Campaign 1: system proof
+These examples illustrate the framework. They do not select the project's next
+campaign or supply choices for a future campaign owner.
+
+### Example 1: system proof
 
 - T0 is used privately as the implementation fixture; the public campaign uses the T1 approximately 6.9M-parameter decoder.
 - Tiny decoder trained from scratch.
@@ -1444,14 +1509,15 @@ Version 0.1 is complete when:
 - Main goal: prove the framework, not produce a competitive general model.
 - Success measure: distributed training matches the reference loss curve and survives worker churn.
 
-### Campaign 2: useful narrow model
+### Example 2: owner-defined practical model
 
-- T2 approximately 17.5M parameters by default; use T3 approximately 46.7M only after T2 demonstrates a capacity limit.
-- Small openly licensed compatible base checkpoint, or the selected architecture trained from scratch before specialization.
-- One concrete, automatically measurable function.
-- SFT dataset built from real examples plus carefully verified synthetic examples.
-- Main goal: beat the base checkpoint on a frozen held-out task suite.
-- Success measure: declared task metric improves without violating guardrails.
+- Model size, base checkpoint, and architecture selected by the campaign owner.
+- Training data and objective selected by the campaign owner with exact
+  provenance and licenses.
+- Owner-supplied usage scenario, evaluator, metrics, comparisons, and analysis
+  plan.
+- Published model, data, evidence, limitations, and contributor credit whether
+  results improve, regress, remain unchanged, or are inconclusive.
 
 This sequence separates infrastructure validation from claims of model usefulness.
 
@@ -1466,8 +1532,11 @@ This sequence separates infrastructure validation from claims of model usefulnes
 5. **GitHub Pages hosts the static client, not the mutable training service.**
 6. **Hivemind informs native collaboration and later averaging.** It is not compiled directly into the browser.
 7. **Prime is deferred.** DiLoCo is a scaling option, not an initial dependency.
-8. **Raw corpus training and task training are separate campaign modes.** The chosen data must match the claimed capability.
-9. **Every campaign declares a concrete use case.** Improvement is established through its frozen repeated validation and final holdout, not training loss alone.
+8. **Raw corpus training and task training are separate campaign modes.** The campaign owner chooses the data and objective.
+9. **Research choices belong to the campaign owner.** When a practical campaign
+   studies model behavior, its owner supplies the usage scenario, evaluator,
+   metrics, comparisons, and interpretation criteria. The framework does not
+   infer them from training loss.
 10. **Every released model includes reproducible campaign and contribution provenance.**
 11. **Contributors control how they are credited.** Named, pseudonymous, linked, team-based, and anonymous attribution are supported.
 12. **The model page directly names and links the training corpus.** Dataset sources, revisions, licenses, and preprocessing are visible.
@@ -1498,8 +1567,11 @@ The coordinator must identify the role and mathematics of every accepted result.
 
 ### 25.2 Campaigns, studies, and profiles
 
-- A **campaign** is one locked training run with one canonical state, data revision, use-case evaluation contract, training method, execution topology, and admitted profile set.
-- A **study** compares two or more campaigns or bounded experiments against one hypothesis and shared use-case contract.
+- A **campaign** is one locked training run with one canonical state, data
+  revision, training method, execution topology, admitted profile set, and any
+  owner-supplied research contract.
+- A **study** compares two or more campaigns or bounded experiments against an
+  owner-selected question and declared comparison contract.
 - A **training method** defines what is optimized, such as dense parameters, LoRA adapters, or rolling subnetworks.
 - An **execution topology** defines how one accepted contribution is computed and reconciled, such as replicated full model, partial submodel, tiled task graph, or sparse experts.
 - A **memory profile** defines where tensors may live, such as GPU-resident, RAM-offloaded, or local-storage-backed.
@@ -1532,9 +1604,13 @@ For a rolling-submodel round:
 3. Let transient workers complete those assignments independently.
 4. Retry expired slices and reject stale revisions.
 5. Reconcile accepted overlapping updates using the method's frozen rule.
-6. Advance to checkpoint `s+1` only after the round's coverage and evaluation gates pass.
+6. Advance to checkpoint `s+1` only after the study's declared coverage and
+   correctness criteria are met.
 
-These updates are not presumed equal to slices of the full-model gradient. The study must compare convergence and use-case results with the replicated baseline.
+These updates are not presumed equal to slices of the full-model gradient. The
+study must compare convergence with the replicated baseline and include an
+owner-selected usage evaluation when model-quality effects are part of the
+hypothesis.
 
 For an exact tiled task graph, the coordinator persists intermediate state and unlocks tasks only when their inputs are available. Workers may be interchangeable and retryable, but forward layers, backward signals, and deterministic reductions still impose dependency barriers. The first spike stops at one representative transformer layer unless computation per transferred byte and failure recovery justify expansion.
 
@@ -1543,17 +1619,17 @@ For an exact tiled task graph, the coordinator persists intermediate state and u
 New profiles graduate in four steps:
 
 1. **Canonical fixture:** run one exact checkpoint and batch through the independent reference.
-2. **Single-profile qualification:** compare loss, complete declared gradient set, one-step update, fixed-K-step replay, resource use, and use-case evaluation.
+2. **Single-profile qualification:** compare loss, complete declared gradient set, one-step update, fixed-K-step replay, and resource use; include an owner-selected usage evaluation when relevant to the hypothesis.
 3. **Mixed-profile proof:** aggregate controlled contributions from candidate profiles and compare with the homogeneous reference campaign.
 4. **Operational admission:** record profile provenance per result, monitor systematic drift or failure, and revoke profiles that no longer satisfy their gate.
 
 Placement-only differences such as GPU residency versus numerically equivalent RAM offload may qualify together. Aggressive base quantization, different adapter definitions, or changed local-update algorithms are separate semantics until evidence proves compatibility.
 
-### 25.6 Evidence, status, and promotion
+### 25.6 Systems-method evidence and support status
 
 Every study records:
 
-- Hypothesis and fixed use-case contract.
+- Hypothesis and declared comparison contract.
 - Baseline and variables held constant.
 - Exact code, model, dataset, tokenizer, and runtime revisions.
 - Training method, topology, memory profile, and numerical profile.
@@ -1561,9 +1637,15 @@ Every study records:
 - Correctness, memory, storage, network, throughput, churn, and evaluation evidence.
 - Known limitations and confounders.
 - Reproduction instructions and immutable artifact hashes.
-- Final status: validated, rejected, inconclusive, or promoted.
+- Final finding and current support status.
 
-Promotion into the stable framework requires a runnable end-to-end campaign, restart and retry safety, exact provenance, a supported release path, and improvement or non-regression under the declared use-case gates. A method that only runs once remains experimental. A method that saves memory but makes accepted work impractically slow is recorded but not admitted by default.
+Admission of a systems method into the stable framework requires a runnable
+end-to-end campaign, restart and retry safety, exact provenance, a supported
+release path, and evidence for the correctness and operational claims being
+made. When model-quality effects are relevant, use the evaluation contract
+chosen for that study. A method that only runs once remains experimental. A
+method that saves memory but makes accepted work impractically slow is recorded
+but not admitted by default.
 
 `PROGRESS_REPORT.md` is updated in every roadmap commit to record the current build position, remaining major work, blockers, priority order, and immediate bounded target. Git history remains the detailed change log; the progress report remains the concise operational handoff.
 
@@ -1575,4 +1657,10 @@ OrcaColony first proved replicated full-model data parallelism: many transient c
 
 The project now also serves as a reproducible research vehicle. It will test PEFT, hierarchical local memory, mixed profiles, rolling subnetworks, exact tiled computation, and later sparse topologies through bounded studies. The aim is to let ordinary community members contribute useful pieces toward models that may exceed their individual hardware, without pretending that every experiment is ordinary data-parallel SGD or requiring contributors to form a permanent synchronized cluster.
 
-Every campaign freezes one concrete use-case claim, repeated validation suite, final holdout, baseline, and guardrails. Parameter count is not a status target: the project prefers the smallest model that meets the use case, while allowing measured methods to move beyond the memory ceiling of one weak GPU. Models and research findings publish exact artifacts, campaign or study configuration, evaluation, contribution provenance, limitations, and contributor-controlled attribution.
+For practical research campaigns, the owner freezes the question, usage
+scenario, evaluator, inputs, metrics, comparisons, and analysis plan they
+selected. Optional baselines, thresholds, guardrails, holdouts, and
+checkpoint-selection rules remain campaign choices. Parameter count is not a
+status target. Models and research findings publish exact artifacts, campaign
+or study configuration, evaluation, contribution provenance, limitations, and
+contributor-controlled attribution.

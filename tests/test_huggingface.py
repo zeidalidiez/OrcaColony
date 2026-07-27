@@ -28,6 +28,7 @@ def _release(
     root: Path,
     *,
     visibility_policy: str | None = None,
+    campaign_result: bool = False,
 ) -> None:
     campaign = {
         "campaign": {
@@ -77,6 +78,12 @@ def _release(
             "dataset_license": "cdla-sharing-1.0",
             "visibility_policy": visibility_policy,
         }
+    if campaign_result:
+        campaign["research"] = {
+            "format": "orcacolony_campaign_research_v2",
+            "question": "What changed in the test campaign?",
+            "usage_scenario": "A test-only usage scenario.",
+        }
     text_files = {
         "campaign.json": json.dumps(campaign).encode(),
         "campaign-lock.json": json.dumps(
@@ -124,6 +131,51 @@ def _release(
     }
     for name, payload in text_files.items():
         _write(root / name, payload)
+    if campaign_result:
+        _write(
+            root / "campaign-evaluation-evidence.json",
+            json.dumps(
+                {
+                    "format": "orcacolony_campaign_evaluation_evidence_v1",
+                    "limitations": ["Test-only evidence."],
+                }
+            ).encode(),
+        )
+        _write(
+            root / "campaign-evaluation-summary.json",
+            json.dumps(
+                {
+                    "format": "orcacolony_campaign_evaluation_summary_v1",
+                    "comparisons": [
+                        {
+                            "summary": "Compare the two owner-selected records.",
+                            "metrics": [
+                                {
+                                    "label": "Usage score",
+                                    "unit": "ratio",
+                                    "baseline_value": 0.1,
+                                    "candidate_value": 0.2,
+                                    "absolute_change": 0.1,
+                                    "direction": "maximize",
+                                }
+                            ],
+                        }
+                    ],
+                    "findings": [
+                        {
+                            "label": "Measured change",
+                            "kind": "improvement",
+                            "description": "The declared score increased.",
+                        }
+                    ],
+                    "limitations": ["Test-only evidence."],
+                }
+            ).encode(),
+        )
+        _write(
+            root / "campaign-evaluation-artifacts" / "samples.json",
+            b'{"sample":"test"}\n',
+        )
     _write(root / "dataset/train.safetensors", b"train")
     _write(root / "dataset/validation.safetensors", b"validation")
     _write(root / "checkpoint/model.safetensors", b"model")
@@ -137,7 +189,9 @@ def _release(
     manifest = {
         "format": "orcacolony_release_bundle_v1",
         "campaign_id": "orcacolony-hub-test",
-        "release_classification": "systems_evidence_only",
+        "release_classification": (
+            "campaign_result" if campaign_result else "systems_evidence_only"
+        ),
         "checkpoint": {
             "step": 1,
             "selection": "final",
@@ -199,6 +253,45 @@ def test_huggingface_package_build_is_deterministic_and_separates_repos(
     _write(first / "model" / "unmanifested.py", b"unexpected")
     with pytest.raises(ValueError, match="unmanifested or missing"):
         verify_huggingface_packages(first)
+
+
+def test_huggingface_package_carries_campaign_evidence_and_artifacts(
+    tmp_path: Path,
+) -> None:
+    release = tmp_path / "release"
+    release.mkdir()
+    _release(release, campaign_result=True)
+
+    package = tmp_path / "hub"
+    manifest = build_huggingface_packages(
+        release,
+        package,
+        model_repo_id="OrcaColony/orcacolony-hub-test",
+        dataset_repo_id="OrcaColony/orcacolony-hub-test-dataset",
+        model_license="mit",
+        dataset_license="cdla-sharing-1.0",
+        source_repository="https://github.com/zeidalidiez/OrcaColony",
+        source_revision="a" * 40,
+    )
+
+    assert manifest["release_classification"] == "campaign_result"
+    for repository in ("model", "dataset"):
+        assert (
+            package / repository / "campaign-evaluation-evidence.json"
+        ).is_file()
+        assert (
+            package / repository / "campaign-evaluation-summary.json"
+        ).is_file()
+        assert (
+            package
+            / repository
+            / "campaign-evaluation-artifacts"
+            / "samples.json"
+        ).is_file()
+    model_card = (package / "model" / "README.md").read_text(encoding="utf-8")
+    assert "does not assign a pass or promotion decision" in model_card
+    assert "Usage score: `0.1` to `0.2` ratio" in model_card
+    assert verify_huggingface_packages(package) == manifest
 
 
 def test_huggingface_package_rejects_personal_namespace(tmp_path: Path) -> None:

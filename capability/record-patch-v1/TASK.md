@@ -1,5 +1,10 @@
 # Record Patch v1
 
+This file preserves one completed owner-operated prototype and the exact choices
+used to produce its retained evidence. Its task, metrics, thresholds, splits,
+holdout policy, and proposed follow-up are not OrcaColony framework defaults and
+do not select a future campaign.
+
 ## Question
 
 Can the true 17,538,816-parameter T2 model learn to apply a short ordered patch
@@ -64,7 +69,7 @@ The primary metric is strict exact match after removing leading and trailing
 whitespace. Component metrics retain JSON validity, semantic equality,
 canonical serialization, single-operation accuracy, and per-bucket results.
 
-## Frozen promotion gates
+## Historical experiment criteria
 
 - Primary exact match must be at least `0.70`.
 - It must improve by at least `0.20` over the exact T2 initialization.
@@ -72,8 +77,8 @@ canonical serialization, single-operation accuracy, and per-bucket results.
 - Canonical JSON rate must be at least `0.90`.
 - Exact match across the four single-operation buckets must be at least `0.80`.
 
-These values are hypotheses, not evidence. Failure or an inconclusive result
-will be published as such.
+These values were hypotheses recorded for this experiment, not framework
+requirements or evidence. The measured runs did not meet them.
 
 ## Data and license
 
@@ -103,9 +108,10 @@ fine-tuning, and reports must retain that limitation.
 - Dataset license: CC0-1.0.
 - Visibility: private review before any separate public release.
 
-No Hugging Face model or dataset repository should be created from this task
-until the frozen artifacts and baseline have passed review. Creating a
-destination is not evidence that a useful model exists.
+No Hugging Face model or dataset repository has been created from this
+prototype. A future publication is an explicit owner decision and may preserve
+the negative result honestly; publication does not imply that the model is
+useful.
 
 ## Bounded learnability protocol
 
@@ -189,8 +195,8 @@ to `2.0935`, but teacher-forced answer-token accuracy was only `40.7%` and no
 complete teacher-forced answer was correct. None of the 32 public prompts or
 targets occurred exactly in training.
 
-This is a negative pre-volunteer result. It does not authorize donated compute
-or model publication. The next control is frozen in
+This was a negative owner-operated result. Under the prototype's protocol, no
+donated compute followed it. The continuation control was frozen in
 [`continuation-protocol.json`](continuation-protocol.json). It binds the exact
 step-128 model, AdamW state, data cursor, objective, learning rate, parent
 evidence, and decoding policy. It evaluates total trajectory steps `128`,
@@ -233,18 +239,18 @@ was correct. Prompt loss continued to improve while answer loss was worse at
 step 512 than step 256. The measured pattern is improved transcript and JSON
 form without learned record transformation.
 
-This benchmark measures only the declared Record Patch usage scenario. It does
-not claim to measure general intelligence. The next isolated comparison will
-add an answer-token loss mask and restart from the same initialization for 512
-steps while keeping the data, order, optimizer, learning rate, decoding, and
-task evaluator fixed. Both reserved holdouts remain closed.
+This evaluation measures only the Record Patch scenario. It does not claim to
+measure general intelligence. The original analysis proposed an answer-token
+loss comparison, but that proposal is not the project's next campaign unless a
+campaign owner explicitly chooses it. Both reserved holdouts remained closed.
 
-## Public benchmark and campaign records
+## Public experiment and campaign records
 
 The human-readable page should state the agent's findings and separate
-observations from hypotheses. Public verification belongs with the Hugging Face
-benchmark and model result: runnable evaluator, exact benchmark and model
-revisions, decoding settings, score files, and sample outputs.
+observations from hypotheses. If this experiment is published on Hugging Face,
+its record should contain the exact model and data revisions, runnable
+evaluator, decoding settings, score files, sample outputs, and limitations. A
+separate benchmark product is not implied.
 
 When a community campaign occurs, its release must separately include
 contributor-approved credit, accepted-work totals, and opted-in hardware

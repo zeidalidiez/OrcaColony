@@ -1,0 +1,35 @@
+{
+  "analysis_plan": [
+    "REPLACE with the comparisons and reviews the campaign owner wants performed."
+  ],
+  "evaluation_contract": {
+    "artifacts": [
+      {
+        "id": "replace-with-input-id",
+        "kind": "dataset",
+        "revision": "REPLACE-WITH-EXACT-GIT-COMMIT-OR-SHA256",
+        "uri": "REPLACE-WITH-DURABLE-ARTIFACT-LOCATION"
+      }
+    ],
+    "evaluator": {
+      "command": [
+        "python",
+        "REPLACE-WITH-EVALUATOR"
+      ],
+      "id": "replace-with-evaluator-id",
+      "revision": "REPLACE-WITH-EXACT-GIT-COMMIT-OR-SHA256"
+    },
+    "metrics": [
+      {
+        "description": "REPLACE with an exact calculation and scoring population.",
+        "direction": "observe",
+        "id": "replace-with-metric-id",
+        "label": "REPLACE with a reader-facing metric name",
+        "unit": "REPLACE-WITH-UNIT"
+      }
+    ]
+  },
+  "format": "orcacolony_campaign_research_v2",
+  "question": "REPLACE with the question this campaign is intended to investigate.",
+  "usage_scenario": "REPLACE with the concrete situation in which the model will be evaluated."
+}

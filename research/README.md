@@ -1,6 +1,14 @@
 # OrcaColony research records
 
-OrcaColony studies compare bounded experiments against one fixed hypothesis and use-case evaluation contract. The stable v0.1 campaign path remains the correctness baseline; a research record does not promote an execution method by itself.
+This directory contains the established systems-study recorder. It compares
+bounded experiments against a study author's fixed hypothesis and measurement
+contract. It does not define the task or evaluation for a future training
+campaign.
+
+New owner-defined training campaigns use
+[`CAMPAIGN_FRAMEWORK.md`](CAMPAIGN_FRAMEWORK.md). The stable v0.1 campaign path
+remains the correctness baseline; a research record does not admit an execution
+method into the supported framework by itself.
 
 ## Layout
 
@@ -112,4 +120,9 @@ Every committed study, linked experiment, and conventionally named evidence file
 
 ## Interpretation
 
-A `validated` or `promoted` result must pass the study's primary use-case threshold and every guardrail. A `rejected` or `inconclusive` result remains publishable and must retain its findings and limitations. Promotion into the supported framework still requires the end-to-end campaign, restart, retry, provenance, evaluation, and release gates in [`SPEC.md`](../SPEC.md).
+For the historical `orcacolony_study_v1` format, a `validated` or `promoted`
+systems result must pass the study's declared threshold and guardrails. A
+`rejected` or `inconclusive` result remains publishable and must retain its
+findings and limitations. This study status is separate from the neutral v2
+campaign evaluation record and from a campaign owner's model-publication
+decision.
