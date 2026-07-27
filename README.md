@@ -1,6 +1,6 @@
 # OrcaColony
 
-OrcaColony is a volunteer-compute framework and reproducible research vehicle for community model training. Its proven local systems path accumulates independent, bounded contributions against one canonical checkpoint; active studies evaluate PEFT, local offload, partial-model work, tiled recovery, and sparse experts. Capability-research infrastructure now proceeds as a parallel track: every promoted model must have a fixed use case, versioned behavioral baseline and suite, positive baseline improvement, separately reserved language-loss and behavioral holdouts, training-effect analysis, contributor attribution snapshot, and reproducible Hugging Face model and dataset packages. The Milestone 0 through Milestone 3 reference, browser, multi-worker, persistent campaign, trusted-participant, live dashboard, evaluation, and operational-release paths described in [SPEC.md](SPEC.md) are runnable. A bounded local T1 preflight exercises the Milestone 4 system profile through 12 real-data optimizer steps. The first T2 task, evaluator, and supported-runtime baseline are frozen, but a training-effect result, public Hub publication, and remote trusted-participant campaign remain incomplete.
+OrcaColony is a volunteer-compute framework and reproducible research vehicle for community model training. Its proven local systems path accumulates independent, bounded contributions against one canonical checkpoint; active studies evaluate PEFT, local offload, partial-model work, tiled recovery, and sparse experts. Task-benchmark infrastructure proceeds as a parallel track: every promoted model must have a fixed use case, versioned behavioral baseline and suite, positive baseline improvement, separately reserved language-loss and behavioral holdouts, training-effect analysis, contributor attribution snapshot, and reproducible Hugging Face model and dataset packages. Each score supports only its declared task claim, not a general-intelligence claim. The Milestone 0 through Milestone 3 reference, browser, multi-worker, persistent campaign, trusted-participant, live dashboard, evaluation, and operational-release paths described in [SPEC.md](SPEC.md) are runnable. A bounded local T1 preflight exercises the Milestone 4 system profile through 12 real-data optimizer steps. The first T2 benchmark, evaluator, supported-runtime baseline, and two negative training-effect results are complete, but public Hub benchmark/model publication and a remote trusted-participant campaign remain incomplete.
 
 See [PROGRESS_REPORT.md](PROGRESS_REPORT.md) for the current build position, completed work, blockers, priority order, and immediate bounded target. Browse [reports/index.html](reports/index.html) for human-readable findings, comparisons, limitations, and next-iteration decisions.
 
@@ -33,12 +33,16 @@ The command fails closed on malformed or unlinked inputs and atomically produces
 
 Machine-readable research records remain under `research/`. The separate root [`reports/`](reports/) directory publishes self-contained HTML for human interpretation. P5–P7 method engineering continues through bounded executable studies while slower owner-directed data, example, checkpoint, and practical-quality review proceeds in parallel.
 
-Capability-model promotion uses the stricter contract in
+Task-model promotion uses the stricter contract currently named
 [`research/CAPABILITY_CAMPAIGNS.md`](research/CAPABILITY_CAMPAIGNS.md). Hub
 repository layout, credential handling, deterministic packaging, and explicit
 publication are documented in [`HUGGINGFACE.md`](HUGGINGFACE.md).
 
-## First capability task
+The HTML pages under `reports/` are agent-authored findings and interpretation.
+The runnable Hugging Face benchmark, exact model revision, evaluator output,
+and campaign contribution record are the public verification surface.
+
+## First task benchmark
 
 [`capability/record-patch-v1/TASK.md`](capability/record-patch-v1/TASK.md)
 defines the first true-T2 task. A 17,538,816-parameter decoder must apply ordered
@@ -68,10 +72,17 @@ now fixed in
 [`capability/record-patch-v1/continuation-protocol.json`](capability/record-patch-v1/continuation-protocol.json):
 it resumes the exact step-128 model, optimizer, and data cursor and evaluates
 total steps 128, 256, and 512 before any objective or learning-rate change.
-Volunteer training remains blocked. Read
+That continuation also failed the task gate. Step 512 reduced public language
+loss to `1.2297` and produced strict canonical JSON on `30/32` cases, but
+remained `0/32` exact and `0/32` semantic record matches. Added exposure learned
+output form, not the ordered record edit. The next isolated recipe comparison
+is an answer-only loss mask with the model, data, order, optimizer, learning
+rate, decoding, and task evaluator held fixed. A community campaign remains
+blocked. Read
 [`reports/record-patch-t2-learnability-v1.html`](reports/record-patch-t2-learnability-v1.html)
-for every public output, optimizer diagnostics, overlap analysis, and the
-negative disposition.
+for the first run and
+[`reports/record-patch-t2-continuation-v1.html`](reports/record-patch-t2-continuation-v1.html)
+for the continuation findings.
 
 ## PEFT numerical proof
 

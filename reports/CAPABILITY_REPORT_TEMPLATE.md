@@ -1,13 +1,16 @@
-# Capability training report template
+# Task benchmark training report template
 
-Use one copy of this template for every candidate or promoted capability model.
-Do not replace failed or inconclusive results with a success narrative.
+Use one copy of this template for every experimental, candidate, or promoted
+task model. The implementation may store `capability_candidate` or
+`capability_model` as a release classification; those labels mean performance
+on the declared use case only. They do not imply general intelligence. Do not
+replace failed or inconclusive results with a success narrative.
 
 ## Claim and disposition
 
 - Campaign and selected checkpoint:
-- Release classification: `capability_candidate` or `capability_model`
-- Falsifiable claim:
+- Release classification:
+- Narrow use case and falsifiable task claim:
 - Frozen baseline ID and revision:
 - Frozen behavioral suite, dataset revision, evaluator revision, and split:
 - Primary metric, absolute threshold, minimum baseline improvement, and result:
@@ -47,7 +50,9 @@ and hardware preferences.
 
 ## Evidence and reproduction
 
-Link or bundle:
+The Hugging Face benchmark, model card, evaluator, and exact score files are the
+public verification surface. The human-readable report is the agent's
+interpretation of that record. Link or bundle:
 
 - campaign, dataset, tokenizer, checkpoint, optimizer, and evaluation manifests;
 - sample-level behavioral results and the frozen evaluator source;

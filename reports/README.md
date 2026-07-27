@@ -4,6 +4,19 @@ This directory is the human-readable findings layer for OrcaColony. It is separa
 
 Open [`index.html`](index.html) in a browser to browse published reports.
 
+## Reporting boundary
+
+These pages are agent-authored research findings. They state what was run, what
+was observed, how the agent interprets it, and what should be tested next. They
+are not an independent certification of model quality.
+
+For a task benchmark, the public verification record belongs with the
+Hugging Face dataset, evaluator, model revision, and score files. For a
+community campaign, accepted-work records and contributor-approved credit
+belong with that campaign's release. Local report checksums make the findings
+auditable, but do not turn a narrow task score into evidence of general
+intelligence.
+
 ## Two parallel tracks
 
 1. **Method engineering (P5–P7)** continues through bounded, runnable experiments. It does not wait for time-consuming human campaign review.
@@ -42,6 +55,10 @@ Start each practical model report from
 baseline/checkpoint output deltas, bucketed errors, optimizer diagnostics,
 memorization and forgetting checks, contributor-approved attribution, exact
 artifacts, environment capture, and Hub commit revisions.
+
+The existing code uses the term `capability` for its promotion records. In
+reports, that term is limited to the declared use case and benchmark. A Record
+Patch result supports only a claim about applying Record Patch operations.
 
 The first practical task record is
 [`record-patch-t2-baseline.html`](record-patch-t2-baseline.html). It retains the

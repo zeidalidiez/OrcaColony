@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-07-26
 
-**Current phase:** Parallel P7 systems research and Record Patch pre-training qualification
+**Current phase:** Parallel P7 systems research and Record Patch benchmark recipe qualification
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -29,6 +29,13 @@ The participation model is community accumulation, not a permanent cluster of we
 The project will preserve a stable correctness baseline while testing additional execution methods through bounded studies. Methods graduate into supported framework capabilities only after they pass declared correctness, reliability, resource, provenance, and use-case evaluation gates.
 
 P5–P7 method engineering and human-directed practical campaigns are parallel tracks. Mechanism work continues through measured executable slices without waiting for time-consuming manual evaluation. The campaign owner remains responsible for practical goals, data selection, example review, evaluation rubrics, checkpoint interpretation, and promotion decisions; automation preserves evidence rather than replacing those judgments.
+
+Agent-authored HTML reports are findings and interpretation. Public task
+verification belongs with the runnable Hugging Face benchmark, exact model
+revision, evaluator outputs, and narrow claim. Accepted-work records and
+contributor-approved credit belong with each actual community campaign. A task
+score must never be presented as evidence of broader intelligence than the
+benchmark measures.
 
 ## Overall build position
 
@@ -60,11 +67,14 @@ initialization outputs. Python 3.11.15 reproduced the initialization identity,
 all 32 predictions, and the evaluation JSON byte for byte from the earlier
 Python 3.14 run. The complete v0.1 public-research acceptance path is still not
 proven. The first centralized learnability check completed and failed its
-behavioral gate despite a large language-loss improvement. It now needs a
-passing same-trajectory continuation or a measured recipe revision, followed
-by a reviewed release and clean load/generation test, actual model/data Hub
-commit revisions, and a several-day campaign with distinct remote
-owner-approved participants.
+behavioral gate despite a large language-loss improvement. The exact
+same-trajectory continuation to step 512 also failed: canonical JSON reached
+`30/32`, but exact and semantic record matches remained `0/32`. The next
+isolated recipe control is answer-token-only loss from the same initialization.
+The public benchmark package can proceed independently of model success; model
+promotion still needs a passing narrow task result, reviewed release, clean
+load/generation test, exact Hub revisions, and a several-day campaign with
+distinct remote owner-approved participants.
 
 The current architecture uses replicated full-model data parallelism: every direct-gradient worker can execute its complete assignment independently against one canonical checkpoint. The complete model may eventually be placed across that worker's GPU VRAM, system RAM, and local storage; it does not have to remain entirely in GPU VRAM. Cross-worker partial-model methods are a post-v0.1 research track rather than part of the proven baseline.
 
@@ -77,6 +87,7 @@ The current architecture uses replicated full-model data parallelism: every dire
 - Separate training method from execution topology and memory placement.
 - Compare methods through reproducible studies rather than unsupported claims.
 - Require every campaign to declare a concrete use case and a fixed evaluation contract.
+- Treat every task metric as evidence about that use case only, not general intelligence.
 - Evaluate checkpoints throughout a campaign on frozen validation data; reserve a final holdout for promotion.
 - Record failed and inconclusive experiments as first-class findings.
 - Promote one measured capability at a time; do not productionize every research idea.
@@ -304,14 +315,14 @@ Completed within the first P3 measurement and native-baseline slice:
 
 Run two explicitly separate bounded tracks:
 
-1. **Capability track:** use the reproduced Python 3.11 Record Patch baseline
-   and the failed 128-step public qualification as the fixed starting evidence.
-   Run the frozen exposure-only continuation at total steps `128`, `256`, and
-   `512`. It resumes the exact step-128 model, AdamW state, data cursor,
-   objective, learning rate, and decoding policy. Do not open either reserved
-   holdout or request donated compute until exact behavioral learning appears.
-   If same-trajectory exposure still fails, test target-only loss and
-   learning-rate changes as separate controls.
+1. **Benchmark recipe track:** use the failed Record Patch step-512 result as
+   the fixed comparison. Add an explicit answer-token mask to the packed data
+   and objective, then freeze a 512-step control from the same initialization
+   with model, examples, order, batch size, AdamW settings, learning rate,
+   decoding, and evaluator unchanged. Do not open either reserved holdout or
+   request community compute. Separately package the benchmark data, simple
+   reference scores, evaluator, split policy, and exact revisions for
+   Hugging Face review; benchmark publication does not require a model pass.
 2. **P7 systems track:** freeze and persistently cache the untied final
    norm/output head in both centralized and distributed sparse controls. Train
    only router, shared trunk, and experts, preserve byte-exact canonical AdamW,
@@ -325,11 +336,11 @@ Run two explicitly separate bounded tracks:
 - P7 cached-head, authenticated-data, process-memory, retry, and quality qualification.
 - Complete the first useful specialization campaign at the specification's
   17,538,816-parameter T2 tier. Record Patch v1 now freezes its task and starting
-  measurement and retains an initial negative learnability result plus a
-  step-128 trained checkpoint, but no passing learnability gate, volunteer work,
-  or promotion evidence exists. The historical 91,544,064-parameter files and
+  measurement and retains negative 128-step and 512-step all-token results plus
+  exact restartable checkpoints, but no passing task gate, community work, or
+  promotion evidence exists. The historical 91,544,064-parameter files and
   P3/P4 evidence retain their existing `t2` identifiers for provenance but are
-  treated as a legacy 91M memory-stress tier, not as the current T2 capability
+  treated as a legacy 91M memory-stress tier, not as the current T2 task-model
   tier.
 - Extend the new Record Patch training-effect analyzer with forgetting
   guardrails, ablations, and repeated-seed uncertainty where relevant. The
@@ -355,12 +366,13 @@ Run two explicitly separate bounded tracks:
   digest-verifiable locations. Committed `repo:` artifacts now verify and bundle;
   other URI schemes are explicitly reported as unresolved rather than implied
   proof.
-- Build a real deterministic Hugging Face package, choose source-compatible
-  model/data licenses, run the custom dense/LoRA load and generation smoke test,
-  review private repositories, and record both Hub commit revisions. Record Patch
-  reserves `OrcaColony/record-patch-t2-v1` and
-  `OrcaColony/record-patch-v1`; neither repository exists and no model/data
-  package has been uploaded.
+- Build a deterministic Hugging Face benchmark package for
+  `OrcaColony/record-patch-v1` with its CC0 data, runnable evaluator, split
+  policy, simple reference scores, exact revisions, and narrow claim. Model
+  packaging remains separate: choose the weights license, run the custom
+  load/generation smoke test, clearly classify failed checkpoints as
+  experimental, and record exact Hub commits. Neither reserved repository
+  exists and no model/data package has been uploaded.
 - Hidden-canary or replicated-work compute integrity before untrusted public
   participation; the diagnostic oracle-gradient endpoint is not a production
   proof that donated computation occurred.
@@ -369,11 +381,11 @@ Run two explicitly separate bounded tracks:
 ## Current blockers and hold-ups
 
 - No blocker prevents the specification and research-framework work.
-- Volunteer training remains blocked. The first bounded centralized check
-  passed its language-loss condition but failed at `0/32` public exact matches
-  and `0/32` strict valid JSON. No donated compute should be requested until a
-  predeclared continuation or recipe control shows exact behavioral learning on
-  public data.
+- Community training remains blocked. The 512-step continuation passed its
+  language-loss condition and reached `30/32` strict canonical JSON, but still
+  scored `0/32` exact and `0/32` semantic record matches. No community compute
+  should be requested until a predeclared recipe control shows exact task
+  learning on public data.
 - Remote trusted deployment still requires operator-owned HTTPS hosting choices and approved participants, but that does not block local research milestones.
 - Native GPU and GPU-plus-system-RAM placement were not qualified on the CPU-only PyTorch host; browser WebGPU remains a separate measured numerical/runtime profile rather than evidence for a native offload path.
 - Larger-model execution methods are hypotheses until measured; none should be described as supported merely because a paper or prototype demonstrates the general idea.
@@ -382,6 +394,24 @@ Run two explicitly separate bounded tracks:
 
 ### 2026-07-26
 
+- Completed the exact same-trajectory Record Patch continuation under clean
+  source revision `2cd4a38f6b6153621064f721720649ae9c453c2b`. Step 512
+  was selected by public language loss at `1.2297416774319931`, but remained
+  `0/32` exact and `0/32` semantic on the narrow task benchmark. Strict
+  canonical JSON improved from `0/32` at step 128 to `28/32` at step 256 and
+  `30/32` at step 512, showing learned output form without learned record
+  transformation.
+- The continuation covered 2,048 of 4,618 packed sequences, about `0.443`
+  epochs. It ran for 31 minutes 59 seconds at one CPU thread, recorded
+  1,590,751,232 bytes peak process RSS, used no swap, verified all 23 retained
+  file checksums, and opened neither reserved holdout. This was owner-operated
+  benchmark qualification, not a community campaign.
+- Corrected the publication boundary: HTML pages under `reports/` are
+  agent-authored findings and interpretation. Public task verification belongs
+  with the Hugging Face benchmark, exact model revision, evaluator outputs, and
+  narrow claim; community contribution evidence and credit belong with each
+  actual campaign. Benchmark data publication no longer depends on a model
+  passing the benchmark.
 - Froze the exposure-only Record Patch continuation protocol at SHA-256
   `52e055693aadde508e60a8a2cb031be014c5ffdeb56b45f36eecf11870d4f6c5`.
   It binds the complete failed-run evidence and checksum manifests, exact

@@ -28,10 +28,36 @@ workflow to demonstrate.
 The first capability contract reserves
 `OrcaColony/record-patch-t2-v1` and `OrcaColony/record-patch-v1`. These
 repositories have not been created. Reservation in a campaign file is not a
-release. The first 128-step bounded check failed its exact behavioral gate, so
-the publisher must not create them yet. Creation remains blocked until a
-predeclared continuation or recipe control passes public learnability, followed
-by a private package and human review.
+release.
+
+The benchmark dataset and evaluator do not depend on a model passing the
+benchmark. `OrcaColony/record-patch-v1` may be published after its license,
+card, runnable evaluator, simple reference scores, split policy, and exact
+revisions are reviewed. It should describe one narrow usage scenario and must
+not imply general model capability.
+
+Failed checkpoints may also be retained on the Hub as experimental research
+artifacts when their cards lead with the failed task score and link the exact
+benchmark revision. They are not promoted models. The ordinary campaign
+publisher still requires a reviewed operational release and private-first
+workflow before it creates or changes the reserved model repository.
+
+## Public verification boundary
+
+For each published task result, the Hub repositories should make these three
+records easy to distinguish:
+
+1. The benchmark record: dataset, split policy, evaluator, reference scores,
+   limitations, and exact dataset commit.
+2. The model result: exact model commit, benchmark commit, decoding settings,
+   score files, sample outputs, and the narrow claim those scores do or do not
+   support.
+3. The community campaign record, when one exists: accepted work, aggregate
+   compute, and contributor-approved names, pseudonyms, anonymous entries, and
+   hardware details.
+
+Agent-authored reports can summarize and interpret those records. They are not
+a substitute for the runnable benchmark or the campaign contribution ledger.
 
 ## Authentication
 
@@ -142,5 +168,5 @@ OrcaColony flow:
 
 Step 4 is deliberately not automated. Until both repository settings match the
 reviewed public package, the publisher fails before uploading either repository.
-Keep both the private and public publication-result records; they prove which
+Keep both the private and public publication-result records; they record which
 authenticated account performed each transition and which Hub commits resulted.

@@ -218,10 +218,35 @@ The continuation command has no final-holdout or holdout-key argument. It
 verifies the full parent checksum manifest before loading the resume checkpoint
 and writes self-contained checkpoints and checksums for the new run.
 
-## Required evidence after training
+## Measured continuation result
 
-The capability report must publish sample-level outputs, bucketed regressions,
-language-loss and behavioral trajectories, gradient and update diagnostics,
-duplicate and nearest-training-record checks, contributor-approved credit,
-environment identity, exact files and checksums, and both Hugging Face commit
-revisions. It must distinguish observations from causal explanations.
+The continuation did not pass the task gate. Public language mean loss fell to
+`1.3693936844946633` at step 256 and `1.2297416774319931` at step 512, so step
+512 was selected without using task behavior. Strict canonical JSON rose from
+`0/32` at step 128 to `28/32` at step 256 and `30/32` at step 512. Exact and
+semantic record matches remained `0/32` at every checkpoint.
+
+The selected checkpoint reproduced only 6 expected key-value pairs across the
+public records and retained only 3 unchanged key-value pairs. Teacher-forced
+answer-token accuracy reached `45.0%`, but no complete teacher-forced answer
+was correct. Prompt loss continued to improve while answer loss was worse at
+step 512 than step 256. The measured pattern is improved transcript and JSON
+form without learned record transformation.
+
+This benchmark measures only the declared Record Patch usage scenario. It does
+not claim to measure general intelligence. The next isolated comparison will
+add an answer-token loss mask and restart from the same initialization for 512
+steps while keeping the data, order, optimizer, learning rate, decoding, and
+task evaluator fixed. Both reserved holdouts remain closed.
+
+## Public benchmark and campaign records
+
+The human-readable page should state the agent's findings and separate
+observations from hypotheses. Public verification belongs with the Hugging Face
+benchmark and model result: runnable evaluator, exact benchmark and model
+revisions, decoding settings, score files, and sample outputs.
+
+When a community campaign occurs, its release must separately include
+contributor-approved credit, accepted-work totals, and opted-in hardware
+details. The current owner-operated qualification run is not a community
+campaign and claims no community contribution.
