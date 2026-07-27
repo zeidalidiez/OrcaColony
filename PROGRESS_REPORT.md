@@ -2,7 +2,9 @@
 
 **Last updated:** 2026-07-27
 
-**Current phase:** Parallel P7 systems research and campaign-framework lifecycle hardening
+**Repository version:** [`0.1.1`](VERSION)
+
+**Current phase:** Parallel P7 systems research and project-navigation hardening
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -15,7 +17,13 @@ This is the living project handoff and priority report. It answers four question
 3. What remains incomplete?
 4. What is the next bounded priority?
 
-Update this file in every project commit made as part of the active roadmap, before that commit is pushed. Keep it decision-oriented rather than copying the Git history. Record meaningful changes to the build position, priorities, blockers, evidence, or next target. Negative experimental findings are progress and belong here when they change the plan.
+Update this file in every project commit made as part of the active roadmap,
+before that commit is pushed. Every project commit must also increase
+[`VERSION`](VERSION) and synchronize the package metadata according to
+[`VERSIONING.md`](VERSIONING.md). Keep this report decision-oriented rather
+than copying the Git history. Record meaningful changes to the build position,
+priorities, blockers, evidence, or next target. Negative experimental findings
+are progress and belong here when they change the plan.
 
 ## Project direction
 
@@ -326,11 +334,10 @@ Completed within the first P3 measurement and native-baseline slice:
 
 Run two explicitly separate bounded tracks:
 
-1. **Campaign framework track:** review and merge the owner-defined v2 campaign
-   lifecycle hardening: exact contract inspection, evidence preflight, and
-   owner-controlled release-checkpoint selection. The next practical campaign
-   remains intentionally unset until its owner supplies the campaign
-   definition. Record Patch does not choose it.
+1. **Project maintenance track:** review and merge repository version `0.1.1`,
+   per-commit version enforcement, and the root README information-architecture
+   pass. The detailed implementation commands and systems-proof narrative
+   remain preserved in `IMPLEMENTATION_GUIDE.md`.
 2. **P7 systems track:** freeze and persistently cache the untied final
    norm/output head in both centralized and distributed sparse controls. Train
    only router, shared trunk, and experts, preserve byte-exact canonical AdamW,
@@ -369,10 +376,6 @@ Run two explicitly separate bounded tracks:
   participation; the diagnostic oracle-gradient endpoint is not a production
   proof that donated computation occurred.
 - Operator-owned remote trusted campaign when deployment inputs are available.
-- Restructure the root README as a separate information-architecture pass so
-  the project overview, current status, operator path, research evidence, and
-  detailed reference material are easier to navigate without mixing that work
-  into functional changes.
 
 ## Current blockers and hold-ups
 
@@ -391,6 +394,24 @@ Run two explicitly separate bounded tracks:
 
 ### 2026-07-27
 
+- Established visible repository version `0.1.1`. `VERSION`,
+  `pyproject.toml`, `src/orcacolony/__init__.py`, and `uv.lock` now agree.
+  Added a dependency-free check that requires a strictly increasing,
+  synchronized version in every new commit, plus a GitHub workflow covering
+  pull requests and pushes to `main`.
+- Replaced the root README wall with a concise project entry point covering the
+  scope boundary, current state, document map, local validation, owner-supplied
+  campaign preflight, evidence, credit, versioning, and licensing. Preserved the
+  complete prior development commands, measurements, and systems-proof
+  narrative in `IMPLEMENTATION_GUIDE.md`.
+- The one-thread repository gate passed all `308` tests. The version checker
+  verified synchronized `0.1.1` metadata and the required increase from
+  `0.1.0`; every local Markdown link in the new README, preserved guide, and
+  version policy resolved. The source distribution and wheel built as `0.1.1`,
+  and the wheel metadata retained the new README.
+- This documentation and project-maintenance slice does not define or run a
+  campaign and does not choose a model, dataset, metric, threshold, checkpoint,
+  publication outcome, or follow-up experiment.
 - Corrected a remaining v2 scope leak in operational release construction.
   New research campaigns no longer inherit the legacy lowest-language-loss
   checkpoint rule. The release uses the checkpoint revision named by the
