@@ -376,6 +376,16 @@ Run two explicitly separate bounded tracks:
 
 ### 2026-07-26
 
+- Froze the first Record Patch centralized learnability protocol before the
+  measured run. It fixes checkpoints `0`, `1`, `8`, `32`, and `128`, selects
+  only by public language-validation loss, requires at least `0.1` language-loss
+  improvement plus one additional exact public behavioral match, caps execution
+  at one CPU thread and 3 GiB peak RSS, and excludes both reserved holdouts.
+- Added a separate learnability runner without modifying the hash-pinned frozen
+  evaluator. It records every step's loss, pre-clipping gradient norm, clipping
+  decision, update norm, checkpoint identity, public language and behavioral
+  results, timings, environment, and checksums. Its diagnostic trajectory is
+  regression-tested against the established centralized reference.
 - Audited the progress report, specification, campaign files, research records,
   release path, and current implementation as a research vehicle rather than
   treating systems correctness as model-capability evidence.

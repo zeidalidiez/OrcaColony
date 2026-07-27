@@ -107,6 +107,26 @@ No Hugging Face model or dataset repository should be created from this task
 until the frozen artifacts and baseline have passed review. Creating a
 destination is not evidence that a useful model exists.
 
+## Bounded learnability protocol
+
+[`learnability-protocol.json`](learnability-protocol.json) fixes the first
+centralized check before its result is known. It evaluates checkpoints at steps
+`0`, `1`, `8`, `32`, and `128`. Checkpoint selection uses only the lowest public
+language-validation mean loss. Public behavioral validation is recorded at
+every milestone but cannot select the checkpoint.
+
+The pre-volunteer gate requires both:
+
+- at least `0.1` lower language-validation mean loss than initialization; and
+- at least one additional exact match on the 32 public behavioral cases at the
+  language-selected checkpoint.
+
+The run is limited to one CPU thread, 128 updates, and 3 GiB peak process RSS.
+It records every step's training loss, pre-clipping gradient norm, clipping
+decision, parameter-update norm, checkpoint digest, evaluation, timing, and
+environment. This is owner-operated qualification work, not donated compute.
+Passing permits planning a volunteer run; it is not capability promotion.
+
 ## Commands
 
 Freeze the task, private holdout, packed causal dataset, campaign, and exact
@@ -130,6 +150,21 @@ uv run python -m orcacolony.record_patch baseline \
 ```
 
 The final holdout is intentionally not an argument to that command.
+
+Run the predeclared bounded learnability check:
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+TOKENIZERS_PARALLELISM=false \
+uv run python -m orcacolony.record_patch_learnability \
+  --protocol capability/record-patch-v1/learnability-protocol.json \
+  --campaign campaign/record-patch-t2-v1.json \
+  --packed-dir .artifacts/record-patch-v1/packed \
+  --public-dir capability/record-patch-v1 \
+  --output .artifacts/record-patch-t2-learnability-v1
+```
+
+The learnability command has no final-holdout or holdout-key argument.
 
 The first measured run scored `0/32` exact and `2/32` valid JSON. It is retained
 in [`../../reports/record-patch-t2-baseline.html`](../../reports/record-patch-t2-baseline.html).

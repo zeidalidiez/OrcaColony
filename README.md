@@ -53,7 +53,12 @@ Read [`reports/record-patch-t2-baseline.html`](reports/record-patch-t2-baseline.
 for the complete baseline, outputs, hashes, and limitations. Python 3.11.15
 reproduced the initialization identity, all 32 predictions, and the complete
 evaluation byte for byte from the earlier Python 3.14 run. The final holdout was
-not opened. A bounded centralized learnability check remains required before
+not opened. The first centralized learnability schedule and pass/fail rule are
+fixed in
+[`capability/record-patch-v1/learnability-protocol.json`](capability/record-patch-v1/learnability-protocol.json).
+It stops at 128 one-thread CPU updates, selects by public language loss, requires
+an exact behavioral improvement, records gradient and update diagnostics, and
+has no private-holdout input. Its measured result remains required before
 volunteer training.
 
 ## PEFT numerical proof

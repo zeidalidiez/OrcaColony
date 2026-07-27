@@ -1,0 +1,51 @@
+{
+  "behavioral_suite_revision": "sha256:91acf17f01bc1c59d6aeb1bb75322b0021b164e4fa750fa3ad90eed77531d087",
+  "campaign": {
+    "id": "orcacolony-record-patch-t2-v1",
+    "sha256": "039fea26e0eb5f86146e152bc2bfaffe96bb78db0b8318cc21982ef0b872bfe5"
+  },
+  "dataset_revision": "4e71f26b3e06b15360eef333ced96a16791dc2bc9ad9c29ff11d8b728106baae",
+  "evaluator_revision": "sha256:fd99c5920b3de7c17b0cd68986ba3a9d0566aebfbc47b955da01ff11fca7e883",
+  "execution": {
+    "donated_compute": false,
+    "topology": "owner-operated centralized CPU reference",
+    "torch_threads": 1
+  },
+  "format": "orcacolony_record_patch_learnability_protocol_v1",
+  "gate": {
+    "minimum_behavioral_exact_match_count_improvement": 1,
+    "minimum_language_mean_loss_improvement": 0.1
+  },
+  "holdout_policy": {
+    "behavioral_final_holdout": "must_not_open",
+    "language_final_holdout": "must_not_evaluate"
+  },
+  "id": "record-patch-t2-centralized-learnability-v1",
+  "limitations": [
+    "This deterministic run does not estimate variation across random seeds.",
+    "Public behavioral validation is diagnostic and cannot replace the reserved promotion holdout.",
+    "The all-target causal transcript objective trains prompt tokens as well as answer tokens."
+  ],
+  "resource_limits": {
+    "maximum_peak_rss_bytes": 3221225472,
+    "maximum_training_steps": 128
+  },
+  "schedule": {
+    "behavioral_steps": [
+      0,
+      1,
+      8,
+      32,
+      128
+    ],
+    "checkpoint_steps": [
+      0,
+      1,
+      8,
+      32,
+      128
+    ],
+    "max_new_tokens": 64
+  },
+  "selection": "lowest public language-validation mean loss; behavioral metrics do not select the checkpoint"
+}
