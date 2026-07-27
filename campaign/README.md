@@ -36,6 +36,11 @@ The campaign owner fills in the model, data, objective, usage scenario,
 evaluator, metrics, analysis plan, licenses, and Hugging Face destinations when
 creating that campaign. The framework does not supply those choices or require
 a particular threshold, holdout, checkpoint-selection rule, or promotion state.
+Use `python -m orcacolony.campaign_lifecycle inspect` to validate a completed
+draft and obtain the exact campaign and research revisions needed by its
+evaluation evidence. Use the same module's `validate-evidence` command to
+preflight owner-supplied measurements and bundled evidence files before
+release.
 
 ## Participant and credit manifests
 

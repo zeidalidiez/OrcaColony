@@ -320,7 +320,7 @@ uv run python -m orcacolony.release \
   --output .artifacts/t1-tinystories-release
 ```
 
-The bundle selects the checkpoint with the lowest frozen held-out loss and includes its model, optimizer and restart metadata; exact packed data and tokenizer; evaluation records; a public dashboard snapshot and privacy-filtered contribution ledger; the fixture-free static browser site; a canonical release manifest; and `SHA256SUMS`. Participant manifests and credentials are deliberately excluded.
+That historical systems-proof configuration selects the checkpoint with the lowest frozen held-out loss and includes its model, optimizer and restart metadata; exact packed data and tokenizer; evaluation records; a public dashboard snapshot and privacy-filtered contribution ledger; the fixture-free static browser site; a canonical release manifest; and `SHA256SUMS`. New v2 research campaigns use the checkpoint supplied by their owner through evaluation evidence or an explicit release step. Participant manifests and credentials are deliberately excluded.
 
 ## Bounded T1 system proof
 

@@ -16,7 +16,12 @@ from safetensors.torch import load as load_safetensors
 from safetensors.torch import load_file as load_safetensors_file
 
 from .artifacts import PackedDataset
-from .campaign_research import build_campaign_evaluation_summary
+from .campaign_research import (
+    build_campaign_evaluation_summary,
+    campaign_evaluation_release_revision,
+    load_campaign_evaluation_evidence,
+    verify_campaign_evaluation_artifacts,
+)
 from .campaign_run import CampaignCoordinator
 from .multiworker import (
     _campaign_payload,
@@ -296,71 +301,23 @@ def _copy_campaign_evaluation_artifacts(
     artifact_root: Path | None,
     destination: Path,
 ) -> None:
-    evaluations = evidence.get("evaluations")
-    if not isinstance(evaluations, list):
-        raise ValueError("campaign evaluation evidence evaluations are invalid")
-    copied: dict[str, str] = {}
-    for evaluation in evaluations:
-        if not isinstance(evaluation, Mapping):
-            raise ValueError("campaign evaluation evidence evaluation is invalid")
-        artifacts = evaluation.get("artifacts")
-        if not isinstance(artifacts, list):
-            raise ValueError("campaign evaluation evidence artifacts are invalid")
-        for artifact in artifacts:
-            if not isinstance(artifact, Mapping):
-                raise ValueError("campaign evaluation evidence artifact is invalid")
-            uri = artifact.get("uri")
-            if not isinstance(uri, str) or not uri.startswith("bundle:"):
-                continue
-            if artifact_root is None:
-                raise ValueError(
-                    "bundled campaign evaluation artifacts require an artifact root"
-                )
-            raw_relative = uri.removeprefix("bundle:")
-            relative = Path(raw_relative)
-            if (
-                relative.is_absolute()
-                or raw_relative.startswith(("/", "\\"))
-                or "\\" in raw_relative
-                or not relative.parts
-                or any(part in {"", ".", ".."} for part in relative.parts)
-            ):
-                raise ValueError("campaign evaluation artifact path is unsafe")
-            unresolved = artifact_root / relative
-            if any(
-                candidate.is_symlink()
-                for candidate in (
-                    artifact_root.joinpath(*relative.parts[:index])
-                    for index in range(1, len(relative.parts) + 1)
-                )
-            ):
-                raise ValueError(
-                    "campaign evaluation artifact path may not contain symlinks"
-                )
-            source = unresolved.resolve()
-            if (
-                not source.is_relative_to(artifact_root)
-                or not source.is_file()
-                or source.is_symlink()
-            ):
-                raise ValueError(
-                    f"campaign evaluation artifact is missing: {raw_relative}"
-                )
-            expected_sha256 = artifact.get("sha256")
-            if not _is_sha256(expected_sha256) or _sha256_file(source) != (
-                expected_sha256
-            ):
-                raise ValueError(
-                    f"campaign evaluation artifact digest differs: {raw_relative}"
-                )
-            relative_name = relative.as_posix()
-            previous = copied.get(relative_name)
-            if previous is not None and previous != expected_sha256:
-                raise ValueError(
-                    "campaign evaluation artifact path has conflicting digests"
-                )
-            copied[relative_name] = str(expected_sha256)
-            _copy_public_file(source, destination / relative)
+    verified = verify_campaign_evaluation_artifacts(evidence, artifact_root)
+    if not verified:
+        return
+    if artifact_root is None:
+        raise ValueError(
+            "bundled campaign evaluation artifacts require an artifact root"
+        )
+    root = artifact_root.resolve()
+    for relative_name, expected_sha256 in verified.items():
+        relative = Path(relative_name)
+        target = destination / relative
+        _copy_public_file(root / relative, target)
+        if _sha256_file(target) != expected_sha256:
+            raise ValueError(
+                f"campaign evaluation artifact changed while copying: "
+                f"{relative_name}"
+            )
 
 
 def _validate_promotion_evidence(
@@ -581,10 +538,24 @@ def _write_owned_checkpoint(
 def _select_checkpoint(
     coordinator: CampaignCoordinator,
     dashboard: Mapping[str, object],
+    *,
+    selected_step: int | None = None,
 ) -> tuple[int, Mapping[str, object] | None]:
     evaluations = dashboard["evaluations"]
     selected_evaluation: Mapping[str, object] | None = None
-    if evaluations:
+    if selected_step is not None:
+        if type(selected_step) is not int or selected_step < 0:
+            raise ValueError("owner-supplied release checkpoint step is invalid")
+        step = selected_step
+        selected_evaluation = next(
+            (
+                entry
+                for entry in evaluations
+                if entry.get("step") == selected_step
+            ),
+            None,
+        )
+    elif evaluations:
         selected_evaluation = min(
             evaluations,
             key=lambda entry: (entry["mean_loss"], entry["step"]),
@@ -785,6 +756,7 @@ def build_release_bundle(
     output_dir: str | Path,
     evaluation_evidence: Mapping[str, object] | None = None,
     evaluation_artifact_root: str | Path | None = None,
+    release_checkpoint_step: int | None = None,
     promotion_evidence: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     coordinator.validate_evaluation_authority()
@@ -963,9 +935,60 @@ def build_release_bundle(
                 )
         shutil.rmtree(temporary / ".validation", ignore_errors=True)
 
+        campaign_research_contract = (
+            campaign.research is not None
+            and campaign.research.get("format")
+            == "orcacolony_campaign_research_v2"
+        )
+        selection_method: str
+        selected_step = release_checkpoint_step
+        if campaign_research_contract:
+            declared_release_revision = (
+                campaign_evaluation_release_revision(
+                    campaign.research,
+                    evaluation_evidence,
+                    campaign_id=str(campaign.campaign["id"]),
+                    campaign_revision=str(lock["campaign_revision"]),
+                )
+                if evaluation_evidence is not None
+                else None
+            )
+            if selected_step is None:
+                if declared_release_revision is None:
+                    raise ValueError(
+                        "campaign research release requires an owner-supplied "
+                        "checkpoint step or campaign evaluation evidence"
+                    )
+                matching_evaluations = [
+                    entry
+                    for entry in evaluations
+                    if entry.get("checkpoint_sha256")
+                    == declared_release_revision
+                ]
+                if len(matching_evaluations) != 1:
+                    raise ValueError(
+                        "campaign release evidence does not identify exactly "
+                        "one built-in evaluated checkpoint; supply the "
+                        "owner-selected release checkpoint step"
+                    )
+                selected_step = matching_evaluations[0]["step"]
+                selection_method = "campaign_evaluation_evidence"
+            else:
+                selection_method = "owner_supplied_step"
+        else:
+            if selected_step is not None:
+                raise ValueError(
+                    "owner-supplied release checkpoint steps require a v2 "
+                    "campaign research contract"
+                )
+            selection_method = (
+                "lowest_mean_loss" if evaluations else "final"
+            )
+
         step, selected_evaluation = _select_checkpoint(
             coordinator,
             dashboard,
+            selected_step=selected_step,
         )
         selected_artifacts = coordinator.versioned_checkpoint_artifacts(step)
         expected_selected_names = {
@@ -1156,11 +1179,6 @@ def build_release_bundle(
             and campaign.research.get("format")
             == "orcacolony_capability_research_v1"
         )
-        campaign_research_contract = (
-            campaign.research is not None
-            and campaign.research.get("format")
-            == "orcacolony_campaign_research_v2"
-        )
         if evaluation_evidence is not None and promotion_evidence is not None:
             raise ValueError(
                 "release accepts either campaign evaluation evidence or legacy "
@@ -1300,9 +1318,7 @@ def build_release_bundle(
         checkpoint_manifest: dict[str, object] = {
             "step": step,
             "numerical_profile": numerical_profile,
-            "selection": (
-                "lowest_mean_loss" if selected_evaluation is not None else "final"
-            ),
+            "selection": selection_method,
             "evaluation": selected_evaluation,
         }
         if lora_identities is not None:
@@ -1389,6 +1405,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--public-coordinator-url")
     parser.add_argument("--evaluation-evidence", type=Path)
     parser.add_argument("--evaluation-artifacts", type=Path)
+    parser.add_argument(
+        "--release-checkpoint-step",
+        type=int,
+        help=(
+            "checkpoint step selected by the v2 campaign owner; optional when "
+            "evaluation evidence identifies exactly one built-in evaluation"
+        ),
+    )
     parser.add_argument("--promotion-evidence", type=Path)
     parser.add_argument(
         "--numerical-profile",
@@ -1435,11 +1459,12 @@ def main() -> None:
         public_coordinator_url=args.public_coordinator_url,
         output_dir=args.output,
         evaluation_evidence=(
-            json.loads(args.evaluation_evidence.read_text(encoding="utf-8"))
+            load_campaign_evaluation_evidence(args.evaluation_evidence)
             if args.evaluation_evidence is not None
             else None
         ),
         evaluation_artifact_root=args.evaluation_artifacts,
+        release_checkpoint_step=args.release_checkpoint_step,
         promotion_evidence=(
             json.loads(args.promotion_evidence.read_text(encoding="utf-8"))
             if args.promotion_evidence is not None
