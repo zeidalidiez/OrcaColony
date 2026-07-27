@@ -306,12 +306,12 @@ Run two explicitly separate bounded tracks:
 
 1. **Capability track:** use the reproduced Python 3.11 Record Patch baseline
    and the failed 128-step public qualification as the fixed starting evidence.
-   Freeze a continuation schedule, resume the exact step-128 model, AdamW state,
-   data cursor, objective, learning rate, and decoding policy, and evaluate only
-   later public milestones. Do not open either reserved holdout or request
-   donated compute until exact behavioral learning appears. If same-trajectory
-   exposure still fails, test target-only loss and learning-rate changes as
-   separate controls.
+   Run the frozen exposure-only continuation at total steps `128`, `256`, and
+   `512`. It resumes the exact step-128 model, AdamW state, data cursor,
+   objective, learning rate, and decoding policy. Do not open either reserved
+   holdout or request donated compute until exact behavioral learning appears.
+   If same-trajectory exposure still fails, test target-only loss and
+   learning-rate changes as separate controls.
 2. **P7 systems track:** freeze and persistently cache the untied final
    norm/output head in both centralized and distributed sparse controls. Train
    only router, shared trunk, and experts, preserve byte-exact canonical AdamW,
@@ -382,6 +382,14 @@ Run two explicitly separate bounded tracks:
 
 ### 2026-07-26
 
+- Froze the exposure-only Record Patch continuation protocol at SHA-256
+  `52e055693aadde508e60a8a2cb031be014c5ffdeb56b45f36eecf11870d4f6c5`.
+  It binds the complete failed-run evidence and checksum manifests, exact
+  step-128 model, AdamW state, data cursor, campaign recipe, and public
+  evaluator. The separate runner verifies those inputs, continues only to
+  predeclared total steps `256` and `512`, selects by public language loss,
+  retains self-contained checkpoints and per-step diagnostics, caps execution
+  at one CPU thread and 3 GiB peak RSS, and accepts no reserved-holdout input.
 - Updated the public `OrcaColony/README` organization card after the failed
   qualification and verified the published bytes at exact Hub revision
   `1665d4c856b959c780ceb93cef2e404d414aa029`. The card now links Report 011,

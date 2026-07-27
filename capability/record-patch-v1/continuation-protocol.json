@@ -1,0 +1,74 @@
+{
+  "behavioral_suite_revision": "sha256:91acf17f01bc1c59d6aeb1bb75322b0021b164e4fa750fa3ad90eed77531d087",
+  "campaign": {
+    "id": "orcacolony-record-patch-t2-v1",
+    "sha256": "039fea26e0eb5f86146e152bc2bfaffe96bb78db0b8318cc21982ef0b872bfe5"
+  },
+  "dataset_revision": "4e71f26b3e06b15360eef333ced96a16791dc2bc9ad9c29ff11d8b728106baae",
+  "evaluator_revision": "sha256:fd99c5920b3de7c17b0cd68986ba3a9d0566aebfbc47b955da01ff11fca7e883",
+  "execution": {
+    "donated_compute": false,
+    "topology": "owner-operated centralized CPU reference",
+    "torch_threads": 1
+  },
+  "format": "orcacolony_record_patch_continuation_protocol_v1",
+  "gate": {
+    "initialization_behavioral_exact_match_count": 0,
+    "initialization_language_mean_loss": 9.120742341162453,
+    "minimum_behavioral_exact_match_count_improvement": 1,
+    "minimum_language_mean_loss_improvement": 0.1
+  },
+  "holdout_policy": {
+    "behavioral_final_holdout": "must_not_open",
+    "language_final_holdout": "must_not_evaluate"
+  },
+  "id": "record-patch-t2-centralized-continuation-v1",
+  "limitations": [
+    "This deterministic continuation does not estimate variation across random seeds.",
+    "The continuation schedule was chosen after inspecting the failed 128-step public run, so it is a new control rather than a preregistered extension of that run.",
+    "Repeated public validation can guide later recipe choices and may overfit those public diagnostics.",
+    "Public behavioral validation is diagnostic and cannot replace the reserved promotion holdout.",
+    "The all-target causal transcript objective trains prompt tokens as well as answer tokens."
+  ],
+  "parent_run": {
+    "evidence_sha256": "92ec3a0d0fcf49652abbaf24274e612a9e8137395f9e0e80d1e0c8c27c7cca16",
+    "format": "orcacolony_record_patch_learnability_evidence_v1",
+    "protocol": {
+      "id": "record-patch-t2-centralized-learnability-v1",
+      "sha256": "5dc813b9c5a0cc8efa30f4f0bef4a9ed42866afd04ade255fc20c6b311e00900"
+    },
+    "runner_revision": "sha256:c21470dcd963cfc5ae1c894f47ec4f2beb2e9c372d290cd474eaf7562473441b",
+    "sha256sums_sha256": "8fec574438ac824ccb9564f828a8389beed2d65711bccb8a31bea21fc277bf08",
+    "source_revision": "96d2af5bcde7a872b0521c9ca5ab95c6f760d673"
+  },
+  "resource_limits": {
+    "maximum_continuation_steps": 384,
+    "maximum_peak_rss_bytes": 3221225472,
+    "maximum_total_training_steps": 512
+  },
+  "schedule": {
+    "behavioral_steps": [
+      128,
+      256,
+      512
+    ],
+    "checkpoint_steps": [
+      128,
+      256,
+      512
+    ],
+    "max_new_tokens": 64
+  },
+  "selection": "lowest public language-validation mean loss among continuation checkpoints; behavioral metrics do not select the checkpoint",
+  "trajectory": {
+    "dataset_cursor": 512,
+    "learning_rate": 0.0003,
+    "loss_mask": "all_target_tokens",
+    "model_sha256": "2beb87e85d33284b80c882a458e30d8285c947002d1e8c5284292bebd1a70d1b",
+    "objective": "causal_lm",
+    "optimizer": "AdamW",
+    "optimizer_sha256": "8870ef60064968d179a798ff60612a2f7c4540ace0cbaa3c66e7b11b93eb48c2",
+    "resume_step": 128,
+    "state_sha256": "16e93aee38665e99e7908b43d7b3b3fc00fcffee5de3e3b197e6924253964ceb"
+  }
+}

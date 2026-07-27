@@ -190,11 +190,33 @@ complete teacher-forced answer was correct. None of the 32 public prompts or
 targets occurred exactly in training.
 
 This is a negative pre-volunteer result. It does not authorize donated compute
-or model publication. The next control will continue the exact step-128 model,
-optimizer, data cursor, objective, and decoding policy to later predeclared
-public milestones before testing a target-only objective or different learning
-rate. See
+or model publication. The next control is frozen in
+[`continuation-protocol.json`](continuation-protocol.json). It binds the exact
+step-128 model, AdamW state, data cursor, objective, learning rate, parent
+evidence, and decoding policy. It evaluates total trajectory steps `128`,
+`256`, and `512`, selects only by public language loss, and applies the same
+language-plus-exact-behavior gate. Step 512 covers about `0.443` packed-data
+epochs. This control changes exposure only. A target-only objective or
+different learning rate remains a separate later experiment. See
 [`../../reports/record-patch-t2-learnability-v1.html`](../../reports/record-patch-t2-learnability-v1.html).
+
+Run the committed continuation from the retained parent run:
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+TOKENIZERS_PARALLELISM=false \
+uv run python -m orcacolony.record_patch_continuation \
+  --protocol capability/record-patch-v1/continuation-protocol.json \
+  --campaign campaign/record-patch-t2-v1.json \
+  --packed-dir .artifacts/record-patch-v1/packed \
+  --public-dir capability/record-patch-v1 \
+  --parent-run .artifacts/record-patch-t2-learnability-v1 \
+  --output .artifacts/record-patch-t2-continuation-v1
+```
+
+The continuation command has no final-holdout or holdout-key argument. It
+verifies the full parent checksum manifest before loading the resume checkpoint
+and writes self-contained checkpoints and checksums for the new run.
 
 ## Required evidence after training
 

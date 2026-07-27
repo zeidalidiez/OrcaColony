@@ -63,9 +63,12 @@ has no private-holdout input.
 That first check did not pass. Step 128 lowered public language loss from
 `9.1207` to `1.5636`, but the language-selected checkpoint remained `0/32`
 exact and `0/32` strict valid JSON because all 32 outputs repeated object keys.
-It covered only `0.111` packed-data epochs, so the next control will continue
-the same exact checkpoint and optimizer before changing the objective or
-learning rate. Volunteer training remains blocked. Read
+It covered only `0.111` packed-data epochs. The exposure-only continuation is
+now fixed in
+[`capability/record-patch-v1/continuation-protocol.json`](capability/record-patch-v1/continuation-protocol.json):
+it resumes the exact step-128 model, optimizer, and data cursor and evaluates
+total steps 128, 256, and 512 before any objective or learning-rate change.
+Volunteer training remains blocked. Read
 [`reports/record-patch-t2-learnability-v1.html`](reports/record-patch-t2-learnability-v1.html)
 for every public output, optimizer diagnostics, overlap analysis, and the
 negative disposition.
