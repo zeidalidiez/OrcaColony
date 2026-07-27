@@ -1654,7 +1654,12 @@ chosen for that study. A method that only runs once remains experimental. A
 method that saves memory but makes accepted work impractically slow is recorded
 but not admitted by default.
 
-`PROGRESS_REPORT.md` is updated in every roadmap commit to record the current build position, remaining major work, blockers, priority order, and immediate bounded target. Git history remains the detailed change log; the progress report remains the concise operational handoff.
+`PROGRESS_REPORT.md` is updated in every roadmap commit to record the current
+build position, remaining major work, blockers, priority order, and immediate
+bounded target. Every project commit also increases the visible repository
+`VERSION` and synchronizes package metadata under the checked policy in
+`VERSIONING.md`. Git history remains the detailed change log; the progress
+report remains the concise operational handoff.
 
 ---
 
