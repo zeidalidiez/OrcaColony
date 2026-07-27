@@ -22,6 +22,7 @@ from orcacolony.reference import (
     build_model,
     fixture_batch,
     load_campaign,
+    objective_mean_loss,
     tensor_sha256,
     validate_dataset_artifacts,
 )
@@ -230,10 +231,10 @@ def run_tiled_block_experiment(
     centralized.train()
     centralized_optimizer.zero_grad(set_to_none=True)
     centralized_started = time.perf_counter()
-    centralized_loss_tensor = F.cross_entropy(
-        centralized(inputs).reshape(-1, campaign.model.vocabulary_size),
-        targets.reshape(-1),
-        reduction="mean",
+    centralized_loss_tensor = objective_mean_loss(
+        campaign.objective,
+        centralized(inputs),
+        targets,
     )
     centralized_loss_tensor.backward()
     centralized_raw_gradients = _gradient_snapshot(centralized)
@@ -279,10 +280,10 @@ def run_tiled_block_experiment(
         tile_output = tile(tile_input)
         boundary_output = tile_output.detach().clone().requires_grad_(True)
         tiled_logits = _suffix_logits(tiled, boundary_output, block_index)
-        tiled_loss_tensor = F.cross_entropy(
-            tiled_logits.reshape(-1, campaign.model.vocabulary_size),
-            targets.reshape(-1),
-            reduction="mean",
+        tiled_loss_tensor = objective_mean_loss(
+            campaign.objective,
+            tiled_logits,
+            targets,
         )
         tiled_loss_tensor.backward()
         if boundary_output.grad is None:

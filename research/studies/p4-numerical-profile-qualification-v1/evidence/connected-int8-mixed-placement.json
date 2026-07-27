@@ -150,7 +150,7 @@
     {
       "id": "connected-proof",
       "kind": "repo-json-sha256",
-      "revision": "8fa67a94af121c48e61ef21b596fd71d180aba42201cde2db69829ba1c4b4ffa",
+      "revision": "d414e4d8aa4d7fc5363f0e28cbee64e8fd267ba1b16a01f071e8120f696eb8f1",
       "uri": "repo:spikes/int8-frozen-linear/results/connected-t1.json"
     },
     {

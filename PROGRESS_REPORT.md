@@ -1,8 +1,8 @@
 # OrcaColony Progress Report
 
-**Last updated:** 2026-07-25
+**Last updated:** 2026-07-26
 
-**Current phase:** P5 rolling partial-model feasibility
+**Current phase:** Parallel P7 systems research and Record Patch pre-training qualification
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -40,7 +40,7 @@ P5–P7 method engineering and human-directed practical campaigns are parallel t
 - Connected coordinator-owned AdamW updates.
 - Multi-worker assignments, leases, retries, stale-result rejection, and at-most-once accepted work.
 - Crash-safe canonical checkpoint advancement and persistent multi-step campaigns.
-- Owner-approved, default-deny participation and contributor-controlled public attribution.
+- Owner-approved, default-deny participation and privacy-filtered v1 attribution.
 - Frozen TinyStories data/tokenizer provenance and real-data T1 campaigns.
 - Initialization and checkpoint evaluation with machine-readable success gates.
 - Public dashboard, exact-origin browser deployment support, and deterministic privacy-filtered release bundles.
@@ -48,7 +48,21 @@ P5–P7 method engineering and human-directed practical campaigns are parallel t
 
 ### Current boundary
 
-The local v0.1 system path is proven. A several-day campaign with distinct remote, owner-approved participants remains an operator deployment milestone rather than a local implementation blocker.
+The local numerical, coordinator, restart, and operational-release preflight is
+proven. Capability/release infrastructure now fails closed on unsupported
+objectives, separates behavioral promotion from language-loss diagnostics,
+freezes baseline-improvement and evaluation-suite identities, snapshots
+contributor-selected credit, verifies committed research artifacts, captures
+environment context, and builds separate deterministic Hugging Face model/data
+packages. Record Patch v1 now supplies the first frozen true-T2 task, legal
+synthetic recipe, private final holdout, exact evaluator, campaign, and measured
+initialization outputs. Python 3.11.15 reproduced the initialization identity,
+all 32 predictions, and the evaluation JSON byte for byte from the earlier
+Python 3.14 run. The complete v0.1 public-research acceptance path is still not
+proven: it needs a centralized learnability check, real training-effect report,
+reviewed release and clean load/generation test, actual model/data Hub commit
+revisions, and a several-day campaign with distinct remote owner-approved
+participants.
 
 The current architecture uses replicated full-model data parallelism: every direct-gradient worker can execute its complete assignment independently against one canonical checkpoint. The complete model may eventually be placed across that worker's GPU VRAM, system RAM, and local storage; it does not have to remain entirely in GPU VRAM. Cross-worker partial-model methods are a post-v0.1 research track rather than part of the proven baseline.
 
@@ -241,9 +255,9 @@ Completed within the first P3 measurement and native-baseline slice:
 - These are compute-integrity checks, not planted training-data canaries: no synthetic secret examples are inserted into the corpus, learned by the model, or later searched for in model output.
 - The current trusted-participant pilot already verifies every submitted assignment against a coordinator-known oracle, so adding a reputation subsystem now would duplicate existing admission rather than advance the larger-model research.
 
-### P6 — Explore exact asynchronous tiled computation
+### P6 — Explore exact recoverable local tiled computation
 
-**Status:** Completed feasibility — exact worker-loss recovery qualified conditionally
+**Status:** Completed bounded local feasibility — network/asynchronous operation remains open
 
 - Divide one representative transformer layer into retryable matrix or tensor tasks.
 - Persist dependency state at the coordinator.
@@ -286,21 +300,190 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ## Immediate next bounded target
 
-Freeze and persistently cache the untied final norm/output head in both centralized and distributed sparse controls. Train only router, shared trunk, and experts, preserve byte-exact canonical AdamW, and recompute cold/warm result traffic without duplicated head gradients. Advance to authenticated T1/process workers only if this one-variable control produces a meaningful aggregate advantage rather than an individual-worker-only saving.
+Run two explicitly separate bounded tracks:
+
+1. **Capability track:** use the reproduced Python 3.11 Record Patch baseline
+   and run a bounded centralized learning check against public training and
+   validation data. Do not open the 128-example final holdout or request donated
+   compute until the task shows measurable learnability and the campaign's
+   runtime identity is final.
+2. **P7 systems track:** freeze and persistently cache the untied final
+   norm/output head in both centralized and distributed sparse controls. Train
+   only router, shared trunk, and experts, preserve byte-exact canonical AdamW,
+   and recompute cold/warm result traffic without duplicated head gradients.
+   Advance to authenticated T1/process workers only if this one-variable control
+   produces a meaningful aggregate advantage rather than an
+   individual-worker-only saving.
 
 ## Remaining major work
 
 - P7 cached-head, authenticated-data, process-memory, retry, and quality qualification.
+- Complete the first useful specialization campaign at the specification's
+  17,538,816-parameter T2 tier. Record Patch v1 now freezes its task and starting
+  measurement, but no learnability result, trained checkpoint, volunteer work,
+  or promotion evidence exists. The historical 91,544,064-parameter files and
+  P3/P4 evidence retain their existing `t2` identifiers for provenance but are
+  treated as a legacy 91M memory-stress tier, not as the current T2 capability
+  tier.
+- Extend the frozen Record Patch evaluator into the full training-effect
+  analyzer: checkpoint output deltas, error taxonomy, data-bucket performance,
+  gradient/update diagnostics, memorization/contamination checks, forgetting
+  guardrails, ablations, and repeated-seed uncertainty where relevant. The
+  task-level sample evaluator and initialization measurements exist; trained
+  comparisons do not.
+- Promotion records currently validate artifact IDs, hashes, and locations, but
+  the capability release path does not yet fetch or snapshot arbitrary external
+  evaluator/sample-result URIs. The first real campaign must put those artifacts
+  in a digest-verified `repo:` research bundle or extend the publisher to bundle
+  them; a link and a claimed hash alone are not durable proof. Holdout separation
+  is likewise enforced by the release workflow, not by a cryptographic
+  prohibition against an operator inspecting it early.
+- Exercise contributor credit-profile v2 with real volunteer choices and review
+  the generated release snapshot. The implementation separates worker authority
+  from reloadable credit choices and accounts for accepted tokens,
+  worker-reported time, roles, and opted-in hardware classes.
+- Accepted direct-training work is covered by the generated attribution
+  snapshot. A separate evidence ledger for auxiliary work such as data curation,
+  evaluator construction, review, hosting, or failed-but-helpful compute attempts
+  does not yet exist and must not be implied by the current role labels.
+- Migrate remaining generated/external research references into durable,
+  digest-verifiable locations. Committed `repo:` artifacts now verify and bundle;
+  other URI schemes are explicitly reported as unresolved rather than implied
+  proof.
+- Build a real deterministic Hugging Face package, choose source-compatible
+  model/data licenses, run the custom dense/LoRA load and generation smoke test,
+  review private repositories, and record both Hub commit revisions. Record Patch
+  reserves `OrcaColony/record-patch-t2-v1` and
+  `OrcaColony/record-patch-v1`; neither repository exists and no model/data
+  package has been uploaded.
+- Hidden-canary or replicated-work compute integrity before untrusted public
+  participation; the diagnostic oracle-gradient endpoint is not a production
+  proof that donated computation occurred.
 - Operator-owned remote trusted campaign when deployment inputs are available.
 
 ## Current blockers and hold-ups
 
 - No blocker prevents the specification and research-framework work.
+- Volunteer training remains blocked on the bounded centralized learnability
+  check. The supported Python 3.11 baseline reproduction is complete, but no
+  donated compute should be requested until the frozen task shows measurable
+  learning on public training and behavioral-validation data.
 - Remote trusted deployment still requires operator-owned HTTPS hosting choices and approved participants, but that does not block local research milestones.
 - Native GPU and GPU-plus-system-RAM placement were not qualified on the CPU-only PyTorch host; browser WebGPU remains a separate measured numerical/runtime profile rather than evidence for a native offload path.
 - Larger-model execution methods are hypotheses until measured; none should be described as supported merely because a paper or prototype demonstrates the general idea.
 
 ## Change record
+
+### 2026-07-26
+
+- Audited the progress report, specification, campaign files, research records,
+  release path, and current implementation as a research vehicle rather than
+  treating systems correctness as model-capability evidence.
+- Corrected the roadmap boundary between the specification's approximately
+  17.5M-parameter T2 and the immutable historical 91,544,064-parameter `t2`
+  memory-stress campaign identifiers.
+- Made the campaign objective executable and fail-closed. Every current training,
+  evaluation, LoRA, partial-model, tiled-process, recovery, and sparse-expert path
+  now routes its token loss through the validated objective contract; unsupported
+  objectives and masks reject during campaign loading.
+- Added the capability-campaign contract with an exact baseline, absolute metric
+  threshold, positive minimum baseline improvement, frozen behavioral
+  data/evaluator revisions, distinct behavioral splits, disjoint language-loss
+  validation/holdout ranges, guardrails, analysis plan, checkpoint-selection
+  policy, licenses, a private-review/public-release visibility policy, and
+  `OrcaColony/...` Hub destinations.
+- Separated the post-selection language-loss holdout diagnostic from behavioral
+  promotion evidence. Promotion now binds the selected checkpoint, training
+  dataset, behavioral suite, exact baseline, threshold and improvement, every
+  guardrail, limitations, evidence hashes, and a reproduction command.
+- Added v2 contributor attribution with named, pseudonymous, and anonymous
+  choices; optional HTTPS profile/team/roles; independent totals/hardware
+  preferences; worker-reported total/gradient time; public hardware classes; a
+  deterministic credit revision; release-time snapshots; and generated
+  `CONTRIBUTORS.md`. V2 worker authority remains locked while credit choices may
+  be refreshed safely on coordinator reload; v1 recovery behavior remains
+  unchanged.
+- Fixed the public dashboard to honor the v2 totals preference rather than
+  linking a public alias to per-assignment token counts without consent.
+- Made research recording resolve, digest-check, and snapshot committed `repo:`
+  evidence, label other artifact schemes unresolved, capture
+  `environment.json`, and surface measurements/provenance in `RESULT.md`. Corrected
+  the committed P4 connected-proof digest to the repository's LF bytes.
+- Added a capability-report template requiring sample-level output deltas,
+  bucketed errors, optimizer diagnostics, memorization/forgetting checks,
+  negative findings, contributor credit, environment identity, exact artifacts,
+  and Hub revisions.
+- Added deterministic, network-free Hugging Face model and dataset package
+  builders, exact closed-file/checksum verification, custom dense/LoRA loading
+  and generation, campaign-locked visibility policy, explicit licenses, and an
+  authenticated two-repository publisher that accepts no token argument.
+- Made Hub packaging private by default, added visible model/dataset-card
+  contributor totals, retained optimizer/restart evidence, separated the
+  framework software license from the selected model-weights license, required
+  the dataset publication license to match its frozen source manifest, and made
+  publication refuse visibility mismatches or stale remote files. Successful
+  publication now requires a separate local JSON record of both Hub commits.
+- Published the public `OrcaColony/README` organization card from its retained
+  repository source and recorded exact Hub revision
+  `7a27bbb8069fb463b0da67bd38f4c7763bb400ba` plus the public file digest. The
+  card now records the frozen Record Patch task, supported-runtime baseline,
+  learnability gate, negative-result policy, and contributor-credit policy
+  without implying that a capability model has already been released.
+- Selected Record Patch v1 as the first narrow capability task. It applies
+  ordered `SET`, `DELETE`, and `RENAME` operations to flat JSON records and
+  requires exact canonical output. The task is project-generated, contains no
+  scraped or teacher-produced text, and is licensed CC0-1.0.
+- Added a deterministic hash-stream generator, transcript builder, byte-level
+  tokenizer/packer, strict prompt-and-oracle validation, sample-level evaluator,
+  exact per-bucket metrics, Wilson interval, guardrails, oracle reproduction,
+  and initialization-baseline CLI.
+- Froze 32,768 training examples, 1,024 language-validation examples, 32 public
+  behavioral-validation examples, and 128 separately keyed final-holdout
+  examples. The public suite lock is
+  `91acf17f01bc1c59d6aeb1bb75322b0021b164e4fa750fa3ad90eed77531d087`;
+  the final examples remain under ignored local artifacts and only their count
+  and digest are public.
+- Added the true 17,538,816-parameter T2 campaign with exact packed-data hashes,
+  disjoint 71/72-sequence language-loss slices, a 2,048-step proposed budget,
+  fixed behavioral thresholds and guardrails, Apache-2.0 model weights,
+  CC0-1.0 data, contributor-credit intake, and private-review-first
+  `OrcaColony/record-patch-t2-v1` and `OrcaColony/record-patch-v1` destinations.
+- Ran the deterministic initialization baseline on all 32 public cases with
+  greedy decoding. It scored `0/32` exact, `2/32` valid JSON, `2/32` canonical
+  JSON, and `0/16` across the four single-operation buckets. The final holdout
+  was not opened. Report 010 retains every output and reproduces evaluation JSON
+  SHA-256 `e05c2c67db6b151678124777ecf3d232b6cc3fc1bbf079d6a6190cbba4a516f6`.
+- Preserved the original Python 3.14.4 baseline environment, then repeated it
+  with Python 3.11.15 and CPU-only PyTorch 2.13.0. The initialization identity,
+  all 32 predictions, and evaluation JSON were byte-identical. The final holdout
+  remained unopened. A full fresh freeze with the original withheld key also
+  reproduced the public suite, private holdout digest
+  `f140f35e9d2e5e9292dc0f347c5d6c95658caf7bcad20e8ec81509b9e98ba496`,
+  packed manifest
+  `4e71f26b3e06b15360eef333ced96a16791dc2bc9ad9c29ff11d8b728106baae`,
+  and campaign
+  `039fea26e0eb5f86146e152bc2bfaffe96bb78db0b8318cc21982ef0b872bfe5`.
+  A centralized learnability check now gates volunteer training.
+- Lightweight validation passed source/test compilation, diff whitespace checks,
+  deterministic participant and Hub-package smokes, reconstruction of all nine
+  committed research records, a byte-stable Record Patch re-freeze, public
+  checksum verification, packed campaign validation, final-holdout separation,
+  oracle scoring, exact baseline recomputation, and local-link checks. The
+  temporary static report preview returned HTTP 200 and the expected page title,
+  although the shared browser snapshot failed. Python 3.11 Record Patch tests
+  passed, and the baseline reproduced exactly.
+- Made the official CPU PyTorch index the default development source and removed
+  the unused CUDA dependency graph from `uv.lock`. Preserved the earlier T0 LoRA
+  manifest for historical evidence, added a backend-specific CPU fixture for
+  current tests, and documented that seed plus Torch version alone is not a
+  portable initialized-weight identity across wheel builds.
+- Added an explicit campaign wire-format serializer after the objective contract
+  became an internal dataclass field, and corrected the participant-credit test
+  to select contributors by stable ID rather than sorted position. The complete
+  Python 3.11 CPU suite now passes: `259 passed`.
+- No campaign training job, GPU job, model/data repository creation, or
+  model/data upload ran. The test suite did execute its bounded CPU gradient and
+  optimizer checks.
 
 ### 2026-07-25
 
@@ -349,7 +532,7 @@ Freeze and persistently cache the untied final norm/output head in both centrali
 - Repeated the authenticated T1 process run exactly and published Report 006. Serialized overhead is negligible and local IPC is tens of milliseconds, but cold startup is about three seconds and isolated worker peak RSS is about 332 MB, so a matched full-process control is now required before any memory-savings claim.
 - The process-separated P6 gate passed `215` tests, including warning-strict child-process tests, plus source/test compilation, lock and CLI verification, exact evidence-copy and report-link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
 - Added and repeated a matched persistent full-model process control with the same campaign, dataset, cursors, launcher, framing, and coordinator optimizer authority as the tile worker. The control reproduced centralized training exactly.
-- Published Report 007: exact process tiling cuts isolated T1 worker peak RSS 50.10%–50.11% and cold/warm tensor payload 84.76%/80.97% versus the matched full worker. P6 now advances to persisted crash/retry rather than additional memory profiling.
+- Published Report 007: exact process tiling cuts isolated T1 worker peak RSS 50.21%–50.27% and cold/warm tensor payload 84.76%/80.97% versus the matched full worker. P6 now advances to persisted crash/retry rather than additional memory profiling.
 - The matched full-process control gate passed `217` tests, including warning-strict process tests, plus source/test compilation, lock and CLI verification, exact control evidence and report-link validation, browser inspection, unchanged `research/`, diff validation, and the added-line security scan.
 - Added a fail-closed persisted boundary transaction and deliberate tile-worker crash/replacement path. Replay is byte-identical, one exact result is applied, duplicate application is rejected durably, and all centralized optimizer/model identities remain exact.
 - Repeated the authenticated T1 recovery and published Report 008. Recovery costs about 3.2 seconds and 3.68 MB of pre-replay retransmission; P6 closes as qualified but conditional, and the autonomous method track advances to P7 sparse experts.

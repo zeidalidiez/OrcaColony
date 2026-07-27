@@ -10,7 +10,6 @@ from multiprocessing.connection import Connection
 from pathlib import Path
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 
 from orcacolony.artifacts import PackedDataset
@@ -23,6 +22,7 @@ from orcacolony.reference import (
     configure_determinism,
     fixture_batch,
     load_campaign,
+    objective_mean_loss,
     tensor_sha256,
     validate_dataset_artifacts,
 )
@@ -207,10 +207,10 @@ def _full_worker_entry(connection: Connection) -> None:
             model.zero_grad(set_to_none=True)
             started = time.perf_counter()
             logits = model(inputs)
-            loss = F.cross_entropy(
-                logits.reshape(-1, config.vocabulary_size),
-                targets.reshape(-1),
-                reduction="mean",
+            loss = objective_mean_loss(
+                model.objective,
+                logits,
+                targets,
             )
             loss.backward()
             compute_seconds = time.perf_counter() - started
@@ -264,10 +264,10 @@ def _run_parent_assignment(
 
     centralized.train()
     centralized_optimizer.zero_grad(set_to_none=True)
-    centralized_loss_tensor = F.cross_entropy(
-        centralized(inputs).reshape(-1, campaign.model.vocabulary_size),
-        targets.reshape(-1),
-        reduction="mean",
+    centralized_loss_tensor = objective_mean_loss(
+        campaign.objective,
+        centralized(inputs),
+        targets,
     )
     centralized_loss_tensor.backward()
     centralized_raw = _gradient_snapshot(centralized)

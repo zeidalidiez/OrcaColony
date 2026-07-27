@@ -15,7 +15,9 @@ from orcacolony.reference import load_campaign
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
-LORA_CONFIG = Path(__file__).parents[1] / "campaign" / "t0-lora-smoke.json"
+LORA_CONFIG = (
+    Path(__file__).parents[1] / "campaign" / "t0-lora-smoke-cpu.json"
+)
 
 
 def participants_for(campaign_id: object) -> ParticipantRegistry:
@@ -33,6 +35,39 @@ def participants_for(campaign_id: object) -> ParticipantRegistry:
                         for worker_id in worker_ids
                     },
                     "credit": {"public": False, "display_name": None},
+                }
+            ],
+        },
+        campaign_id=str(campaign_id),
+    )
+
+
+def participants_v2_without_public_totals(
+    campaign_id: object,
+) -> ParticipantRegistry:
+    worker_ids = ["worker-a", "worker-b"]
+    return ParticipantRegistry.from_payload(
+        {
+            "format": "orcacolony_participants_v2",
+            "campaign_id": campaign_id,
+            "participants": [
+                {
+                    "contributor_id": "private-v2-id",
+                    "worker_ids": worker_ids,
+                    "worker_token_sha256": {
+                        worker_id: hashlib.sha256(b"test-token").hexdigest()
+                        for worker_id in worker_ids
+                    },
+                    "credit": {
+                        "visibility": "pseudonymous",
+                        "display_name": "Public Alias",
+                        "profile_url": None,
+                        "team": None,
+                        "roles": ["training-compute"],
+                        "show_contribution_totals": False,
+                        "show_hardware": False,
+                    },
+                    "worker_profiles": {},
                 }
             ],
         },
@@ -93,6 +128,63 @@ def complete_one_step_campaign(coordinator: CampaignCoordinator) -> None:
             submission_for(coordinator, assignment),
             now=110 + index,
         )
+
+
+def test_dashboard_honors_v2_credit_total_preference(tmp_path: Path) -> None:
+    campaign = load_campaign(CONFIG)
+    participants = participants_v2_without_public_totals(
+        campaign.campaign["id"]
+    )
+    coordinator = CampaignCoordinator.create(
+        campaign,
+        tmp_path / "campaign",
+        participants=participants,
+        worker_count=2,
+        target_steps=1,
+    )
+    complete_one_step_campaign(coordinator)
+
+    dashboard = coordinator.dashboard()
+    assert dashboard["contributors"] == {
+        "active_count": 1,
+        "anonymous_count": 0,
+        "acknowledgements": [{"display_name": "Public Alias"}],
+    }
+    assert all(
+        entry["credit"] == "Anonymous"
+        for entry in dashboard["public_ledger"]
+    )
+    serialized = json.dumps(dashboard)
+    assert "private-v2-id" not in serialized
+    assert "worker-a" not in serialized
+    assert "worker-b" not in serialized
+
+    updated_payload = participants.as_payload()
+    updated_payload["participants"][0]["credit"] = {
+        "visibility": "anonymous",
+        "display_name": None,
+        "profile_url": None,
+        "team": None,
+        "roles": ["training-compute"],
+        "show_contribution_totals": False,
+        "show_hardware": False,
+    }
+    updated = ParticipantRegistry.from_payload(
+        updated_payload,
+        campaign_id=str(campaign.campaign["id"]),
+    )
+    assert updated.revision == participants.revision
+    assert updated.credit_revision != participants.credit_revision
+    recovered = CampaignCoordinator.load(
+        campaign,
+        coordinator.state_dir,
+        participants=updated,
+    )
+    assert recovered.dashboard()["contributors"] == {
+        "active_count": 1,
+        "anonymous_count": 1,
+        "acknowledgements": [],
+    }
 
 
 def test_campaign_persists_legacy_exact_profile_migration(tmp_path: Path) -> None:

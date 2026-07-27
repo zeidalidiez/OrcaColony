@@ -16,10 +16,12 @@ from orcacolony.reference import (
     CampaignConfig,
     DecoderBlock,
     ModelConfig,
+    ObjectiveConfig,
     _create_optimizer,
     configure_determinism,
     fixture_batch,
     load_campaign,
+    objective_loss_sum,
     tensor_sha256,
 )
 from orcacolony.tiled_model import (
@@ -43,9 +45,15 @@ class SparseExpert(nn.Module):
 
 
 class SparseExpertDecoder(nn.Module):
-    def __init__(self, config: ModelConfig, expert_count: int) -> None:
+    def __init__(
+        self,
+        config: ModelConfig,
+        objective: ObjectiveConfig,
+        expert_count: int,
+    ) -> None:
         super().__init__()
         self.config = config
+        self.objective = objective
         self.expert_count = expert_count
         self.token_embedding = nn.Embedding(config.vocabulary_size, config.width)
         self.position_embedding = nn.Embedding(config.context_length, config.width)
@@ -77,6 +85,7 @@ class SparseExpertWorker(nn.Module):
     def __init__(self, model: SparseExpertDecoder, expert_index: int) -> None:
         super().__init__()
         self.expert_index = expert_index
+        self.objective = model.objective
         self.expert = copy.deepcopy(model.experts[expert_index])
         self.final_norm = copy.deepcopy(model.final_norm)
         self.output_head = copy.deepcopy(model.output_head)
@@ -148,7 +157,7 @@ def _build_sparse_model(
     expert_count: int,
 ) -> SparseExpertDecoder:
     configure_determinism(campaign.training.seed)
-    return SparseExpertDecoder(campaign.model, expert_count)
+    return SparseExpertDecoder(campaign.model, campaign.objective, expert_count)
 
 
 def _tensor_bytes(tensor: Tensor) -> int:
@@ -229,11 +238,12 @@ def _expert_loss(
     mask = routes == expert_index
     selected = hidden_flat[mask]
     logits = model.logits_for_hidden(model.experts[expert_index](selected))
-    return F.cross_entropy(
+    loss_sum, _ = objective_loss_sum(
+        model.objective,
         logits,
         targets_flat[mask],
-        reduction="sum",
-    ) / total_tokens
+    )
+    return loss_sum / total_tokens
 
 
 def _optimizer_step_for_module(
@@ -390,11 +400,12 @@ def run_sparse_expert_experiment(
         worker.train()
         worker.zero_grad(set_to_none=True)
         logits = worker(selected_hidden)
-        worker_loss = F.cross_entropy(
+        worker_loss_sum, _ = objective_loss_sum(
+            worker.objective,
             logits,
             selected_targets,
-            reduction="sum",
-        ) / total_tokens
+        )
+        worker_loss = worker_loss_sum / total_tokens
         worker_loss.backward()
         if selected_hidden.grad is None:
             raise AssertionError("expert worker lacks shared-trunk input adjoint")

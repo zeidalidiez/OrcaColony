@@ -26,10 +26,13 @@ from .reference import (
     CausalSelfAttention,
     TrainingConfig,
     VolunteerDecoder,
+    _reject_duplicate_json_keys,
     _owned_checkpoint_artifact_bytes,
     build_model,
     campaign_from_mapping,
+    evaluation_slice,
     fixture_batch,
+    objective_loss_sum,
     tensor_sha256,
     validate_dataset_artifacts,
 )
@@ -710,7 +713,7 @@ def build_direct_streamed_lora_model(
         raise ValueError("base artifact SHA-256 mismatch")
 
     with torch.device("meta"):
-        model = VolunteerDecoder(campaign.model)
+        model = VolunteerDecoder(campaign.model, campaign.objective)
         for parameter in model.parameters():
             parameter.requires_grad_(False)
         generator = torch.Generator(device="cpu")
@@ -835,7 +838,7 @@ def _base_layer_layout(
     campaign: CampaignConfig,
 ) -> tuple[dict[str, tuple[int, ...]], list[tuple[str, tuple[int, int], bool]]]:
     with torch.device("meta"):
-        model = VolunteerDecoder(campaign.model)
+        model = VolunteerDecoder(campaign.model, campaign.objective)
     actual_parameters = sum(parameter.numel() for parameter in model.parameters())
     if actual_parameters != campaign.model.parameters:
         raise ValueError("layer-bundle model parameter count differs")
@@ -1422,7 +1425,7 @@ def build_layer_bundle_streamed_lora_model(
         config.base_model_sha256,
     )
     with torch.device("meta"):
-        model = VolunteerDecoder(campaign.model)
+        model = VolunteerDecoder(campaign.model, campaign.objective)
         actual_parameters = sum(parameter.numel() for parameter in model.parameters())
         if actual_parameters != campaign.model.parameters:
             raise ValueError("layer-bundle model parameter count differs")
@@ -1553,10 +1556,10 @@ def compute_adapter_gradients(
     adapters = adapter_named_parameters(model)
     model.zero_grad(set_to_none=True)
     logits = model(inputs)
-    loss_sum = F.cross_entropy(
-        logits.reshape(-1, logits.shape[-1]),
-        targets.reshape(-1),
-        reduction="sum",
+    loss_sum, loss_weight_sum = objective_loss_sum(
+        model.objective,
+        logits,
+        targets,
     )
     loss_sum.backward()
 
@@ -1579,7 +1582,7 @@ def compute_adapter_gradients(
         )
     return AdapterGradientResult(
         loss_sum=float(loss_sum.detach()),
-        loss_weight_sum=targets.numel(),
+        loss_weight_sum=loss_weight_sum,
         gradients=gradients,
         gradient_sha256=tensor_sha256(gradients),
     )
@@ -2421,8 +2424,9 @@ def evaluate_lora_checkpoint(
         raise ValueError("campaign does not define an evaluation profile")
     checkpoint = Path(checkpoint_dir)
     model, _, step, _, _ = load_lora_checkpoint(loaded, checkpoint)
-    sequence_count = int(loaded.campaign.evaluation["validation_sequences"])
-    batch_size = int(loaded.campaign.evaluation["batch_size"])
+    validation = evaluation_slice(loaded.campaign, "validation")
+    sequence_count = validation.sequence_count
+    batch_size = validation.batch_size
     loss_sum = 0.0
     loss_weight_sum = 0
     model.eval()
@@ -2434,15 +2438,16 @@ def evaluate_lora_checkpoint(
                 cursor=cursor,
                 batch_size=current_batch_size,
                 sequence_limit=sequence_count,
+                start_sequence=validation.start_sequence,
             )
             logits = model(inputs)
-            batch_loss = F.cross_entropy(
-                logits.reshape(-1, loaded.campaign.model.vocabulary_size),
-                targets.reshape(-1),
-                reduction="sum",
+            batch_loss, batch_weight_sum = objective_loss_sum(
+                loaded.campaign.objective,
+                logits,
+                targets,
             )
             loss_sum += float(batch_loss)
-            loss_weight_sum += targets.numel()
+            loss_weight_sum += batch_weight_sum
             cursor += current_batch_size
     checkpoint_state = _require_mapping(
         json.loads((checkpoint / "state.json").read_text(encoding="utf-8")),
@@ -2468,6 +2473,74 @@ def evaluate_lora_checkpoint(
         "loss_weight_sum": loss_weight_sum,
         "mean_loss": mean_loss,
         "perplexity": math.exp(mean_loss),
+    }
+
+
+def evaluate_lora_final_holdout(
+    loaded: LoadedLoRAManifest,
+    checkpoint_dir: str | Path,
+    dataset: PackedDataset,
+) -> dict[str, object]:
+    validate_dataset_artifacts(loaded.campaign, dataset)
+    final_holdout = evaluation_slice(loaded.campaign, "final_holdout")
+    checkpoint = Path(checkpoint_dir)
+    model, _, step, _, _ = load_lora_checkpoint(loaded, checkpoint)
+    loss_sum = 0.0
+    loss_weight_sum = 0
+    model.eval()
+    with torch.no_grad():
+        cursor = 0
+        while cursor < final_holdout.sequence_count:
+            current_batch_size = min(
+                final_holdout.batch_size,
+                final_holdout.sequence_count - cursor,
+            )
+            inputs, targets = dataset.validation_batch(
+                cursor=cursor,
+                batch_size=current_batch_size,
+                sequence_limit=final_holdout.sequence_count,
+                start_sequence=final_holdout.start_sequence,
+            )
+            batch_loss, batch_weight_sum = objective_loss_sum(
+                loaded.campaign.objective,
+                model(inputs),
+                targets,
+            )
+            loss_sum += float(batch_loss)
+            loss_weight_sum += batch_weight_sum
+            cursor += current_batch_size
+    state = _require_mapping(
+        json.loads(
+            (checkpoint / "state.json").read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        ),
+        "LoRA checkpoint state",
+    )
+    mean_loss = loss_sum / loss_weight_sum
+    return {
+        "format": "orcacolony_final_holdout_evaluation_v1",
+        "campaign_id": loaded.campaign.campaign["id"],
+        "objective": loaded.campaign.objective.name,
+        "loss_mask": loaded.campaign.objective.loss_mask,
+        "training_method": "frozen-base-lora",
+        "numerical_profile": state.get(
+            "numerical_profile",
+            EXACT_CPU_FP32_PROFILE,
+        ),
+        "step": step,
+        "dataset_revision": dataset.revision,
+        "base_model_sha256": state["base_model_sha256"],
+        "adapter_sha256": state["adapter"]["tensor_sha256"],
+        "weight_checkpoint_sha256": state["weight_checkpoint_sha256"],
+        "resume_state_sha256": state["checkpoint_sha256"],
+        "checkpoint_sha256": state["checkpoint_sha256"],
+        "start_sequence": final_holdout.start_sequence,
+        "sequence_count": final_holdout.sequence_count,
+        "loss_sum": loss_sum,
+        "loss_weight_sum": loss_weight_sum,
+        "mean_loss": mean_loss,
+        "perplexity": math.exp(mean_loss),
+        "selection_locked_before_evaluation": True,
     }
 
 
@@ -2574,12 +2647,12 @@ def export_lora_fixture(
         reference = build_lora_model(campaign, config)
         reference_optimizer = create_adapter_optimizer(reference, campaign.training)
         reference_optimizer.zero_grad(set_to_none=True)
-        reference_loss_sum = F.cross_entropy(
-            reference(inputs).reshape(-1, campaign.model.vocabulary_size),
-            targets.reshape(-1),
-            reduction="sum",
+        reference_loss_sum, reference_weight_sum = objective_loss_sum(
+            campaign.objective,
+            reference(inputs),
+            targets,
         )
-        (reference_loss_sum / targets.numel()).backward()
+        (reference_loss_sum / reference_weight_sum).backward()
         torch.nn.utils.clip_grad_norm_(
             list(adapter_named_parameters(reference).values()),
             campaign.training.max_gradient_norm,

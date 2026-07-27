@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Record Patch T2 baseline | OrcaColony</title>
+  <style>
+    :root{--paper:#f4f1e8;--ink:#15272b;--muted:#5d6b69;--ocean:#075e66;--orange:#bd632d;--red:#8f3f32;--line:#c8d0ca;--soft:#e7ebe4}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.58 "Segoe UI",sans-serif}
+    main{max-width:1080px;margin:auto;padding:44px 28px 80px}
+    .eyebrow{font:700 12px/1 monospace;letter-spacing:.16em;color:var(--ocean);text-transform:uppercase}
+    .status{display:inline-block;margin:18px 0;padding:7px 11px;border:1px solid var(--orange);color:#874219;font:700 12px monospace}
+    .hero{display:grid;grid-template-columns:1.55fr .8fr;gap:56px;border-bottom:2px solid var(--ink);padding-bottom:36px}
+    h1{font:700 clamp(38px,6vw,70px)/.98 Georgia,serif;letter-spacing:-.035em;margin:18px 0}
+    .lede{font:20px/1.45 Georgia,serif}
+    .verdict{border-top:5px solid var(--ocean);padding-top:18px}
+    .verdict strong{display:block;font:700 24px Georgia,serif;margin-bottom:10px}
+    section{padding:38px 0;border-bottom:1px solid var(--line)}
+    h2{font:700 30px Georgia,serif;margin:0 0 18px}
+    h3{font:700 20px Georgia,serif}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+    .metric{background:var(--soft);padding:20px}
+    .metric b{display:block;font:700 30px Georgia,serif;color:var(--ocean)}
+    .fail{color:var(--red)!important}
+    table{width:100%;border-collapse:collapse}
+    th,td{text-align:left;padding:11px 8px;border-bottom:1px solid var(--line)}
+    th{font:700 12px monospace;text-transform:uppercase;color:var(--muted)}
+    code{font:13px Consolas,monospace;overflow-wrap:anywhere}
+    a{color:var(--ocean)}
+    .callout{background:var(--soft);border-left:5px solid var(--orange);padding:20px 24px}
+    footer{padding-top:30px;color:var(--muted);font-size:13px}
+    @media(max-width:780px){.hero,.grid{grid-template-columns:1fr}.verdict{margin-top:10px}}
+    @media print{body{background:#fff}main{max-width:none}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">OrcaColony / Report 010 / Capability baseline</div>
+  <div class="status">NO TRAINING · SUPPORTED RUNTIME REPRODUCED</div>
+  <div class="hero">
+    <div>
+      <h1>Before training, T2 solves 0 of 32 Record Patch cases.</h1>
+      <p class="lede">The exact 17,538,816-parameter initialization produced no correct records. Two outputs were valid JSON, and none of the single-operation cases passed.</p>
+    </div>
+    <aside class="verdict">
+      <strong>The starting point is now measured.</strong>
+      <p>This is not evidence that the task is learnable. The supported Python 3.11 reproduction is complete; a bounded centralized learning check is still required before volunteer compute is requested.</p>
+    </aside>
+  </div>
+
+  <section>
+    <h2>Measured validation result</h2>
+    <div class="grid">
+      <div class="metric"><b class="fail">0 / 32</b>exact records</div>
+      <div class="metric"><b>2 / 32</b>valid JSON</div>
+      <div class="metric"><b>2 / 32</b>canonical JSON</div>
+      <div class="metric"><b class="fail">0 / 16</b>single-operation exact</div>
+    </div>
+    <p>The 95% Wilson interval for exact match is 0.0000 to 0.1072. All eight frozen operation buckets scored zero exact matches.</p>
+  </section>
+
+  <section>
+    <h2>What was frozen</h2>
+    <table>
+      <tbody>
+        <tr><th>Campaign</th><td><code>orcacolony-record-patch-t2-v1</code></td></tr>
+        <tr><th>Model identity</th><td><code>sha256:79016c5c7b96dd6a8bc2a1c343d1621e2f6b8e10546a5e0a548dcec824623582</code></td></tr>
+        <tr><th>Behavioral suite</th><td><code>sha256:91acf17f01bc1c59d6aeb1bb75322b0021b164e4fa750fa3ad90eed77531d087</code></td></tr>
+        <tr><th>Evaluator</th><td><code>sha256:fd99c5920b3de7c17b0cd68986ba3a9d0566aebfbc47b955da01ff11fca7e883</code></td></tr>
+        <tr><th>Decoding</th><td>Greedy, temperature 0, at most 64 new tokens, stop at newline or EOS</td></tr>
+        <tr><th>Data</th><td>32,768 generated training examples, 1,024 language-validation examples, 32 public behavioral-validation examples, 128 withheld final examples</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Examples show an untrained decoder, not partial task skill</h2>
+    <table>
+      <thead><tr><th>Bucket</th><th>Expected shape</th><th>Initialization output</th></tr></thead>
+      <tbody>
+        <tr><td>Set existing</td><td>Canonical object</td><td><code>activedddd</code></td></tr>
+        <tr><td>Set new</td><td>Canonical object</td><td><code>I</code></td></tr>
+        <tr><td>Delete existing</td><td>Canonical object</td><td><code>d 123 123 123 ...</code></td></tr>
+        <tr><td>Rename new</td><td>Canonical object</td><td><code>active</code></td></tr>
+      </tbody>
+    </table>
+    <p>The complete prediction file is retained. Empty outputs and invalid byte-decoder replacements are not cleaned up or hidden.</p>
+  </section>
+
+  <section>
+    <h2>Holdout and interpretation boundary</h2>
+    <p>The final-holdout key and 128 final examples remain under ignored local artifacts. The baseline command accepts no final-holdout path, and the committed lock contains only their count and SHA-256. The final suite will be opened only after checkpoint selection.</p>
+    <div class="callout"><strong>Runtime reproduction:</strong> Python 3.11.15 with CPU-only PyTorch 2.13.0 reproduced the initialization identity, all 32 predictions, and evaluation JSON byte for byte from the earlier Python 3.14.4 run. A fresh freeze also reproduced the suite, private holdout digest, packed dataset, and campaign. The committed baseline summary now records the supported runtime. This establishes baseline reproducibility, not task learnability.</div>
+  </section>
+
+  <section>
+    <h2>Contributor credit</h2>
+    <p>No volunteer training contribution occurred in this baseline. It used operator-provided local CPU time. The operator has not yet frozen a public name or hardware-class preference for this run, so this report does not infer or publish either. Future accepted training work will use the campaign-specific v2 participant intake and release-time attribution snapshot.</p>
+  </section>
+
+  <section>
+    <h2>Next decision gate</h2>
+    <ol>
+      <li>Run a bounded centralized learning check on public training and behavioral-validation data.</li>
+      <li>Do not open the final holdout or request donated compute for an unlearnable setup.</li>
+      <li>If the learning check moves exact match, freeze the volunteer launch details and contributor intake.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Evidence and reproduction</h2>
+    <p><a href="evidence/record-patch-t2-baseline.json">Baseline summary</a> · <a href="evidence/record-patch-t2-baseline-predictions.jsonl">All 32 outputs</a> · <a href="../capability/record-patch-v1/behavioral-validation.jsonl">Frozen public suite</a> · <a href="../campaign/record-patch-t2-v1.json">Campaign</a></p>
+    <p><code>uv run python -m orcacolony.record_patch evaluate --public-dir capability/record-patch-v1 --split behavioral_validation --predictions reports/evidence/record-patch-t2-baseline-predictions.jsonl --output &lt;fresh-output&gt;</code></p>
+    <p>The recomputed evaluation JSON must have SHA-256 <code>e05c2c67db6b151678124777ecf3d232b6cc3fc1bbf079d6a6190cbba4a516f6</code>.</p>
+  </section>
+
+  <footer>OrcaColony Report 010 · 2026-07-26 · Capability baseline, not a model release</footer>
+</main>
+</body>
+</html>

@@ -36,3 +36,15 @@ Human-directed campaigns add reports for:
 - approved findings and next-iteration recommendations.
 
 P5–P7 systems reports may be published before those campaign reviews are complete, but must label systems evidence separately from practical model-quality evidence.
+
+Start each practical model report from
+[`CAPABILITY_REPORT_TEMPLATE.md`](CAPABILITY_REPORT_TEMPLATE.md). It requires
+baseline/checkpoint output deltas, bucketed errors, optimizer diagnostics,
+memorization and forgetting checks, contributor-approved attribution, exact
+artifacts, environment capture, and Hub commit revisions.
+
+The first practical task record is
+[`record-patch-t2-baseline.html`](record-patch-t2-baseline.html). It retains the
+zero-exact-match initialization result, sample outputs, withheld-holdout
+boundary, and byte-identical reproduction under the supported Python 3.11
+runtime before any training.

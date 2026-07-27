@@ -1,0 +1,116 @@
+{
+  "campaign": {
+    "id": "orcacolony-record-patch-t2-v1",
+    "loss_mask": "all_target_tokens",
+    "objective": "causal_lm"
+  },
+  "dataset": {
+    "format": "orcacolony_dataset_artifacts_v1",
+    "manifest_sha256": "4e71f26b3e06b15360eef333ced96a16791dc2bc9ad9c29ff11d8b728106baae",
+    "tokenizer_sha256": "b67e6f2f5bcc1765a6c7a89a8071d3e3fa3ecd314b645e7a7491696a31888ab1",
+    "train_sha256": "689db2043c86d0c625068609b730dc0513c29313fea6f7a78f5ccd62bb1b4fbe",
+    "validation_sha256": "b367eb091998a3255ebb08cef86dc1330b061ece1503f5e6c9cfcdd62c9a11de"
+  },
+  "evaluation": {
+    "batch_size": 4,
+    "checkpoint_selection": "lowest_mean_loss",
+    "final_holdout": {
+      "batch_size": 4,
+      "sequence_count": 72,
+      "start_sequence": 71
+    },
+    "metric": "held_out_cross_entropy",
+    "success_gate": {
+      "metric": "mean_loss",
+      "minimum_improvement_from_initialization": 0.1
+    },
+    "validation_sequences": 71,
+    "validation_start_sequence": 0
+  },
+  "model": {
+    "architecture": "volunteer_decoder_v1",
+    "architecture_revision": 1,
+    "attention_bias": true,
+    "context_length": 512,
+    "gelu_approximation": "tanh",
+    "heads": 6,
+    "layer_norm_epsilon": 1e-05,
+    "layers": 8,
+    "linear_bias": true,
+    "mlp_width": 1536,
+    "parameters": 17538816,
+    "positional_encoding": "learned_absolute",
+    "tied_token_embeddings": true,
+    "vocabulary_size": 8192,
+    "width": 384
+  },
+  "publication": {
+    "dataset_license": "cc0-1.0",
+    "dataset_repo_id": "OrcaColony/record-patch-v1",
+    "format": "orcacolony_huggingface_publication_v1",
+    "model_license": "apache-2.0",
+    "model_repo_id": "OrcaColony/record-patch-t2-v1",
+    "visibility_policy": "private_review_then_public"
+  },
+  "research": {
+    "analysis_plan": [
+      "Publish every sample ID, prompt, expected output, model output, parse status, semantic status, and exact-match status.",
+      "Compare initialization and checkpoints by operation bucket, output validity, canonical formatting, and error type.",
+      "Inspect language-loss, gradient norms, clipping, update norms, duplicate prompts, nearest training records, and memorization indicators before attributing a cause.",
+      "Treat the all-target causal transcript objective as a measured limitation, not as target-only supervised fine-tuning."
+    ],
+    "baseline": {
+      "description": "The exact deterministic 17,538,816-parameter T2 initialization evaluated with greedy decoding.",
+      "id": "t2-random-initialization",
+      "revision": "sha256:79016c5c7b96dd6a8bc2a1c343d1621e2f6b8e10546a5e0a548dcec824623582"
+    },
+    "behavioral_evaluation": {
+      "dataset_revision": "sha256:91acf17f01bc1c59d6aeb1bb75322b0021b164e4fa750fa3ad90eed77531d087",
+      "evaluator_revision": "sha256:fd99c5920b3de7c17b0cd68986ba3a9d0566aebfbc47b955da01ff11fca7e883",
+      "final_holdout_split": "behavioral_final_holdout",
+      "suite_id": "record-patch-v1",
+      "validation_split": "behavioral_validation"
+    },
+    "checkpoint_selection": "lowest_validation_mean_loss_before_behavioral_final_holdout",
+    "claim": "Training improves exact execution of ordered flat-record SET, DELETE, and RENAME patches on the frozen Record Patch v1 suite.",
+    "final_holdout_policy": "release_only_after_checkpoint_selection",
+    "format": "orcacolony_capability_research_v1",
+    "guardrails": [
+      {
+        "description": "At least 95% of outputs must be one valid JSON value with no duplicate object keys.",
+        "id": "valid-json-rate"
+      },
+      {
+        "description": "At least 90% of outputs must use the exact canonical one-line JSON serialization.",
+        "id": "canonical-json-rate"
+      },
+      {
+        "description": "Exact match across the four single-operation buckets must be at least 80%.",
+        "id": "single-operation-exact-match"
+      }
+    ],
+    "primary_metric": {
+      "description": "Fraction of examples whose stripped output is exactly the required canonical JSON record.",
+      "direction": "maximize",
+      "id": "record-exact-match",
+      "minimum_improvement_from_baseline": 0.2,
+      "success_threshold": 0.7,
+      "unit": "ratio"
+    }
+  },
+  "training": {
+    "active_vocabulary_size": 8192,
+    "adam_beta1": 0.9,
+    "adam_beta2": 0.95,
+    "adam_epsilon": 1e-08,
+    "batch_size": 4,
+    "compute_dtype": "float32",
+    "dataset_sequences": 4618,
+    "gradient_accumulation_dtype": "float32",
+    "learning_rate": 0.0003,
+    "max_gradient_norm": 1.0,
+    "seed": 20260726,
+    "steps": 2048,
+    "weight_decay": 0.01
+  }
+}

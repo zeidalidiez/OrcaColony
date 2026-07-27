@@ -1,0 +1,12 @@
+{
+  "format": "orcacolony_huggingface_organization_card_publication_v1",
+  "authenticated_user": "zeidalidiez",
+  "repo_id": "OrcaColony/README",
+  "repo_type": "space",
+  "visibility": "public",
+  "revision": "7a27bbb8069fb463b0da67bd38f4c7763bb400ba",
+  "commit_url": "https://huggingface.co/spaces/OrcaColony/README/commit/7a27bbb8069fb463b0da67bd38f4c7763bb400ba",
+  "files": {
+    "README.md": "9fc45a34ec770486403ded08ab9cd6abe6c030d5af4d4c52d5621f020e9e952b"
+  }
+}

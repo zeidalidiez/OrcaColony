@@ -168,6 +168,13 @@ Use this mode when the target is something testable, such as:
 - Domain question answering.
 - Summarization in a fixed format.
 
+**Current executable boundary:** the v0.1 code implements only
+`causal_lm` with `all_target_tokens`. Campaign loading rejects every other
+objective or loss mask rather than silently applying full-token cross-entropy.
+Continued-pretraining initialization and target-only supervised fine-tuning
+remain roadmap modes until their checkpoint, masking, worker, evaluation, and
+release paths are implemented end to end.
+
 ### 4.4 Distillation and synthetic training data
 
 Access to substantial AI inference is particularly valuable here.
@@ -426,12 +433,23 @@ Before training begins, the campaign lock declares:
 - **Use-case claim:** the behavior or capability the campaign is intended to improve.
 - **Baseline:** the initialization or base checkpoint and any relevant comparison model.
 - **Repeated validation suite:** frozen examples used to evaluate initialization and selected checkpoints throughout the campaign.
-- **Primary metric and threshold:** the result that would demonstrate useful improvement for the stated use case.
+- **Primary metric and thresholds:** both an absolute result threshold and a
+  positive minimum improvement from the exact frozen baseline.
 - **Guardrails:** behaviors, formats, or general capabilities that must not regress beyond declared limits.
-- **Final holdout:** an untouched suite used for promotion or release rather than repeated checkpoint selection.
+- **Behavioral suite identity:** exact evaluation-data and evaluator revisions,
+  with distinct repeated-validation and final-holdout split names.
+- **Final holdouts:** a disjoint reserved language-loss slice for diagnostics and
+  a separately identified behavioral suite split used for promotion rather than
+  repeated checkpoint selection.
 - **Evaluation cadence:** which checkpoints are evaluated and how failures affect continuation or release.
 
-The repeated validation suite answers whether training is moving toward the fixed use case. The final holdout reduces the risk of selecting and tuning repeatedly against the only test. A research study compares methods using the same use-case contract wherever the hypothesis permits.
+The repeated validation suite answers whether training is moving toward the
+fixed use case. A final holdout reduces the risk of selecting and tuning
+repeatedly against the only test. The current executable capability contract
+selects the checkpoint by frozen validation language loss, then evaluates the
+reserved language-loss diagnostic and separately supplied behavioral promotion
+record. A research study compares methods using the same use-case contract
+wherever the hypothesis permits.
 
 ### 8.2 Baseline
 
@@ -767,7 +785,8 @@ A fast GPU receives more microbatches per lease. A slow CPU receives fewer. Both
 
 ## 14. Work-unit protocol
 
-Example assignment:
+Conceptual assignment (the current v0.1 JSON wire binds the supported objective
+through `campaign_revision`; target-only SFT fields below are forward-looking):
 
 ```json
 {
@@ -874,14 +893,22 @@ A credit profile contains only public-facing fields:
   "display_name": "bobby3060",
   "profile_url": "https://github.com/example",
   "team": "Seattle Home Compute",
+  "roles": ["training-compute"],
   "show_contribution_totals": true,
-  "show_hardware_class": false
+  "show_hardware": false
 }
 ```
 
 Authentication identifiers, email addresses, IP addresses, and raw hardware fingerprints are never written to the public ledger or model repository.
 
-A contributor can update their public credit profile. Each model release records a release-time attribution snapshot so that generated acknowledgments remain reproducible. The user interface must explain that already-published immutable release artifacts may continue to contain the earlier opted-in attribution.
+In the v2 participant contract, the authentication/allowlist revision is
+separate from the credit-profile revision. A contributor's public credit choice
+can therefore be refreshed on a coordinator reload without changing worker
+authority. Each model release records the resulting release-time attribution
+snapshot so that generated acknowledgments remain reproducible. Legacy v1
+profiles remain campaign-locked. The user interface must explain that
+already-published immutable release artifacts may continue to contain the
+earlier opted-in attribution.
 
 ### 16.2 Public acknowledgment requirements
 
@@ -913,27 +940,28 @@ A leaderboard may exist on the live campaign site, but release acknowledgments r
 A public ledger record contains:
 
 ```text
-opaque contributor ID
-public credit-profile revision or anonymous marker
-campaign revision
-work-unit ID
-checkpoint hash
-dataset-range hash
+opaque contribution ID
+checkpoint step
 accepted token count
-result hash
-validation status
-canonical optimizer step
-software version
-completion timestamp
+runtime backend
+public display name only when contribution totals were explicitly enabled;
+otherwise an anonymous marker
 ```
 
-The released model includes a Merkle root or digest of the final ledger. Public acknowledgment files are generated from the accepted ledger and the release-time credit-profile snapshot, not maintained by hand.
+Private accepted-work records retain the contributor/worker authority,
+assignment, dataset range, result identities, instrumentation, and checkpoint
+lineage. The release includes deterministic digests of its public ledger and
+attribution snapshot. Public acknowledgment files are generated from the
+accepted ledger and the release-time credit-profile snapshot, not maintained by
+hand.
 
 ---
 
 ## 17. Campaign configuration
 
-Example `campaign.yaml`:
+Target-state `campaign.yaml` example. The current executable JSON schema keeps
+`objective: causal_lm` and `loss_mask: all_target_tokens` inside `campaign` and
+rejects the supervised target-only values shown below:
 
 ```yaml
 campaign:
@@ -1041,8 +1069,8 @@ evaluation:
       max_regression_percent: 5
 
 publishing:
-  huggingface_repo: example-org/code-transform-small
-  huggingface_dataset_repo: example-org/code-transform-v1
+  huggingface_repo: OrcaColony/code-transform-small
+  huggingface_dataset_repo: OrcaColony/code-transform-v1
   publish_intermediate: true
   publish_ledger: true
   publish_dataset_manifest: true
@@ -1084,29 +1112,75 @@ A release must not omit a contributor merely because their contribution was smal
 
 ### 18.3 Required release files
 
-```text
-README.md
-CONTRIBUTORS.md
-LICENSE
-config.json
-tokenizer files
-model-*.safetensors
+The current publisher creates separate model and dataset repositories. Its local
+review package has this shape:
 
-training/
-  campaign.yaml
-  campaign.lock.json
-  dataset-manifest.json
-  source-manifest.md
-  contribution-ledger.parquet
-  contribution-ledger.digest
-  attribution-snapshot.json
-  checkpoint-lineage.json
+```text
+model/
+  README.md
+  CONTRIBUTORS.md
+  MODEL-LICENSE.md
+  ORCACOLONY-SOFTWARE-LICENSE
+  config.json
+  tokenizer.json
+  model.safetensors
+  # or: base-model.safetensors, adapter.safetensors, lora.json
+  optimizer.safetensors
+  checkpoint-state.json
+  campaign.json
+  campaign-lock.json
   evaluations.json
-  software-lock.json
-  reproduce.md
+  language-model-final-holdout-evaluation.json  # capability candidates/models
+  promotion-evidence.json                       # when supplied
+  public-ledger.json
+  attribution-snapshot.json
+  dataset-manifest.json
+  THIRD_PARTY_DATA.md
+  orcacolony-release.json
+  release-SHA256SUMS
+
+dataset/
+  README.md
+  CONTRIBUTORS.md
+  DATASET-LICENSE.md
+  manifest.json
+  tokenizer.json
+  train.safetensors
+  validation.safetensors
+  DATASET-NOTICE.md
+  THIRD_PARTY_DATA.md
+  attribution-snapshot.json
+  orcacolony-release.json
+  release-SHA256SUMS
+
+publication-manifest.json
+SHA256SUMS
+```
+
+The operational release retained before Hub packaging also contains:
+
+```text
+campaign.json
+campaign-lock.json
+checkpoint/
+dataset/
+site/
+public-dashboard.json
+public-ledger.json
+attribution-snapshot.json
+CONTRIBUTORS.md
+release-manifest.json
+SHA256SUMS
 ```
 
 When the corpus is published on Hugging Face, the model card links directly to that dataset repository and exact commit. When it is hosted elsewhere, the card links to the canonical dataset page and includes a mirrored source manifest inside the model repository.
+
+The campaign freezes its model and dataset repository IDs, licenses, and a
+visibility policy. The normal policy is `private_review_then_public`: first build
+and inspect an immutable private package, then build a separate public package
+from the same operational release and exact source revision. Changing existing
+Hub repository visibility is an explicit owner action; the publisher verifies
+the requested state and never changes visibility implicitly.
 
 ---
 

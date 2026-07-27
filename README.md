@@ -1,6 +1,6 @@
 # OrcaColony
 
-OrcaColony is a volunteer-compute framework and reproducible research vehicle for community model training. Its proven v0.1 path accumulates independent, bounded contributions against one canonical checkpoint; post-v0.1 studies will evaluate PEFT, local offload, partial-model work, and other methods that can let transient contributors help with models beyond one worker's immediate memory. The Milestone 0 through Milestone 3 reference, browser, multi-worker, persistent campaign, trusted-participant, live dashboard, evaluation, and publication paths described in [SPEC.md](SPEC.md) are runnable. A bounded local T1 preflight exercises the Milestone 4 system profile through 12 real-data optimizer steps; the planned remote trusted-participant campaign remains an operator deployment milestone.
+OrcaColony is a volunteer-compute framework and reproducible research vehicle for community model training. Its proven local systems path accumulates independent, bounded contributions against one canonical checkpoint; active studies evaluate PEFT, local offload, partial-model work, tiled recovery, and sparse experts. Capability-research infrastructure now proceeds as a parallel track: every promoted model must have a fixed use case, versioned behavioral baseline and suite, positive baseline improvement, separately reserved language-loss and behavioral holdouts, training-effect analysis, contributor attribution snapshot, and reproducible Hugging Face model and dataset packages. The Milestone 0 through Milestone 3 reference, browser, multi-worker, persistent campaign, trusted-participant, live dashboard, evaluation, and operational-release paths described in [SPEC.md](SPEC.md) are runnable. A bounded local T1 preflight exercises the Milestone 4 system profile through 12 real-data optimizer steps. The first T2 task, evaluator, and supported-runtime baseline are frozen, but a training-effect result, public Hub publication, and remote trusted-participant campaign remain incomplete.
 
 See [PROGRESS_REPORT.md](PROGRESS_REPORT.md) for the current build position, completed work, blockers, priority order, and immediate bounded target. Browse [reports/index.html](reports/index.html) for human-readable findings, comparisons, limitations, and next-iteration decisions.
 
@@ -29,9 +29,32 @@ uv run python -m orcacolony.research record \
   --output .artifacts/p1-research-contract-result
 ```
 
-The command fails closed on malformed or unlinked inputs and atomically produces canonical source manifests, `result.json`, a readable `RESULT.md`, and `SHA256SUMS`. Validated and promoted outcomes must pass the study's fixed use-case metric and every guardrail; rejected and inconclusive records retain their findings and limitations.
+The command fails closed on malformed or unlinked inputs and atomically produces canonical source manifests, captured environment provenance, digest-verified snapshots of committed `repo:` evidence, explicit unresolved-artifact warnings, `result.json`, a readable `RESULT.md`, and `SHA256SUMS`. Validated and promoted outcomes must pass the study's fixed use-case metric and every guardrail; rejected and inconclusive records retain their findings and limitations.
 
 Machine-readable research records remain under `research/`. The separate root [`reports/`](reports/) directory publishes self-contained HTML for human interpretation. P5–P7 method engineering continues through bounded executable studies while slower owner-directed data, example, checkpoint, and practical-quality review proceeds in parallel.
+
+Capability-model promotion uses the stricter contract in
+[`research/CAPABILITY_CAMPAIGNS.md`](research/CAPABILITY_CAMPAIGNS.md). Hub
+repository layout, credential handling, deterministic packaging, and explicit
+publication are documented in [`HUGGINGFACE.md`](HUGGINGFACE.md).
+
+## First capability task
+
+[`capability/record-patch-v1/TASK.md`](capability/record-patch-v1/TASK.md)
+defines the first true-T2 task. A 17,538,816-parameter decoder must apply ordered
+`SET`, `DELETE`, and `RENAME` operations to flat JSON records and emit the exact
+canonical result. The task has deterministic CC0 data, a public 32-example
+behavioral-validation suite, a separately keyed 128-example final holdout, an
+exact sample-level evaluator, fixed thresholds, contributor intake, and
+private-first Hugging Face destinations.
+
+The measured random initialization scored `0/32` exact and `2/32` valid JSON.
+Read [`reports/record-patch-t2-baseline.html`](reports/record-patch-t2-baseline.html)
+for the complete baseline, outputs, hashes, and limitations. Python 3.11.15
+reproduced the initialization identity, all 32 predictions, and the complete
+evaluation byte for byte from the earlier Python 3.14 run. The final holdout was
+not opened. A bounded centralized learnability check remains required before
+volunteer training.
 
 ## PEFT numerical proof
 
@@ -40,7 +63,7 @@ The first P2 slice freezes the exact T0 base and applies rank-4 LoRA adapters to
 ```bash
 uv run python -m orcacolony.peft export-fixture \
   --campaign campaign/t0-smoke.json \
-  --lora campaign/t0-lora-smoke.json \
+  --lora campaign/t0-lora-smoke-cpu.json \
   --output .artifacts/t0-lora-fixture-v1
 
 cd .artifacts/t0-lora-fixture-v1
@@ -101,7 +124,7 @@ Run the explicit frozen-base LoRA profile through the same connected global-step
 ```bash
 uv run python -m orcacolony.multiworker \
   --config campaign/t0-smoke.json \
-  --lora-config campaign/t0-lora-smoke.json \
+  --lora-config campaign/t0-lora-smoke-cpu.json \
   --participants campaign/t0-local-participants.json \
   --state .artifacts/p2-connected-lora \
   --browser-root spikes/burn-browser-gradient/www \
@@ -119,7 +142,7 @@ The campaign runner automatically promotes each completed global step, versions 
 ```bash
 uv run python -m orcacolony.campaign_run \
   --config campaign/t0-smoke.json \
-  --lora-config campaign/t0-lora-smoke.json \
+  --lora-config campaign/t0-lora-smoke-cpu.json \
   --participants campaign/t0-local-participants.json \
   --state .artifacts/campaign \
   --browser-root spikes/burn-browser-gradient/www \
@@ -148,12 +171,12 @@ uv run python -m orcacolony.native_worker \
   --worker-id native-a \
   --worker-token-file .artifacts/native-a.token \
   --config campaign/t0-smoke.json \
-  --lora-config campaign/t0-lora-smoke.json \
+  --lora-config campaign/t0-lora-smoke-cpu.json \
   --cache .artifacts/native-worker-cache \
   --assignments 2
 ```
 
-The worker pins the coordinator origin, rejects cross-origin redirects, streams the frozen base and adapter into digest-named safetensors cache entries, validates tensor identities before reuse, computes only the declared adapter gradients, and submits through the same lease and telemetry contract. The reproducible [`p3-native-resource-profile-v1`](research/studies/p3-native-resource-profile-v1) study extends the proof to frozen TinyStories T1 and a 91,544,064-parameter T2 profile. At both scales the warm second process fetched zero base and adapter payload bytes. T2 retained `2.1866353039878446e-7` checkpoint relative L2, improved held-out mean loss by `0.0033478736877441406`, and measured `1,746,419,712` bytes peak process RSS.
+The worker pins the coordinator origin, rejects cross-origin redirects, streams the frozen base and adapter into digest-named safetensors cache entries, validates tensor identities before reuse, computes only the declared adapter gradients, and submits through the same lease and telemetry contract. The reproducible [`p3-native-resource-profile-v1`](research/studies/p3-native-resource-profile-v1) study extends the proof to frozen TinyStories T1 and a historical 91,544,064-parameter memory-stress profile whose immutable campaign ID uses `t2`. That legacy label is retained for provenance; new capability work reserves T2 for the specification's approximately 17.5M-parameter tier. At both tested scales the warm second process fetched zero base and adapter payload bytes. The 91M profile retained `2.1866353039878446e-7` checkpoint relative L2, improved held-out mean loss by `0.0033478736877441406`, and measured `1,746,419,712` bytes peak process RSS.
 
 `--assignments N` is a bounded persistent session: it validates and builds the base/model once, reuses the in-memory adapter while its digest is unchanged, and fetches and loads only a new adapter after the coordinator advances a global step. Adapter refresh validates and converts the complete tensor set before mutating the model, so malformed state cannot leave a mixed adapter behind. The two-step integration test builds one model across four assignments and loads exactly two checkpoint-specific adapters.
 

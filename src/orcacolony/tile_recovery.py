@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 
 from orcacolony.artifacts import PackedDataset
@@ -24,6 +23,7 @@ from orcacolony.reference import (
     build_model,
     fixture_batch,
     load_campaign,
+    objective_mean_loss,
     tensor_sha256,
     validate_dataset_artifacts,
 )
@@ -615,10 +615,10 @@ def run_recovered_tile_transaction(
 
     centralized.train()
     centralized_optimizer.zero_grad(set_to_none=True)
-    centralized_loss_tensor = F.cross_entropy(
-        centralized(inputs).reshape(-1, campaign.model.vocabulary_size),
-        targets.reshape(-1),
-        reduction="mean",
+    centralized_loss_tensor = objective_mean_loss(
+        campaign.objective,
+        centralized(inputs),
+        targets,
     )
     centralized_loss_tensor.backward()
     centralized_raw = _gradient_snapshot(centralized)
@@ -751,10 +751,10 @@ def run_recovered_tile_transaction(
             label="output",
         ).requires_grad_(True)
         recovered_logits = _suffix_logits(recovered, boundary_output, block_index)
-        recovered_loss_tensor = F.cross_entropy(
-            recovered_logits.reshape(-1, campaign.model.vocabulary_size),
-            targets.reshape(-1),
-            reduction="mean",
+        recovered_loss_tensor = objective_mean_loss(
+            campaign.objective,
+            recovered_logits,
+            targets,
         )
         recovered_loss_tensor.backward()
         if boundary_output.grad is None:

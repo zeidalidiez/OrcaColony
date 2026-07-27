@@ -163,13 +163,17 @@ class PackedDataset:
         cursor: int,
         batch_size: int,
         sequence_limit: int,
+        start_sequence: int = 0,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        if batch_size <= 0 or sequence_limit <= 0:
+        if batch_size <= 0 or sequence_limit <= 0 or start_sequence < 0:
             raise ValueError("validation batch dimensions must be positive")
-        if sequence_limit > self.validation_inputs.shape[0]:
+        if start_sequence + sequence_limit > self.validation_inputs.shape[0]:
             raise ValueError("evaluation sequence limit exceeds packed validation data")
         indices = torch.tensor(
-            [(cursor + offset) % sequence_limit for offset in range(batch_size)],
+            [
+                start_sequence + (cursor + offset) % sequence_limit
+                for offset in range(batch_size)
+            ],
             dtype=torch.int64,
         )
         return (
@@ -285,6 +289,7 @@ def build_dataset_artifacts(
     source: Mapping[str, object],
     vocab_size: int,
     context_length: int,
+    notice_changes: str | None = None,
 ) -> dict[str, object]:
     output_dir = Path(output_dir)
     if output_dir.exists() and any(output_dir.iterdir()):
@@ -315,16 +320,19 @@ def build_dataset_artifacts(
     )
 
     notice_path = output_dir / "DATASET-NOTICE.md"
+    changes = notice_changes or (
+        "OrcaColony selected fixed byte prefixes, removed any trailing "
+        "incomplete story, trained a byte-level BPE tokenizer on the training "
+        "subset, encoded the text, and packed shifted input/target tensors. "
+        "These files are modified and rearranged data, not the original raw files."
+    )
     notice_path.write_text(
         "# Dataset notice\n\n"
         f"Source: `{source.get('dataset', 'unknown')}`\n\n"
         f"Revision: `{source.get('revision', 'unknown')}`\n\n"
         f"License: `{source.get('license', 'unknown')}`\n\n"
         f"License URL: {source.get('license_url', 'not supplied')}\n\n"
-        "Changes: OrcaColony selected fixed byte prefixes, removed any trailing "
-        "incomplete story, trained a byte-level BPE tokenizer on the training "
-        "subset, encoded the text, and packed shifted input/target tensors. "
-        "These files are modified and rearranged data, not the original raw files.\n",
+        f"Changes: {changes}\n",
         encoding="utf-8",
     )
 

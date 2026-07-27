@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, replace
+from dataclasses import replace
 from pathlib import Path
 
 from orcacolony.artifacts import PackedDataset, build_dataset_artifacts
-from orcacolony.reference import CampaignConfig, load_campaign
+from orcacolony.reference import (
+    CampaignConfig,
+    campaign_to_mapping,
+    load_campaign,
+)
 from orcacolony.tiled_model import (
     main,
     run_tiled_block_experiment,
@@ -212,7 +216,10 @@ def test_tiled_model_cli_runs_authenticated_all_block_sweep(tmp_path: Path) -> N
     campaign, dataset = _dataset_campaign(tmp_path)
     config_path = tmp_path / "campaign.json"
     output_path = tmp_path / "evidence.json"
-    config_path.write_text(json.dumps(asdict(campaign)), encoding="utf-8")
+    config_path.write_text(
+        json.dumps(campaign_to_mapping(campaign)),
+        encoding="utf-8",
+    )
 
     main(
         [

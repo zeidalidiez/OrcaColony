@@ -34,11 +34,20 @@ uv run python -m orcacolony.research record \
 The command validates every field, rejects duplicate JSON keys, verifies that the study references the exact experiment path, evaluates the declared primary metric and guardrails, and atomically writes:
 
 - `study.json`, `experiment.json`, and `evidence.json` as canonical source records.
+- `environment.json` with Python, platform, dependency, and `uv.lock` identity.
 - `result.json` as the machine-readable conclusion.
-- `RESULT.md` as the human-readable report.
+- `RESULT.md` as the human-readable report, including measurements, limitations,
+  reproduction, and artifact-resolution status.
+- byte snapshots of every digest-verified `repo:` artifact under `artifacts/`.
 - `SHA256SUMS` for every generated result file.
 
 The output path must not already exist. Remove or choose another ignored `.artifacts/` path before repeating the command.
+
+`repo:` artifact references are resolved relative to `--repository-root`, checked
+against their declared digest, rejected if they traverse a symlink or escape the
+repository, and copied into the result. Other URI schemes remain declared
+references; the recorder labels them `not_resolved_by_recorder` instead of
+pretending that their bytes were verified.
 
 ## Committed studies
 
@@ -103,4 +112,4 @@ Every committed study, linked experiment, and conventionally named evidence file
 
 ## Interpretation
 
-A `validated` or `promoted` result must pass the study's primary use-case threshold and every guardrail. A `rejected` or `inconclusive` result remains publishable and must retain its findings and limitations. Promotion into the supported framework still requires the end-to-end campaign, restart, retry, provenance, evaluation, and release gates in [`SPEC.md`](../../SPEC.md).
+A `validated` or `promoted` result must pass the study's primary use-case threshold and every guardrail. A `rejected` or `inconclusive` result remains publishable and must retain its findings and limitations. Promotion into the supported framework still requires the end-to-end campaign, restart, retry, provenance, evaluation, and release gates in [`SPEC.md`](../SPEC.md).

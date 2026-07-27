@@ -7,6 +7,7 @@ import json
 import math
 import os
 import shutil
+from dataclasses import asdict
 from html import escape
 from pathlib import Path
 from typing import Mapping
@@ -22,17 +23,27 @@ from .multiworker import (
     _revision,
     normalize_http_origin,
 )
-from .participants import load_participants
+from .participants import (
+    attribution_markdown,
+    build_attribution_snapshot,
+    load_participants,
+)
 from .peft import (
     BURN_NDARRAY_F32_PROFILE,
     BURN_WEBGPU_F32_PROFILE,
     EXACT_CPU_FP32_PROFILE,
     INT8_FROZEN_LINEAR_PROFILE,
     LoadedLoRAManifest,
+    evaluate_lora_final_holdout,
     load_lora_checkpoint,
     load_lora_manifest,
 )
-from .reference import CampaignConfig, load_campaign, tensor_sha256
+from .reference import (
+    CampaignConfig,
+    evaluate_final_holdout,
+    load_campaign,
+    tensor_sha256,
+)
 
 
 _DATASET_FILES = (
@@ -81,6 +92,17 @@ def _is_sha256(value: object) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _is_pinned_revision(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    is_sha256 = value.startswith("sha256:")
+    digest = value.removeprefix("sha256:") if is_sha256 else value
+    expected_length = 64 if is_sha256 else 40
+    return len(digest) == expected_length and all(
+        character in "0123456789abcdef" for character in digest
+    )
 
 
 def _require_nonnegative_ints(
@@ -266,6 +288,205 @@ def _copy_public_file(source: Path, destination: Path) -> None:
         raise ValueError(f"release input must be a regular file: {source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, destination)
+
+
+def _validate_promotion_evidence(
+    campaign: CampaignConfig,
+    evidence: Mapping[str, object],
+    *,
+    checkpoint_sha256: str,
+    dataset_revision: str,
+) -> bool:
+    if campaign.research is None:
+        raise ValueError("promotion evidence requires a capability research contract")
+    required = {
+        "format",
+        "campaign_id",
+        "checkpoint_sha256",
+        "dataset_revision",
+        "evaluation_suite",
+        "primary_metric",
+        "guardrails",
+        "limitations",
+        "artifacts",
+        "reproduction",
+    }
+    if set(evidence) != required:
+        raise ValueError("capability promotion evidence schema is invalid")
+    if (
+        evidence.get("format")
+        != "orcacolony_capability_promotion_evidence_v1"
+        or evidence.get("campaign_id") != campaign.campaign["id"]
+        or evidence.get("checkpoint_sha256") != checkpoint_sha256
+        or evidence.get("dataset_revision") != dataset_revision
+    ):
+        raise ValueError("capability promotion evidence identity is invalid")
+    declared_suite = campaign.research.get("behavioral_evaluation")
+    observed_suite = evidence.get("evaluation_suite")
+    if not isinstance(declared_suite, Mapping) or not isinstance(
+        observed_suite,
+        Mapping,
+    ):
+        raise ValueError("capability evaluation-suite evidence is invalid")
+    if set(observed_suite) != {
+        "suite_id",
+        "dataset_revision",
+        "evaluator_revision",
+        "split",
+    }:
+        raise ValueError("capability evaluation-suite evidence schema is invalid")
+    expected_suite = {
+        "suite_id": declared_suite.get("suite_id"),
+        "dataset_revision": declared_suite.get("dataset_revision"),
+        "evaluator_revision": declared_suite.get("evaluator_revision"),
+        "split": declared_suite.get("final_holdout_split"),
+    }
+    if (
+        dict(observed_suite) != expected_suite
+        or not _is_pinned_revision(observed_suite.get("dataset_revision"))
+        or not _is_pinned_revision(observed_suite.get("evaluator_revision"))
+    ):
+        raise ValueError("capability evaluation-suite identity differs")
+    declared_metric = campaign.research.get("primary_metric")
+    observed_metric = evidence.get("primary_metric")
+    if not isinstance(declared_metric, Mapping) or not isinstance(
+        observed_metric,
+        Mapping,
+    ):
+        raise ValueError("capability primary-metric evidence is invalid")
+    if set(observed_metric) != {"id", "value", "baseline"}:
+        raise ValueError("capability primary-metric evidence schema is invalid")
+    if observed_metric.get("id") != declared_metric.get("id"):
+        raise ValueError("capability primary-metric evidence ID differs")
+    value = observed_metric.get("value")
+    declared_baseline = campaign.research.get("baseline")
+    observed_baseline = observed_metric.get("baseline")
+    if not isinstance(declared_baseline, Mapping) or not isinstance(
+        observed_baseline,
+        Mapping,
+    ) or set(observed_baseline) != {"id", "revision", "value"}:
+        raise ValueError("capability baseline evidence is invalid")
+    if (
+        observed_baseline.get("id") != declared_baseline.get("id")
+        or observed_baseline.get("revision")
+        != declared_baseline.get("revision")
+        or not _is_pinned_revision(observed_baseline.get("revision"))
+    ):
+        raise ValueError("capability baseline evidence identity differs")
+    baseline_value = observed_baseline.get("value")
+    if any(
+        isinstance(item, bool)
+        or not isinstance(item, (int, float))
+        or not math.isfinite(float(item))
+        for item in (value, baseline_value)
+    ):
+        raise ValueError("capability primary-metric values must be finite")
+    threshold = float(declared_metric["success_threshold"])
+    direction = declared_metric["direction"]
+    primary_passed = (
+        float(value) >= threshold
+        if direction == "maximize"
+        else float(value) <= threshold
+    )
+    observed_improvement = (
+        float(value) - float(baseline_value)
+        if direction == "maximize"
+        else float(baseline_value) - float(value)
+    )
+    minimum_improvement = float(
+        declared_metric["minimum_improvement_from_baseline"]
+    )
+    primary_passed = (
+        primary_passed and observed_improvement >= minimum_improvement
+    )
+
+    declared_guardrails = campaign.research.get("guardrails")
+    observed_guardrails = evidence.get("guardrails")
+    if not isinstance(declared_guardrails, list) or not isinstance(
+        observed_guardrails,
+        list,
+    ):
+        raise ValueError("capability guardrail evidence is invalid")
+    expected_ids = {
+        guardrail["id"]
+        for guardrail in declared_guardrails
+        if isinstance(guardrail, Mapping)
+    }
+    observed_ids: set[object] = set()
+    guardrails_passed = True
+    for guardrail in observed_guardrails:
+        if not isinstance(guardrail, Mapping) or set(guardrail) != {
+            "id",
+            "passed",
+            "detail",
+        }:
+            raise ValueError("capability guardrail evidence schema is invalid")
+        identifier = guardrail.get("id")
+        if (
+            not isinstance(identifier, str)
+            or identifier in observed_ids
+            or type(guardrail.get("passed")) is not bool
+            or not isinstance(guardrail.get("detail"), str)
+            or not str(guardrail["detail"]).strip()
+        ):
+            raise ValueError("capability guardrail evidence is invalid")
+        observed_ids.add(identifier)
+        guardrails_passed = guardrails_passed and bool(guardrail["passed"])
+    if observed_ids != expected_ids:
+        raise ValueError("capability guardrail evidence is incomplete")
+    limitations = evidence.get("limitations")
+    if (
+        not isinstance(limitations, list)
+        or not limitations
+        or any(
+            not isinstance(item, str) or not item.strip()
+            for item in limitations
+        )
+    ):
+        raise ValueError("capability promotion limitations are invalid")
+    artifacts = evidence.get("artifacts")
+    artifact_ids: set[str] = set()
+    if not isinstance(artifacts, list) or not artifacts:
+        raise ValueError("capability promotion artifacts are required")
+    for artifact in artifacts:
+        if not isinstance(artifact, Mapping) or set(artifact) != {
+            "id",
+            "sha256",
+            "uri",
+        }:
+            raise ValueError("capability promotion artifact schema is invalid")
+        identifier = artifact.get("id")
+        uri = artifact.get("uri")
+        if (
+            not isinstance(identifier, str)
+            or not identifier.strip()
+            or identifier in artifact_ids
+            or not _is_sha256(artifact.get("sha256"))
+            or not isinstance(uri, str)
+            or not uri.strip()
+            or any(character in uri for character in ("\x00", "\r", "\n"))
+        ):
+            raise ValueError("capability promotion artifact is invalid")
+        artifact_ids.add(identifier)
+    reproduction = evidence.get("reproduction")
+    if not isinstance(reproduction, Mapping) or set(reproduction) != {
+        "command",
+        "notes",
+    }:
+        raise ValueError("capability promotion reproduction schema is invalid")
+    command = reproduction.get("command")
+    if (
+        not isinstance(command, list)
+        or not command
+        or any(
+            not isinstance(argument, str) or not argument.strip()
+            for argument in command
+        )
+        or not isinstance(reproduction.get("notes"), str)
+        or not str(reproduction["notes"]).strip()
+    ):
+        raise ValueError("capability promotion reproduction is invalid")
+    return primary_passed and guardrails_passed
 
 
 def _write_owned_checkpoint(
@@ -489,6 +710,7 @@ def build_release_bundle(
     third_party_notice: str | Path,
     public_coordinator_url: str | None,
     output_dir: str | Path,
+    promotion_evidence: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     coordinator.validate_evaluation_authority()
     dashboard = coordinator.dashboard()
@@ -748,6 +970,25 @@ def build_release_bundle(
                 "entries": dashboard["public_ledger"],
             },
         )
+        internal_ledger = coordinator._ledger_payload(include_current=True)
+        internal_entries = internal_ledger.get("entries")
+        if not isinstance(internal_entries, list) or any(
+            not isinstance(entry, Mapping) for entry in internal_entries
+        ):
+            raise ValueError("release attribution ledger is invalid")
+        attribution_snapshot = build_attribution_snapshot(
+            coordinator.participants,
+            internal_entries,
+        )
+        _write_json(
+            temporary / "attribution-snapshot.json",
+            attribution_snapshot,
+        )
+        (temporary / "CONTRIBUTORS.md").write_text(
+            attribution_markdown(attribution_snapshot),
+            encoding="utf-8",
+            newline="\n",
+        )
         _write_json(
             temporary / "evaluations.json",
             {
@@ -765,6 +1006,14 @@ def build_release_bundle(
         )
 
         if lora_identities is not None:
+            _write_json(
+                temporary / "lora.json",
+                {
+                    "format": "orcacolony_release_lora_v1",
+                    "manifest_sha256": lora.manifest_sha256,
+                    "config": asdict(lora.config),
+                },
+            )
             base_model_bytes = coordinator.initial_model_bytes()
             base_model_sha256 = tensor_sha256(load_safetensors(base_model_bytes))
             if base_model_sha256 != lora_identities["base_model_sha256"]:
@@ -815,6 +1064,58 @@ def build_release_bundle(
             )
             if copied_model_sha256 != checkpoint_sha256:
                 raise ValueError("copied release checkpoint digest is inconsistent")
+        capability_contract = (
+            campaign.research is not None
+            and campaign.research.get("format")
+            == "orcacolony_capability_research_v1"
+        )
+        final_holdout_evaluation: Mapping[str, object] | None = None
+        promotion_passed = False
+        if capability_contract:
+            final_holdout_evaluation = (
+                evaluate_lora_final_holdout(
+                    lora,
+                    temporary / "checkpoint",
+                    dataset,
+                )
+                if lora is not None
+                else evaluate_final_holdout(
+                    campaign,
+                    temporary / "checkpoint",
+                    dataset,
+                )
+            )
+            if (
+                final_holdout_evaluation.get("step") != step
+                or final_holdout_evaluation.get("checkpoint_sha256")
+                != checkpoint_sha256
+                or final_holdout_evaluation.get(
+                    "selection_locked_before_evaluation"
+                )
+                is not True
+            ):
+                raise ValueError(
+                    "final-holdout evaluation is not bound to the selected checkpoint"
+                )
+            _write_json(
+                temporary / "language-model-final-holdout-evaluation.json",
+                final_holdout_evaluation,
+            )
+            if promotion_evidence is not None:
+                promotion_passed = _validate_promotion_evidence(
+                    campaign,
+                    promotion_evidence,
+                    checkpoint_sha256=checkpoint_sha256,
+                    dataset_revision=dataset.revision,
+                )
+                _write_json(
+                    temporary / "promotion-evidence.json",
+                    promotion_evidence,
+                )
+        elif promotion_evidence is not None:
+            raise ValueError(
+                "systems-evidence release may not contain capability promotion evidence"
+            )
         _copy_public_file(Path(project_license), temporary / "LICENSE")
         _copy_public_file(
             Path(third_party_notice),
@@ -834,7 +1135,18 @@ def build_release_bundle(
             "- `dataset/` is the exact redistributable packed dataset and tokenizer.\n"
             "- `site/` is the static browser worker and public campaign dashboard.\n"
             "- `public-ledger.json` contains only contributor-approved public credit.\n\n"
-            "Serve `site/` from an HTTPS static origin. Its mutable coordinator origin "
+            "- `attribution-snapshot.json` and `CONTRIBUTORS.md` freeze release-time "
+            "credit choices and accepted contribution totals.\n\n"
+            + (
+                "- `language-model-final-holdout-evaluation.json` records the "
+                "reserved language-loss diagnostic performed after checkpoint "
+                "selection. Behavioral promotion is separate and requires "
+                "`promotion-evidence.json`.\n\n"
+                if final_holdout_evaluation is not None
+                else "- This is a systems-evidence release, not a capability-promoted "
+                "model; it has no release-time language-model holdout result.\n\n"
+            )
+            + "Serve `site/` from an HTTPS static origin. Its mutable coordinator origin "
             "is pinned in `site/index.html`; rebuild with `--public-coordinator-url` "
             "rather than editing worker links. Run the coordinator with the exact "
             "static-site `--public-origin`, then link contributors to "
@@ -869,8 +1181,26 @@ def build_release_bundle(
             "numerical_profile": numerical_profile,
             "public_coordinator_url": public_coordinator_url,
             "participants_revision": lock["participants_revision"],
+            "credit_profiles_revision": (
+                coordinator.participants.credit_revision
+            ),
+            "attribution_snapshot_sha256": attribution_snapshot[
+                "snapshot_sha256"
+            ],
             "dataset_revision": dataset.revision,
+            "release_classification": (
+                "capability_model"
+                if promotion_passed
+                else (
+                    "capability_candidate"
+                    if capability_contract
+                    else "systems_evidence_only"
+                )
+            ),
             "checkpoint": checkpoint_manifest,
+            "language_model_final_holdout_evaluation": (
+                final_holdout_evaluation
+            ),
             "files": payload_files,
         }
         _write_json(temporary / "release-manifest.json", release_manifest)
@@ -913,6 +1243,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path("THIRD_PARTY_DATA.md"),
     )
     parser.add_argument("--public-coordinator-url")
+    parser.add_argument("--promotion-evidence", type=Path)
     parser.add_argument(
         "--numerical-profile",
         choices=(
@@ -957,6 +1288,11 @@ def main() -> None:
         third_party_notice=args.third_party_notice,
         public_coordinator_url=args.public_coordinator_url,
         output_dir=args.output,
+        promotion_evidence=(
+            json.loads(args.promotion_evidence.read_text(encoding="utf-8"))
+            if args.promotion_evidence is not None
+            else None
+        ),
     )
     print(json.dumps(manifest, indent=2, sort_keys=True))
 

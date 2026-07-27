@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.metadata
 import json
 import math
 import os
+import platform
 import re
 import shutil
+import sys
 import tempfile
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -540,7 +543,168 @@ def _sha256_bytes(payload: bytes) -> str:
 
 
 def _write_bytes(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)
+
+
+def _repo_artifact_payload(
+    artifact: Mapping[str, object],
+    repository_root: Path,
+) -> tuple[Path, bytes] | None:
+    uri = str(artifact["uri"])
+    if not uri.startswith("repo:"):
+        return None
+    raw_relative = uri.removeprefix("repo:")
+    relative = Path(raw_relative)
+    if (
+        relative.is_absolute()
+        or raw_relative.startswith(("/", "\\"))
+        or "\\" in raw_relative
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
+        raise ValueError("research repo artifact path is unsafe")
+    unresolved = repository_root / relative
+    if any(
+        candidate.is_symlink()
+        for candidate in (
+            repository_root.joinpath(*relative.parts[:index])
+            for index in range(1, len(relative.parts) + 1)
+        )
+    ):
+        raise ValueError("research repo artifact path may not contain symlinks")
+    source = unresolved.resolve()
+    if not source.is_relative_to(repository_root):
+        raise ValueError("research repo artifact escapes the repository")
+    if source.is_symlink() or not source.is_file():
+        raise ValueError(f"research repo artifact is missing: {raw_relative}")
+    raw_payload = source.read_bytes()
+    kind = str(artifact["kind"])
+    digest_payload = raw_payload
+    if kind in {"campaign-json-sha256", "lora-manifest-sha256"}:
+        parsed = json.loads(
+            raw_payload,
+            object_pairs_hook=_reject_duplicate_keys,
+        )
+        digest_payload = _canonical_json(
+            _require_mapping(parsed, "research repo JSON artifact")
+        )
+    expected = str(artifact["revision"]).removeprefix("sha256:")
+    if (
+        len(expected) != 64
+        or any(character not in "0123456789abcdef" for character in expected)
+        or _sha256_bytes(digest_payload) != expected
+    ):
+        raise ValueError(
+            f"research repo artifact digest mismatch: {raw_relative}"
+        )
+    return relative, raw_payload
+
+
+def _resolve_repo_artifacts(
+    experiment_payload: Mapping[str, object],
+    evidence_payload: Mapping[str, object],
+    repository_root: Path,
+) -> tuple[
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[tuple[Path, bytes]],
+]:
+    resolved: list[dict[str, object]] = []
+    unresolved: list[dict[str, object]] = []
+    snapshots: list[tuple[Path, bytes]] = []
+    for category, artifacts in (
+        ("input", experiment_payload["artifacts"]),
+        ("evidence", evidence_payload["artifacts"]),
+    ):
+        for raw_artifact in _require_sequence(
+            artifacts,
+            f"{category} artifacts",
+        ):
+            artifact = _require_mapping(
+                raw_artifact,
+                f"{category} artifact",
+            )
+            resolved_payload = _repo_artifact_payload(
+                artifact,
+                repository_root,
+            )
+            if resolved_payload is None:
+                unresolved.append(
+                    {
+                        "id": artifact["id"],
+                        "category": category,
+                        "kind": artifact["kind"],
+                        "uri": artifact["uri"],
+                        "declared_revision": artifact["revision"],
+                        "status": "not_resolved_by_recorder",
+                    }
+                )
+                continue
+            source_relative, payload = resolved_payload
+            bundle_relative = (
+                Path("artifacts")
+                / category
+                / str(artifact["id"])
+                / source_relative.name
+            )
+            snapshots.append((bundle_relative, payload))
+            resolved.append(
+                {
+                    "id": artifact["id"],
+                    "category": category,
+                    "kind": artifact["kind"],
+                    "uri": artifact["uri"],
+                    "declared_revision": artifact["revision"],
+                    "source_path": source_relative.as_posix(),
+                    "bundle_path": bundle_relative.as_posix(),
+                    "bundled_sha256": _sha256_bytes(payload),
+                }
+            )
+    resolved.sort(key=lambda item: (str(item["category"]), str(item["id"])))
+    unresolved.sort(
+        key=lambda item: (str(item["category"]), str(item["id"]))
+    )
+    snapshots.sort(key=lambda item: item[0].as_posix())
+    return resolved, unresolved, snapshots
+
+
+def _environment_payload(repository_root: Path) -> dict[str, object]:
+    distributions: dict[str, str | None] = {}
+    for distribution in (
+        "orcacolony",
+        "torch",
+        "numpy",
+        "safetensors",
+        "tokenizers",
+        "huggingface-hub",
+    ):
+        try:
+            distributions[distribution] = importlib.metadata.version(
+                distribution
+            )
+        except importlib.metadata.PackageNotFoundError:
+            distributions[distribution] = None
+    lock_path = repository_root / "uv.lock"
+    lock_sha256 = (
+        _sha256_bytes(lock_path.read_bytes())
+        if lock_path.is_file() and not lock_path.is_symlink()
+        else None
+    )
+    return {
+        "format": "orcacolony_research_environment_v1",
+        "python": {
+            "implementation": platform.python_implementation(),
+            "version": platform.python_version(),
+            "executable_name": Path(sys.executable).name,
+        },
+        "platform": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "machine": platform.machine(),
+        },
+        "distributions": distributions,
+        "uv_lock_sha256": lock_sha256,
+    }
 
 
 def _result_markdown(result: Mapping[str, object]) -> str:
@@ -598,6 +762,47 @@ def _result_markdown(result: Mapping[str, object]) -> str:
     for limitation in evidence["limitations"]:  # type: ignore[union-attr]
         lines.append(f"- {limitation}")
     reproduction = _require_mapping(result["reproduction"], "result reproduction")
+    lines.extend(["", "## Measurements", ""])
+    for measurement_value in evidence["measurements"]:  # type: ignore[union-attr]
+        measurement = _require_mapping(
+            measurement_value,
+            "result measurement",
+        )
+        lines.append(
+            f"- {measurement['label']}: `{measurement['value']}` "
+            f"{measurement['unit']}"
+        )
+    resolved = _require_sequence(
+        result["resolved_repo_artifacts"],
+        "result resolved artifacts",
+    )
+    unresolved = _require_sequence(
+        result["unresolved_artifacts"],
+        "result unresolved artifacts",
+    )
+    lines.extend(
+        [
+            "",
+            "## Provenance and evidence files",
+            "",
+            "- `environment.json` records the Python, platform, dependency, and "
+            "lock-file context captured by the recorder.",
+        ]
+    )
+    for artifact_value in resolved:
+        artifact = _require_mapping(artifact_value, "resolved artifact")
+        lines.append(
+            f"- Verified `{artifact['id']}` and bundled it at "
+            f"`{artifact['bundle_path']}` (SHA-256 "
+            f"`{artifact['bundled_sha256']}`)."
+        )
+    for artifact_value in unresolved:
+        artifact = _require_mapping(artifact_value, "unresolved artifact")
+        lines.append(
+            f"- Not locally resolved by the recorder: `{artifact['id']}` at "
+            f"`{artifact['uri']}` with declared revision "
+            f"`{artifact['declared_revision']}`."
+        )
     lines.extend(
         [
             "",
@@ -619,6 +824,8 @@ def build_result_bundle(
     experiment_payload: Mapping[str, object],
     evidence_payload: Mapping[str, object],
     output_dir: str | Path,
+    *,
+    repository_root: str | Path | None = None,
 ) -> dict[str, object]:
     validate_study_manifest(study_payload)
     validate_experiment_manifest(study_payload, experiment_payload)
@@ -626,6 +833,18 @@ def build_result_bundle(
         study_payload,
         experiment_payload,
         evidence_payload,
+    )
+    repository = Path(
+        Path.cwd() if repository_root is None else repository_root
+    ).resolve()
+    (
+        resolved_artifacts,
+        unresolved_artifacts,
+        artifact_snapshots,
+    ) = _resolve_repo_artifacts(
+        experiment_payload,
+        evidence_payload,
+        repository,
     )
     output = Path(output_dir)
     if output.exists():
@@ -635,10 +854,12 @@ def build_result_bundle(
         tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent)
     )
     try:
+        environment = _environment_payload(repository)
         sources = {
             "study.json": _canonical_json(study_payload),
             "experiment.json": _canonical_json(experiment_payload),
             "evidence.json": _canonical_json(evidence_payload),
+            "environment.json": _canonical_json(environment),
         }
         source_revisions = {
             filename.removesuffix(".json"): _sha256_bytes(payload)
@@ -677,6 +898,9 @@ def build_result_bundle(
                 "use_case_passed": primary_passed and guardrails_passed,
             },
             "source_revisions": source_revisions,
+            "environment": environment,
+            "resolved_repo_artifacts": resolved_artifacts,
+            "unresolved_artifacts": unresolved_artifacts,
         }
         for filename, payload in sources.items():
             _write_bytes(temporary / filename, payload)
@@ -685,11 +909,14 @@ def build_result_bundle(
             temporary / "RESULT.md",
             _result_markdown(result).encode("utf-8"),
         )
+        for relative, payload in artifact_snapshots:
+            _write_bytes(temporary / relative, payload)
         checksum_files = sorted(
-            path for path in temporary.iterdir() if path.is_file()
+            path for path in temporary.rglob("*") if path.is_file()
         )
         checksums = "".join(
-            f"{_sha256_bytes(path.read_bytes())}  {path.name}\n"
+            f"{_sha256_bytes(path.read_bytes())}  "
+            f"{path.relative_to(temporary).as_posix()}\n"
             for path in checksum_files
         )
         _write_bytes(temporary / "SHA256SUMS", checksums.encode("utf-8"))
@@ -747,6 +974,12 @@ def _build_parser() -> argparse.ArgumentParser:
     record.add_argument("--experiment", type=Path, required=True)
     record.add_argument("--evidence", type=Path, required=True)
     record.add_argument("--output", type=Path, required=True)
+    record.add_argument(
+        "--repository-root",
+        type=Path,
+        default=Path.cwd(),
+        help="root used to resolve and verify repo: artifact URIs",
+    )
     return parser
 
 
@@ -760,7 +993,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     validate_study_manifest(study)
     validate_experiment_manifest(study, experiment)
     _validate_experiment_location(args.study, study, args.experiment, experiment)
-    result = build_result_bundle(study, experiment, evidence, args.output)
+    result = build_result_bundle(
+        study,
+        experiment,
+        evidence,
+        args.output,
+        repository_root=args.repository_root,
+    )
     print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
 
 

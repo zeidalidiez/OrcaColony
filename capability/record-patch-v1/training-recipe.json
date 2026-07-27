@@ -1,0 +1,40 @@
+{
+  "behavioral_buckets": [
+    "set-existing",
+    "set-new",
+    "delete-existing",
+    "rename-new",
+    "overwrite-chain",
+    "delete-readd",
+    "rename-collision",
+    "mixed-sequence"
+  ],
+  "format": "orcacolony_record_patch_recipe_v1",
+  "generator_revision": "sha256:fd99c5920b3de7c17b0cd68986ba3a9d0566aebfbc47b955da01ff11fca7e883",
+  "license": "cc0-1.0",
+  "objective": {
+    "limitation": "Prompt and answer tokens both carry loss. This is not target-only supervised fine-tuning.",
+    "loss_mask": "all_target_tokens",
+    "name": "causal_lm",
+    "transcript": "prompt followed by canonical target, newline, and <|endoftext|>"
+  },
+  "splits": {
+    "behavioral_final_holdout": {
+      "examples": 128,
+      "key": "withheld_until_checkpoint_selection"
+    },
+    "behavioral_validation": {
+      "examples": 32,
+      "key": "b410762700174b5f0569ff5d99cf6331d88cfb9025213447729e451813023824"
+    },
+    "language_validation": {
+      "examples": 1024,
+      "key": "3aa3d252488910aec2858b36eb0cf0c6717a655f274fdc72d972e2163bbd2c0e"
+    },
+    "train": {
+      "examples": 32768,
+      "key": "19ce6db722c32c4be992706061422c1a13844d9c12e37af0528148633846daed"
+    }
+  },
+  "task_id": "record-patch-v1"
+}

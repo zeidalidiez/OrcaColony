@@ -11,12 +11,116 @@ from orcacolony.campaign_run import CampaignCoordinator
 from orcacolony.multiworker import LeasedGradient
 from orcacolony.participants import ParticipantRegistry
 from orcacolony.peft import load_lora_manifest
-from orcacolony.reference import load_campaign
-from orcacolony.release import build_release_bundle, validate_public_dataset_manifest
+from orcacolony.reference import campaign_from_mapping, load_campaign
+from orcacolony.release import (
+    _validate_promotion_evidence,
+    build_release_bundle,
+    validate_public_dataset_manifest,
+)
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
-LORA_CONFIG = Path(__file__).parents[1] / "campaign" / "t0-lora-smoke.json"
+LORA_CONFIG = (
+    Path(__file__).parents[1] / "campaign" / "t0-lora-smoke-cpu.json"
+)
+
+
+def _capability_campaign():
+    payload = json.loads(CONFIG.read_text(encoding="utf-8"))
+    payload["evaluation"] = {
+        "validation_start_sequence": 0,
+        "validation_sequences": 4,
+        "batch_size": 2,
+        "final_holdout": {
+            "start_sequence": 4,
+            "sequence_count": 4,
+            "batch_size": 2,
+        },
+    }
+    payload["research"] = {
+        "format": "orcacolony_capability_research_v1",
+        "claim": "Improve the frozen task suite.",
+        "baseline": {
+            "id": "initialization",
+            "description": "Exact initialization.",
+            "revision": "sha256:" + "1" * 64,
+        },
+        "primary_metric": {
+            "id": "task-score",
+            "description": "Frozen task score.",
+            "direction": "maximize",
+            "unit": "ratio",
+            "success_threshold": 0.7,
+            "minimum_improvement_from_baseline": 0.05,
+        },
+        "guardrails": [
+            {"id": "valid-output", "description": "Outputs remain valid."}
+        ],
+        "analysis_plan": ["Compare sample-level output changes."],
+        "final_holdout_policy": "release_only_after_checkpoint_selection",
+        "checkpoint_selection": (
+            "lowest_validation_mean_loss_before_behavioral_final_holdout"
+        ),
+        "behavioral_evaluation": {
+            "suite_id": "frozen-task-suite",
+            "dataset_revision": "sha256:" + "2" * 64,
+            "evaluator_revision": "3" * 40,
+            "validation_split": "validation",
+            "final_holdout_split": "final_holdout",
+        },
+    }
+    payload["publication"] = {
+        "format": "orcacolony_huggingface_publication_v1",
+        "model_repo_id": "OrcaColony/test-capability-model",
+        "dataset_repo_id": "OrcaColony/test-capability-model-dataset",
+        "model_license": "mit",
+        "dataset_license": "cdla-sharing-1.0",
+        "visibility_policy": "private_review_then_public",
+    }
+    return campaign_from_mapping(payload)
+
+
+def _promotion_evidence() -> dict[str, object]:
+    return {
+        "format": "orcacolony_capability_promotion_evidence_v1",
+        "campaign_id": "orcacolony-t0-smoke-v1",
+        "checkpoint_sha256": "4" * 64,
+        "dataset_revision": "5" * 64,
+        "evaluation_suite": {
+            "suite_id": "frozen-task-suite",
+            "dataset_revision": "sha256:" + "2" * 64,
+            "evaluator_revision": "3" * 40,
+            "split": "final_holdout",
+        },
+        "primary_metric": {
+            "id": "task-score",
+            "value": 0.75,
+            "baseline": {
+                "id": "initialization",
+                "revision": "sha256:" + "1" * 64,
+                "value": 0.65,
+            },
+        },
+        "guardrails": [
+            {
+                "id": "valid-output",
+                "passed": True,
+                "detail": "All frozen outputs parsed.",
+            }
+        ],
+        "limitations": ["One deterministic seed was evaluated."],
+        "artifacts": [
+            {
+                "id": "sample-results",
+                "sha256": "6" * 64,
+                "uri": "repo:reports/evidence/sample-results.json",
+            }
+        ],
+        "reproduction": {
+            "command": ["python", "evaluate.py", "--split", "final_holdout"],
+            "notes": "Run from the exact evaluator revision.",
+        },
+    }
 
 
 def _participants(campaign_id: object) -> ParticipantRegistry:
@@ -39,6 +143,46 @@ def _participants(campaign_id: object) -> ParticipantRegistry:
         },
         campaign_id=str(campaign_id),
     )
+
+
+def test_promotion_evidence_requires_threshold_and_baseline_improvement() -> None:
+    campaign = _capability_campaign()
+    evidence = _promotion_evidence()
+    assert _validate_promotion_evidence(
+        campaign,
+        evidence,
+        checkpoint_sha256="4" * 64,
+        dataset_revision="5" * 64,
+    )
+
+    evidence["primary_metric"]["baseline"]["value"] = 0.72
+    assert not _validate_promotion_evidence(
+        campaign,
+        evidence,
+        checkpoint_sha256="4" * 64,
+        dataset_revision="5" * 64,
+    )
+
+
+@pytest.mark.parametrize(
+    "revision",
+    (
+        "sha256:" + "1" * 40,
+        "1" * 64,
+    ),
+)
+def test_capability_contract_requires_unambiguous_pinned_revisions(
+    revision: str,
+) -> None:
+    payload = json.loads(CONFIG.read_text(encoding="utf-8"))
+    campaign = _capability_campaign()
+    payload["evaluation"] = dict(campaign.evaluation)
+    payload["research"] = json.loads(json.dumps(campaign.research))
+    payload["publication"] = dict(campaign.publication)
+    payload["research"]["baseline"]["revision"] = revision
+
+    with pytest.raises(ValueError, match="40-character lowercase Git revision"):
+        campaign_from_mapping(payload)
 
 
 def _submission(
@@ -159,6 +303,8 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
     assert (first / "dataset" / "validation.safetensors").is_file()
     assert (first / "LICENSE").is_file()
     assert (first / "THIRD_PARTY_DATA.md").is_file()
+    assert (first / "CONTRIBUTORS.md").is_file()
+    assert (first / "attribution-snapshot.json").is_file()
     assert (first / "site" / "pkg" / "worker_bg.wasm").is_file()
     assert not (first / "site" / "fixture").exists()
     assert (
@@ -187,6 +333,8 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
         peft.EXACT_CPU_FP32_PROFILE
     )
     assert first_manifest["dataset_revision"] == dataset.revision
+    assert first_manifest["release_classification"] == "systems_evidence_only"
+    assert first_manifest["language_model_final_holdout_evaluation"] is None
     assert first_manifest["files"]
     public_dashboard = json.loads(
         (first / "public-dashboard.json").read_text(encoding="utf-8")

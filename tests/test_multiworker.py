@@ -26,7 +26,9 @@ from orcacolony.reference import load_campaign
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
-LORA_CONFIG = Path(__file__).parents[1] / "campaign" / "t0-lora-smoke.json"
+LORA_CONFIG = (
+    Path(__file__).parents[1] / "campaign" / "t0-lora-smoke-cpu.json"
+)
 
 
 def participants_for(campaign_id: object) -> ParticipantRegistry:

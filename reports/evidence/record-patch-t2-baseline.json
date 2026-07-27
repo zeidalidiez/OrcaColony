@@ -1,0 +1,57 @@
+{
+  "campaign_id": "orcacolony-record-patch-t2-v1",
+  "campaign_sha256": "039fea26e0eb5f86146e152bc2bfaffe96bb78db0b8318cc21982ef0b872bfe5",
+  "decoding": {
+    "max_new_tokens": 64,
+    "method": "greedy",
+    "stop": "first newline or EOS",
+    "temperature": 0.0
+  },
+  "environment": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "python": "3.11.15 (main, Jul 18 2026, 17:02:49) [Clang 22.1.3 ]",
+    "torch": "2.13.0+cpu"
+  },
+  "evaluation_sha256": "e05c2c67db6b151678124777ecf3d232b6cc3fc1bbf079d6a6190cbba4a516f6",
+  "format": "orcacolony_record_patch_baseline_v1",
+  "guardrails": [
+    {
+      "id": "valid-json-rate",
+      "passed": false,
+      "threshold": 0.95,
+      "value": 0.0625
+    },
+    {
+      "id": "canonical-json-rate",
+      "passed": false,
+      "threshold": 0.9,
+      "value": 0.0625
+    },
+    {
+      "id": "single-operation-exact-match",
+      "passed": false,
+      "threshold": 0.8,
+      "value": 0.0
+    }
+  ],
+  "limitations": [
+    "This is the public behavioral-validation split, not the withheld final holdout.",
+    "The baseline is one deterministic random initialization and does not estimate variation across initialization seeds.",
+    "No training, volunteer work, checkpoint selection, or capability promotion occurred."
+  ],
+  "metrics": {
+    "canonical_json": 0.0625,
+    "examples": 32,
+    "record_exact_match": 0.0,
+    "record_exact_match_count": 0,
+    "record_exact_match_wilson_95": {
+      "high": 0.1071791982550706,
+      "low": 0.0
+    },
+    "semantic_match": 0.0,
+    "single_operation_exact_match": 0.0,
+    "valid_json": 0.0625
+  },
+  "model_revision": "sha256:79016c5c7b96dd6a8bc2a1c343d1621e2f6b8e10546a5e0a548dcec824623582",
+  "split": "behavioral_validation"
+}

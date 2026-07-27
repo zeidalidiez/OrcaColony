@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import asdict, replace
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -16,7 +16,12 @@ from orcacolony.partial_model import (
     run_dataset_rolling_block_experiment,
     run_rolling_block_experiment,
 )
-from orcacolony.reference import CampaignConfig, build_model, load_campaign
+from orcacolony.reference import (
+    CampaignConfig,
+    build_model,
+    campaign_to_mapping,
+    load_campaign,
+)
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
@@ -344,7 +349,7 @@ def test_partial_model_cli_runs_authenticated_dataset_experiment(
     config_path = tmp_path / "campaign.json"
     output_path = tmp_path / "evidence.json"
     config_path.write_text(
-        json.dumps(asdict(campaign)),
+        json.dumps(campaign_to_mapping(campaign)),
         encoding="utf-8",
     )
 
@@ -374,7 +379,7 @@ def test_partial_model_cli_selects_block_sharded_topology(tmp_path: Path) -> Non
     config_path = tmp_path / "campaign.json"
     output_path = tmp_path / "evidence.json"
     config_path.write_text(
-        json.dumps(asdict(campaign)),
+        json.dumps(campaign_to_mapping(campaign)),
         encoding="utf-8",
     )
 

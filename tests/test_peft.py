@@ -32,7 +32,9 @@ from orcacolony.reference import (
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
-LORA_CONFIG = Path(__file__).parents[1] / "campaign" / "t0-lora-smoke.json"
+LORA_CONFIG = (
+    Path(__file__).parents[1] / "campaign" / "t0-lora-smoke-cpu.json"
+)
 
 
 def _lora_config() -> LoRAConfig:

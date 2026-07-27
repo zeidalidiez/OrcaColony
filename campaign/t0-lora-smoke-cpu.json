@@ -1,0 +1,21 @@
+{
+  "format": "orcacolony_lora_manifest_v1",
+  "base": {
+    "campaign_file": "t0-smoke.json",
+    "campaign_sha256": "9db7ada95cb91958a8f0466c643782ea377789795cfa6709774d90134809c422",
+    "model_sha256": "e89e69b55b7ca2931c1cf03025e660851a8e4ec3bea92d9ff12817a5a9073f45"
+  },
+  "adapter": {
+    "rank": 4,
+    "alpha": 8.0,
+    "dropout": 0.0,
+    "seed": 20260725,
+    "initialization_std": 0.01,
+    "targets": [
+      "blocks.0.attention.qkv",
+      "blocks.1.attention.qkv",
+      "blocks.2.attention.qkv",
+      "blocks.3.attention.qkv"
+    ]
+  }
+}
