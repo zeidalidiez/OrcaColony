@@ -382,6 +382,12 @@ Run two explicitly separate bounded tracks:
 
 ### 2026-07-26
 
+- Updated the public `OrcaColony/README` organization card after the failed
+  qualification and verified the published bytes at exact Hub revision
+  `1665d4c856b959c780ceb93cef2e404d414aa029`. The card now links Report 011,
+  states the measured language-loss and behavioral results, records that
+  neither final holdout nor donated compute was used, and keeps the model and
+  dataset repositories blocked.
 - Added a separate post-run analysis command that verifies every retained run
   checksum, preserves all public sample outputs, splits teacher-forced prompt
   and answer metrics, classifies output failures, summarizes gradient and
