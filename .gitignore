@@ -2,6 +2,9 @@
 .hermes/
 .pytest_cache/
 .venv/
+.env
+.env.*
+!.env.example
 __pycache__/
 *.py[cod]
 spikes/burn-browser-gradient/target/

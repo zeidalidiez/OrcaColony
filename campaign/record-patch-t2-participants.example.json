@@ -1,0 +1,32 @@
+{
+  "format": "orcacolony_participants_v2",
+  "campaign_id": "orcacolony-record-patch-t2-v1",
+  "participants": [
+    {
+      "contributor_id": "replace-with-private-stable-id",
+      "worker_ids": [
+        "replace-with-worker-id"
+      ],
+      "worker_token_sha256": {
+        "replace-with-worker-id": "replace-with-lowercase-sha256-of-private-token"
+      },
+      "credit": {
+        "visibility": "pseudonymous",
+        "display_name": "Replace with chosen public name",
+        "profile_url": null,
+        "team": null,
+        "roles": [
+          "training-compute"
+        ],
+        "show_contribution_totals": true,
+        "show_hardware": false
+      },
+      "worker_profiles": {
+        "replace-with-worker-id": {
+          "hardware_class": "Replace with contributor-supplied hardware class",
+          "public": false
+        }
+      }
+    }
+  ]
+}

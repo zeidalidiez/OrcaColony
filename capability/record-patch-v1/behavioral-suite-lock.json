@@ -1,0 +1,24 @@
+{
+  "format": "orcacolony_behavioral_suite_v1",
+  "generator_revision": "sha256:fd99c5920b3de7c17b0cd68986ba3a9d0566aebfbc47b955da01ff11fca7e883",
+  "license": "cc0-1.0",
+  "separation": {
+    "final_holdout_key": "withheld_until_checkpoint_selection",
+    "prompt_overlap": 0
+  },
+  "splits": {
+    "behavioral_final_holdout": {
+      "examples": 128,
+      "file": "behavioral-final-holdout.jsonl",
+      "public_before_training": false,
+      "sha256": "f140f35e9d2e5e9292dc0f347c5d6c95658caf7bcad20e8ec81509b9e98ba496"
+    },
+    "behavioral_validation": {
+      "examples": 32,
+      "file": "behavioral-validation.jsonl",
+      "public_before_training": true,
+      "sha256": "6564d779746b3aa2d3becc9c87aa30b21ef69860b40ac5bec501e4df54a0668d"
+    }
+  },
+  "task_id": "record-patch-v1"
+}

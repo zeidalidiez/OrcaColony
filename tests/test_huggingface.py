@@ -1,0 +1,336 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import sys
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
+
+import pytest
+
+from orcacolony.huggingface import (
+    build_huggingface_packages,
+    publish_huggingface_packages,
+    verify_huggingface_packages,
+)
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _write(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+
+
+def _release(
+    root: Path,
+    *,
+    visibility_policy: str | None = None,
+) -> None:
+    campaign = {
+        "campaign": {
+            "id": "orcacolony-hub-test",
+            "objective": "causal_lm",
+            "loss_mask": "all_target_tokens",
+        },
+        "model": {
+            "architecture": "volunteer_decoder_v1",
+            "architecture_revision": 1,
+            "layers": 1,
+            "width": 8,
+            "heads": 1,
+            "mlp_width": 16,
+            "vocabulary_size": 32,
+            "context_length": 8,
+            "positional_encoding": "learned_absolute",
+            "layer_norm_epsilon": 0.00001,
+            "gelu_approximation": "tanh",
+            "attention_bias": True,
+            "linear_bias": True,
+            "tied_token_embeddings": True,
+            "parameters": 1000,
+        },
+        "training": {
+            "seed": 1,
+            "batch_size": 1,
+            "dataset_sequences": 1,
+            "active_vocabulary_size": 32,
+            "steps": 1,
+            "learning_rate": 0.001,
+            "adam_beta1": 0.9,
+            "adam_beta2": 0.95,
+            "adam_epsilon": 1e-8,
+            "weight_decay": 0.0,
+            "max_gradient_norm": 1.0,
+            "compute_dtype": "float32",
+            "gradient_accumulation_dtype": "float32",
+        },
+    }
+    if visibility_policy is not None:
+        campaign["publication"] = {
+            "format": "orcacolony_huggingface_publication_v1",
+            "model_repo_id": "OrcaColony/orcacolony-hub-test",
+            "dataset_repo_id": "OrcaColony/orcacolony-hub-test-dataset",
+            "model_license": "mit",
+            "dataset_license": "cdla-sharing-1.0",
+            "visibility_policy": visibility_policy,
+        }
+    text_files = {
+        "campaign.json": json.dumps(campaign).encode(),
+        "campaign-lock.json": json.dumps(
+            {
+                "format": "orcacolony_campaign_lock_v1",
+                "campaign_id": "orcacolony-hub-test",
+                "checkpoint_sha256": hashlib.sha256(b"initial").hexdigest(),
+            }
+        ).encode(),
+        "evaluations.json": b"{}\n",
+        "public-ledger.json": b"{}\n",
+        "attribution-snapshot.json": json.dumps(
+            {
+                "format": "orcacolony_attribution_snapshot_v1",
+                "all_contributions": {
+                    "accepted_assignments": 2,
+                    "accepted_tokens": 16,
+                },
+                "public_contributors": [],
+                "anonymous_contributors": {"count": 1},
+                "snapshot_sha256": "test",
+            }
+        ).encode(),
+        "CONTRIBUTORS.md": b"# Community contributors\n",
+        "LICENSE": b"test license\n",
+        "THIRD_PARTY_DATA.md": b"third-party data\n",
+        "dataset/manifest.json": json.dumps(
+            {
+                "source": {
+                    "dataset": "test/source",
+                    "revision": "a" * 40,
+                    "selection": "test fixture",
+                    "license": "cdla-sharing-1.0",
+                },
+                "packing": {
+                    "train_sequences": 1,
+                    "train_tokens": 8,
+                    "validation_sequences": 1,
+                    "validation_tokens": 8,
+                },
+            }
+        ).encode(),
+        "dataset/tokenizer.json": b"{}\n",
+        "dataset/DATASET-NOTICE.md": b"dataset notice\n",
+    }
+    for name, payload in text_files.items():
+        _write(root / name, payload)
+    _write(root / "dataset/train.safetensors", b"train")
+    _write(root / "dataset/validation.safetensors", b"validation")
+    _write(root / "checkpoint/model.safetensors", b"model")
+    _write(root / "checkpoint/optimizer.safetensors", b"optimizer")
+    _write(root / "checkpoint/state.json", b"{}\n")
+    files = {
+        path.relative_to(root).as_posix(): _sha256(path)
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+    manifest = {
+        "format": "orcacolony_release_bundle_v1",
+        "campaign_id": "orcacolony-hub-test",
+        "release_classification": "systems_evidence_only",
+        "checkpoint": {
+            "step": 1,
+            "selection": "final",
+            "model_sha256": hashlib.sha256(b"model").hexdigest(),
+        },
+        "files": files,
+    }
+    (root / "release-manifest.json").write_text(
+        json.dumps(manifest, sort_keys=True),
+        encoding="utf-8",
+    )
+    (root / "SHA256SUMS").write_text(
+        "".join(f"{files[name]}  {name}\n" for name in sorted(files))
+        + f"{_sha256(root / 'release-manifest.json')}  release-manifest.json\n",
+        encoding="utf-8",
+    )
+
+
+def test_huggingface_package_build_is_deterministic_and_separates_repos(
+    tmp_path: Path,
+) -> None:
+    release = tmp_path / "release"
+    release.mkdir()
+    _release(release)
+    first = tmp_path / "hub-a"
+    second = tmp_path / "hub-b"
+    kwargs = {
+        "model_repo_id": "OrcaColony/orcacolony-hub-test",
+        "dataset_repo_id": "OrcaColony/orcacolony-hub-test-dataset",
+        "model_license": "mit",
+        "dataset_license": "cdla-sharing-1.0",
+        "source_repository": "https://github.com/zeidalidiez/OrcaColony",
+        "source_revision": "a" * 40,
+    }
+    first_manifest = build_huggingface_packages(release, first, **kwargs)
+    second_manifest = build_huggingface_packages(release, second, **kwargs)
+
+    assert first_manifest == second_manifest
+    assert first_manifest["visibility"] == "private"
+    assert (first / "SHA256SUMS").read_bytes() == (
+        second / "SHA256SUMS"
+    ).read_bytes()
+    assert (first / "model" / "model.safetensors").is_file()
+    assert (first / "model" / "optimizer.safetensors").is_file()
+    assert (first / "model" / "checkpoint-state.json").is_file()
+    assert (first / "model" / "MODEL-LICENSE.md").is_file()
+    assert (first / "model" / "ORCACOLONY-SOFTWARE-LICENSE").is_file()
+    assert (first / "model" / "README.md").is_file()
+    assert (first / "dataset" / "train.safetensors").is_file()
+    assert (first / "dataset" / "DATASET-LICENSE.md").is_file()
+    assert (first / "dataset" / "README.md").is_file()
+    assert verify_huggingface_packages(first) == first_manifest
+    model_card = (first / "model" / "README.md").read_text(encoding="utf-8")
+    assert "systems-evidence checkpoint" in model_card
+    assert "OrcaColony/orcacolony-hub-test-dataset" in model_card
+    assert "Community contributors" in model_card
+    assert "1` chose anonymous credit" in model_card
+
+    _write(first / "model" / "unmanifested.py", b"unexpected")
+    with pytest.raises(ValueError, match="unmanifested or missing"):
+        verify_huggingface_packages(first)
+
+
+def test_huggingface_package_rejects_personal_namespace(tmp_path: Path) -> None:
+    release = tmp_path / "release"
+    release.mkdir()
+    _release(release)
+    with pytest.raises(ValueError, match="OrcaColony organization"):
+        build_huggingface_packages(
+            release,
+            tmp_path / "hub",
+            model_repo_id="personal/model",
+            dataset_repo_id="OrcaColony/model-dataset",
+            model_license="mit",
+            dataset_license="cdla-sharing-1.0",
+            source_repository="https://github.com/zeidalidiez/OrcaColony",
+            source_revision="a" * 40,
+        )
+
+
+def test_huggingface_package_rejects_placeholder_license(tmp_path: Path) -> None:
+    release = tmp_path / "release"
+    release.mkdir()
+    _release(release)
+    with pytest.raises(ValueError, match="explicit Hugging Face license"):
+        build_huggingface_packages(
+            release,
+            tmp_path / "hub",
+            model_repo_id="OrcaColony/model",
+            dataset_repo_id="OrcaColony/model-dataset",
+            model_license="choose-explicitly",
+            dataset_license="cdla-sharing-1.0",
+            source_repository="https://github.com/zeidalidiez/OrcaColony",
+            source_revision="a" * 40,
+        )
+
+
+@pytest.mark.parametrize("visibility", ("private", "public"))
+def test_huggingface_package_allows_review_then_public_policy(
+    tmp_path: Path,
+    visibility: str,
+) -> None:
+    release = tmp_path / "release"
+    release.mkdir()
+    _release(
+        release,
+        visibility_policy="private_review_then_public",
+    )
+
+    manifest = build_huggingface_packages(
+        release,
+        tmp_path / "hub",
+        model_repo_id="OrcaColony/orcacolony-hub-test",
+        dataset_repo_id="OrcaColony/orcacolony-hub-test-dataset",
+        model_license="mit",
+        dataset_license="cdla-sharing-1.0",
+        source_repository="https://github.com/zeidalidiez/OrcaColony",
+        source_revision="a" * 40,
+        visibility=visibility,
+    )
+
+    assert manifest["visibility"] == visibility
+
+
+def test_huggingface_package_rejects_visibility_outside_campaign_policy(
+    tmp_path: Path,
+) -> None:
+    release = tmp_path / "release"
+    release.mkdir()
+    _release(release, visibility_policy="private")
+
+    with pytest.raises(ValueError, match="campaign policy"):
+        build_huggingface_packages(
+            release,
+            tmp_path / "hub",
+            model_repo_id="OrcaColony/orcacolony-hub-test",
+            dataset_repo_id="OrcaColony/orcacolony-hub-test-dataset",
+            model_license="mit",
+            dataset_license="cdla-sharing-1.0",
+            source_repository="https://github.com/zeidalidiez/OrcaColony",
+            source_revision="a" * 40,
+            visibility="public",
+        )
+
+
+def test_publish_refuses_existing_visibility_mismatch_before_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release = tmp_path / "release"
+    release.mkdir()
+    _release(release)
+    package = tmp_path / "hub"
+    build_huggingface_packages(
+        release,
+        package,
+        model_repo_id="OrcaColony/model",
+        dataset_repo_id="OrcaColony/model-dataset",
+        model_license="mit",
+        dataset_license="cdla-sharing-1.0",
+        source_repository="https://github.com/zeidalidiez/OrcaColony",
+        source_revision="a" * 40,
+    )
+
+    class FakeApi:
+        def __init__(self) -> None:
+            self.created: list[object] = []
+            self.uploaded: list[object] = []
+
+        def whoami(self) -> dict[str, str]:
+            return {"name": "test-user"}
+
+        def repo_exists(self, **_: object) -> bool:
+            return True
+
+        def repo_info(self, **_: object) -> SimpleNamespace:
+            return SimpleNamespace(private=False, siblings=[])
+
+        def create_repo(self, **kwargs: object) -> None:
+            self.created.append(kwargs)
+
+        def upload_folder(self, **kwargs: object) -> None:
+            self.uploaded.append(kwargs)
+
+    api = FakeApi()
+    fake_hub = ModuleType("huggingface_hub")
+    fake_hub.HfApi = lambda: api  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
+
+    with pytest.raises(RuntimeError, match="visibility differs"):
+        publish_huggingface_packages(
+            package,
+            commit_message="test publish",
+        )
+    assert api.created == []
+    assert api.uploaded == []

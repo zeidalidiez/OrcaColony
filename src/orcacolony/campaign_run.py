@@ -1239,6 +1239,7 @@ class CampaignCoordinator:
             public_ledger: list[dict[str, object]] = []
             for entry in entries:
                 contributor_id = str(entry["contributor_id"])
+                participant = participant_by_id[contributor_id]
                 totals = contributor_totals.setdefault(
                     contributor_id,
                     {"accepted_assignments": 0, "accepted_tokens": 0},
@@ -1252,8 +1253,11 @@ class CampaignCoordinator:
                         "accepted_tokens": entry["loss_weight_sum"],
                         "runtime_backend": entry["runtime_backend"],
                         "credit": (
-                            entry["public_credit"]["display_name"]
-                            if entry["public_credit"] is not None
+                            participant.display_name
+                            if (
+                                participant.public_credit
+                                and participant.show_contribution_totals
+                            )
                             else "Anonymous"
                         ),
                     }
@@ -1264,9 +1268,12 @@ class CampaignCoordinator:
             for contributor_id, totals in sorted(contributor_totals.items()):
                 participant = participant_by_id[contributor_id]
                 if participant.public_credit:
-                    acknowledgements.append(
-                        {"display_name": participant.display_name, **totals}
-                    )
+                    acknowledgement: dict[str, object] = {
+                        "display_name": participant.display_name,
+                    }
+                    if participant.show_contribution_totals:
+                        acknowledgement.update(totals)
+                    acknowledgements.append(acknowledgement)
                 else:
                     anonymous_count += 1
 

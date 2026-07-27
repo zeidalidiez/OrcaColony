@@ -21,7 +21,9 @@ from orcacolony.peft import adapter_named_parameters, load_lora_manifest
 
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
-LORA_CONFIG = Path(__file__).parents[1] / "campaign" / "t0-lora-smoke.json"
+LORA_CONFIG = (
+    Path(__file__).parents[1] / "campaign" / "t0-lora-smoke-cpu.json"
+)
 BROWSER_ROOT = (
     Path(__file__).parents[1] / "spikes" / "burn-browser-gradient" / "www"
 )

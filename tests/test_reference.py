@@ -10,7 +10,10 @@ from orcacolony.reference import (
     _create_optimizer,
     _save_checkpoint,
     build_model,
+    campaign_from_mapping,
+    campaign_to_mapping,
     compute_fixture,
+    evaluation_slice,
     export_fixture,
     load_campaign,
     run_training,
@@ -19,6 +22,119 @@ from orcacolony.reference import (
 
 CONFIG = Path(__file__).parents[1] / "campaign" / "t0-smoke.json"
 T1_CONFIG = Path(__file__).parents[1] / "campaign" / "t1-smoke.json"
+
+
+def test_campaign_mapping_round_trip_uses_wire_schema() -> None:
+    campaign = load_campaign(CONFIG)
+
+    payload = campaign_to_mapping(campaign)
+
+    assert "objective" not in payload
+    assert payload["campaign"]["objective"] == campaign.objective.name
+    assert payload["campaign"]["loss_mask"] == campaign.objective.loss_mask
+    assert campaign_from_mapping(payload) == campaign
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("objective", "supervised_fine_tuning", "unsupported campaign objective"),
+        ("loss_mask", "target_only", "unsupported campaign loss mask"),
+    ),
+)
+def test_campaign_objective_declarations_fail_closed(
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    payload = json.loads(CONFIG.read_text(encoding="utf-8"))
+    payload["campaign"][field] = value
+
+    with pytest.raises(ValueError, match=message):
+        campaign_from_mapping(payload)
+
+
+def test_campaign_id_rejects_markup_or_path_characters() -> None:
+    payload = json.loads(CONFIG.read_text(encoding="utf-8"))
+    payload["campaign"]["id"] = "unsafe/id\n# heading"
+
+    with pytest.raises(ValueError, match="campaign id must use"):
+        campaign_from_mapping(payload)
+
+
+def test_capability_campaign_requires_and_separates_final_holdout() -> None:
+    payload = json.loads(CONFIG.read_text(encoding="utf-8"))
+    payload["evaluation"] = {
+        "metric": "held_out_cross_entropy",
+        "checkpoint_selection": "lowest_mean_loss",
+        "validation_start_sequence": 0,
+        "validation_sequences": 4,
+        "batch_size": 2,
+        "final_holdout": {
+            "start_sequence": 4,
+            "sequence_count": 4,
+            "batch_size": 2,
+        },
+    }
+    payload["research"] = {
+        "format": "orcacolony_capability_research_v1",
+        "claim": "Improve one frozen behavioral task.",
+        "baseline": {
+            "id": "initialization",
+            "description": "The exact initialization checkpoint.",
+            "revision": "sha256:" + "1" * 64,
+        },
+        "primary_metric": {
+            "id": "task-score",
+            "description": "Frozen task evaluator score.",
+            "direction": "maximize",
+            "unit": "ratio",
+            "success_threshold": 0.7,
+            "minimum_improvement_from_baseline": 0.05,
+        },
+        "guardrails": [
+            {
+                "id": "format-validity",
+                "description": "Every output remains parseable.",
+            }
+        ],
+        "analysis_plan": ["Compare checkpoint outputs and error categories."],
+        "final_holdout_policy": "release_only_after_checkpoint_selection",
+        "checkpoint_selection": (
+            "lowest_validation_mean_loss_before_behavioral_final_holdout"
+        ),
+        "behavioral_evaluation": {
+            "suite_id": "frozen-task-suite",
+            "dataset_revision": "sha256:" + "2" * 64,
+            "evaluator_revision": "3" * 40,
+            "validation_split": "validation",
+            "final_holdout_split": "final_holdout",
+        },
+    }
+    payload["publication"] = {
+        "format": "orcacolony_huggingface_publication_v1",
+        "model_repo_id": "OrcaColony/test-capability-model",
+        "dataset_repo_id": "OrcaColony/test-capability-model-dataset",
+        "model_license": "mit",
+        "dataset_license": "cdla-sharing-1.0",
+        "visibility_policy": "private_review_then_public",
+    }
+
+    campaign = campaign_from_mapping(payload)
+    validation = evaluation_slice(campaign, "validation")
+    final_holdout = evaluation_slice(campaign, "final_holdout")
+    assert validation.start_sequence == 0
+    assert validation.sequence_count == 4
+    assert final_holdout.start_sequence == 4
+    assert final_holdout.sequence_count == 4
+
+    payload["evaluation"]["final_holdout"] = {
+        "start_sequence": 3,
+        "sequence_count": 4,
+        "batch_size": 2,
+    }
+    with pytest.raises(ValueError, match="must be disjoint"):
+        campaign_from_mapping(payload)
 
 
 def test_t0_fixture_has_exact_model_identity_and_deterministic_gradient() -> None:

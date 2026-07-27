@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -296,6 +297,7 @@ def test_result_bundle_is_deterministic_and_records_negative_findings(
         "study.json",
         "experiment.json",
         "evidence.json",
+        "environment.json",
         "result.json",
         "RESULT.md",
         "SHA256SUMS",
@@ -308,9 +310,62 @@ def test_result_bundle_is_deterministic_and_records_negative_findings(
         "use_case_passed": False,
     }
     assert persisted["outcome"] == "rejected"
+    assert persisted["environment"]["format"] == (
+        "orcacolony_research_environment_v1"
+    )
+    assert persisted["unresolved_artifacts"]
     report = (first / "RESULT.md").read_text(encoding="utf-8")
     assert "Storage throughput bottleneck" in report
     assert "does not generalize to all storage devices" in report
+    assert "Not locally resolved by the recorder" in report
+
+
+def test_result_bundle_verifies_and_snapshots_repo_artifacts(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    artifact = repository / "evidence" / "measurement.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text('{"measured":true}\n', encoding="utf-8")
+    experiment = _experiment_payload()
+    experiment["artifacts"].append(
+        {
+            "id": "committed-measurement",
+            "kind": "repo-json-sha256",
+            "revision": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            "uri": "repo:evidence/measurement.json",
+        }
+    )
+    output = tmp_path / "result"
+    result = build_result_bundle(
+        _study_payload(),
+        experiment,
+        _evidence_payload(),
+        output,
+        repository_root=repository,
+    )
+
+    bundled = (
+        output
+        / "artifacts"
+        / "input"
+        / "committed-measurement"
+        / "measurement.json"
+    )
+    assert bundled.read_bytes() == artifact.read_bytes()
+    assert result["resolved_repo_artifacts"][0]["bundled_sha256"] == (
+        hashlib.sha256(artifact.read_bytes()).hexdigest()
+    )
+
+    experiment["artifacts"][-1]["revision"] = "0" * 64
+    with pytest.raises(ValueError, match="repo artifact digest mismatch"):
+        build_result_bundle(
+            _study_payload(),
+            experiment,
+            _evidence_payload(),
+            tmp_path / "invalid-result",
+            repository_root=repository,
+        )
 
 
 def test_result_bundle_requires_complete_guardrail_evidence(tmp_path: Path) -> None:

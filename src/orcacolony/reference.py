@@ -6,7 +6,7 @@ import json
 import math
 import os
 import stat
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping, cast
 
@@ -86,12 +86,29 @@ class TrainingConfig:
 
 
 @dataclass(frozen=True)
+class ObjectiveConfig:
+    name: str
+    loss_mask: str
+
+
+@dataclass(frozen=True)
+class EvaluationSlice:
+    name: str
+    start_sequence: int
+    sequence_count: int
+    batch_size: int
+
+
+@dataclass(frozen=True)
 class CampaignConfig:
     campaign: Mapping[str, object]
+    objective: ObjectiveConfig
     model: ModelConfig
     training: TrainingConfig
     dataset: Mapping[str, object] | None = None
     evaluation: Mapping[str, object] | None = None
+    research: Mapping[str, object] | None = None
+    publication: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -175,7 +192,11 @@ class DecoderBlock(nn.Module):
 
 
 class VolunteerDecoder(nn.Module):
-    def __init__(self, config: ModelConfig) -> None:
+    def __init__(
+        self,
+        config: ModelConfig,
+        objective: ObjectiveConfig | None = None,
+    ) -> None:
         super().__init__()
         if config.architecture != "volunteer_decoder_v1":
             raise ValueError(f"unsupported architecture: {config.architecture}")
@@ -185,6 +206,10 @@ class VolunteerDecoder(nn.Module):
             raise ValueError("volunteer_decoder_v1 requires tied token embeddings")
 
         self.config = config
+        self.objective = objective or ObjectiveConfig(
+            name="causal_lm",
+            loss_mask="all_target_tokens",
+        )
         self.token_embedding = nn.Embedding(config.vocabulary_size, config.width)
         self.position_embedding = nn.Embedding(config.context_length, config.width)
         self.blocks = nn.ModuleList(DecoderBlock(config) for _ in range(config.layers))
@@ -213,18 +238,435 @@ class VolunteerDecoder(nn.Module):
         return F.linear(hidden, self.token_embedding.weight)
 
 
-def campaign_from_mapping(payload: Mapping[str, object]) -> CampaignConfig:
-    return CampaignConfig(
-        campaign=cast(Mapping[str, object], payload["campaign"]),
-        model=ModelConfig(**cast(Mapping[str, Any], payload["model"])),
-        training=TrainingConfig(**cast(Mapping[str, Any], payload["training"])),
-        dataset=cast(Mapping[str, object] | None, payload.get("dataset")),
-        evaluation=cast(Mapping[str, object] | None, payload.get("evaluation")),
+def _objective_from_mapping(payload: Mapping[str, object]) -> ObjectiveConfig:
+    allowed = {"id", "objective", "loss_mask"}
+    unknown = sorted(set(payload) - allowed)
+    if unknown:
+        raise ValueError(
+            "campaign metadata contains unknown fields: " + ", ".join(unknown)
+        )
+    campaign_id = payload.get("id")
+    if (
+        not isinstance(campaign_id, str)
+        or not campaign_id
+        or len(campaign_id) > 128
+        or any(
+            character
+            not in (
+                "abcdefghijklmnopqrstuvwxyz"
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                "0123456789._-"
+            )
+            for character in campaign_id
+        )
+    ):
+        raise ValueError(
+            "campaign id must use 1-128 letters, digits, dots, underscores, or hyphens"
+        )
+    objective = payload.get("objective")
+    loss_mask = payload.get("loss_mask")
+    if objective != "causal_lm":
+        raise ValueError(f"unsupported campaign objective: {objective!r}")
+    if loss_mask != "all_target_tokens":
+        raise ValueError(f"unsupported campaign loss mask: {loss_mask!r}")
+    return ObjectiveConfig(name=objective, loss_mask=loss_mask)
+
+
+def _objective_loss(
+    objective: ObjectiveConfig,
+    logits: Tensor,
+    targets: Tensor,
+    *,
+    reduction: str,
+) -> tuple[Tensor, int]:
+    if objective.name != "causal_lm":
+        raise ValueError(f"unsupported campaign objective: {objective.name!r}")
+    if objective.loss_mask != "all_target_tokens":
+        raise ValueError(f"unsupported campaign loss mask: {objective.loss_mask!r}")
+    if reduction not in {"sum", "mean"}:
+        raise ValueError(f"unsupported objective loss reduction: {reduction!r}")
+    if logits.ndim < 2 or targets.shape != logits.shape[:-1]:
+        raise ValueError("objective logits and targets have incompatible shapes")
+    if targets.dtype != torch.long:
+        raise ValueError("objective targets must be int64 token ids")
+    weight_sum = targets.numel()
+    if weight_sum <= 0:
+        raise ValueError("objective batch must contain at least one target token")
+    return (
+        F.cross_entropy(
+            logits.reshape(-1, logits.shape[-1]),
+            targets.reshape(-1),
+            reduction=reduction,
+        ),
+        weight_sum,
     )
 
 
+def objective_loss_sum(
+    objective: ObjectiveConfig,
+    logits: Tensor,
+    targets: Tensor,
+) -> tuple[Tensor, int]:
+    """Execute the declared objective with coordinator-compatible summed loss.
+
+    Only causal LM over every target token is implemented today. Campaign
+    loading rejects any other declaration, so future SFT or masked objectives
+    cannot silently fall back to this loss.
+    """
+
+    return _objective_loss(
+        objective,
+        logits,
+        targets,
+        reduction="sum",
+    )
+
+
+def objective_mean_loss(
+    objective: ObjectiveConfig,
+    logits: Tensor,
+    targets: Tensor,
+) -> Tensor:
+    """Execute the declared objective with PyTorch's exact mean reduction."""
+
+    loss, _ = _objective_loss(
+        objective,
+        logits,
+        targets,
+        reduction="mean",
+    )
+    return loss
+
+
+def _required_text(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label} must be non-empty text")
+    return value.strip()
+
+
+def _required_revision(value: object, label: str) -> str:
+    revision = _required_text(value, label)
+    is_sha256 = revision.startswith("sha256:")
+    raw_digest = revision.removeprefix("sha256:") if is_sha256 else revision
+    expected_length = 64 if is_sha256 else 40
+    if (
+        len(raw_digest) != expected_length
+        or any(character not in "0123456789abcdef" for character in raw_digest)
+    ):
+        raise ValueError(
+            f"{label} must be a 40-character lowercase Git revision or "
+            "sha256: followed by 64 lowercase hexadecimal characters"
+        )
+    return revision
+
+
+def _required_huggingface_repo_id(value: object, label: str) -> str:
+    repo_id = _required_text(value, label)
+    prefix = "OrcaColony/"
+    name = repo_id.removeprefix(prefix)
+    allowed = (
+        "abcdefghijklmnopqrstuvwxyz"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "0123456789._-"
+    )
+    if (
+        not repo_id.startswith(prefix)
+        or "/" in name
+        or not 1 <= len(name) <= 96
+        or not name[0].isalnum()
+        or not name[-1].isalnum()
+        or "--" in name
+        or ".." in name
+        or any(character not in allowed for character in name)
+    ):
+        raise ValueError(
+            f"{label} must use one valid repository in the OrcaColony namespace"
+        )
+    return repo_id
+
+
+def _required_license_id(value: object, label: str) -> str:
+    license_id = _required_text(value, label)
+    allowed = (
+        "abcdefghijklmnopqrstuvwxyz"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "0123456789.+-"
+    )
+    if (
+        len(license_id) > 64
+        or any(character not in allowed for character in license_id)
+        or license_id.casefold()
+        in {"choose-explicitly", "other", "replace-me", "tbd", "unknown"}
+        or license_id.casefold().startswith("replace-")
+    ):
+        raise ValueError(f"{label} must be an explicit license identifier")
+    return license_id
+
+
+def _validate_capability_contract(campaign: CampaignConfig) -> None:
+    research = campaign.research
+    if research is None:
+        return
+    if research.get("format") != "orcacolony_capability_research_v1":
+        raise ValueError("unsupported campaign research contract")
+    allowed = {
+        "format",
+        "claim",
+        "baseline",
+        "primary_metric",
+        "guardrails",
+        "analysis_plan",
+        "final_holdout_policy",
+        "behavioral_evaluation",
+        "checkpoint_selection",
+    }
+    unknown = sorted(set(research) - allowed)
+    if unknown:
+        raise ValueError(
+            "capability research contains unknown fields: " + ", ".join(unknown)
+        )
+    if set(research) != allowed:
+        raise ValueError("capability research contract is incomplete")
+    _required_text(research.get("claim"), "capability claim")
+    for key in ("baseline", "primary_metric"):
+        value = research.get(key)
+        if not isinstance(value, Mapping):
+            raise ValueError(f"capability {key} must be an object")
+    baseline = cast(Mapping[str, object], research["baseline"])
+    if set(baseline) != {"id", "description", "revision"}:
+        raise ValueError("capability baseline contract is invalid")
+    for field in ("id", "description", "revision"):
+        _required_text(baseline.get(field), f"capability baseline {field}")
+    _required_revision(
+        baseline.get("revision"),
+        "capability baseline revision",
+    )
+    primary_metric = cast(Mapping[str, object], research["primary_metric"])
+    if set(primary_metric) != {
+        "id",
+        "description",
+        "direction",
+        "unit",
+        "success_threshold",
+        "minimum_improvement_from_baseline",
+    }:
+        raise ValueError("capability primary metric contract is invalid")
+    for field in ("id", "description", "unit"):
+        _required_text(
+            primary_metric.get(field),
+            f"capability primary metric {field}",
+        )
+    if primary_metric.get("direction") not in {"minimize", "maximize"}:
+        raise ValueError("capability primary metric direction is invalid")
+    threshold = primary_metric.get("success_threshold")
+    minimum_improvement = primary_metric.get(
+        "minimum_improvement_from_baseline"
+    )
+    for value, label in (
+        (threshold, "threshold"),
+        (minimum_improvement, "minimum improvement"),
+    ):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            raise ValueError(
+                f"capability primary metric {label} must be finite"
+            )
+    if float(minimum_improvement) <= 0:
+        raise ValueError(
+            "capability primary metric minimum improvement must be positive"
+        )
+    guardrails = research.get("guardrails")
+    if not isinstance(guardrails, list) or not guardrails:
+        raise ValueError("capability research requires guardrails")
+    guardrail_ids: set[str] = set()
+    for raw_guardrail in guardrails:
+        if not isinstance(raw_guardrail, Mapping) or set(raw_guardrail) != {
+            "id",
+            "description",
+        }:
+            raise ValueError("capability guardrail contract is invalid")
+        identifier = _required_text(
+            raw_guardrail.get("id"),
+            "capability guardrail id",
+        )
+        if identifier in guardrail_ids:
+            raise ValueError("capability guardrail IDs must be unique")
+        guardrail_ids.add(identifier)
+        _required_text(
+            raw_guardrail.get("description"),
+            "capability guardrail description",
+        )
+    analysis_plan = research.get("analysis_plan")
+    if (
+        not isinstance(analysis_plan, list)
+        or not analysis_plan
+        or any(
+            not isinstance(item, str) or not item.strip()
+            for item in analysis_plan
+        )
+    ):
+        raise ValueError("capability research requires an analysis plan")
+    if research.get("final_holdout_policy") != (
+        "release_only_after_checkpoint_selection"
+    ):
+        raise ValueError("capability final-holdout policy is invalid")
+    if research.get("checkpoint_selection") != (
+        "lowest_validation_mean_loss_before_behavioral_final_holdout"
+    ):
+        raise ValueError("capability checkpoint-selection policy is invalid")
+    behavioral_evaluation = research.get("behavioral_evaluation")
+    if not isinstance(behavioral_evaluation, Mapping) or set(
+        behavioral_evaluation
+    ) != {
+        "suite_id",
+        "dataset_revision",
+        "evaluator_revision",
+        "validation_split",
+        "final_holdout_split",
+    }:
+        raise ValueError("capability behavioral-evaluation contract is invalid")
+    for field in ("suite_id", "validation_split", "final_holdout_split"):
+        _required_text(
+            behavioral_evaluation.get(field),
+            f"capability behavioral evaluation {field}",
+        )
+    for field in ("dataset_revision", "evaluator_revision"):
+        _required_revision(
+            behavioral_evaluation.get(field),
+            f"capability behavioral evaluation {field}",
+        )
+    if behavioral_evaluation.get("validation_split") == (
+        behavioral_evaluation.get("final_holdout_split")
+    ):
+        raise ValueError(
+            "behavioral validation and final-holdout splits must differ"
+        )
+    if campaign.evaluation is None:
+        raise ValueError("capability research requires evaluation")
+    validation = evaluation_slice(campaign, "validation")
+    final_holdout = evaluation_slice(campaign, "final_holdout")
+    if max(validation.start_sequence, final_holdout.start_sequence) < min(
+        validation.start_sequence + validation.sequence_count,
+        final_holdout.start_sequence + final_holdout.sequence_count,
+    ):
+        raise ValueError(
+            "campaign validation and final holdout ranges must be disjoint"
+        )
+
+    publication = campaign.publication
+    if not isinstance(publication, Mapping):
+        raise ValueError("capability research requires publication settings")
+    if publication.get("format") != "orcacolony_huggingface_publication_v1":
+        raise ValueError("unsupported campaign publication contract")
+    required_publication = {
+        "format",
+        "model_repo_id",
+        "dataset_repo_id",
+        "model_license",
+        "dataset_license",
+        "visibility_policy",
+    }
+    if set(publication) != required_publication:
+        raise ValueError("campaign publication contract is invalid")
+    for field in ("model_repo_id", "dataset_repo_id"):
+        _required_huggingface_repo_id(
+            publication.get(field),
+            f"publication {field}",
+        )
+    for field in ("model_license", "dataset_license"):
+        _required_license_id(
+            publication.get(field),
+            f"publication {field}",
+        )
+    if publication.get("visibility_policy") not in {
+        "private",
+        "public",
+        "private_review_then_public",
+    }:
+        raise ValueError("publication visibility policy is invalid")
+
+
+def campaign_from_mapping(payload: Mapping[str, object]) -> CampaignConfig:
+    allowed_top_level = {
+        "campaign",
+        "model",
+        "training",
+        "dataset",
+        "evaluation",
+        "research",
+        "publication",
+    }
+    unknown = sorted(set(payload) - allowed_top_level)
+    if unknown:
+        raise ValueError(
+            "campaign configuration contains unknown fields: " + ", ".join(unknown)
+        )
+    for required in ("campaign", "model", "training"):
+        if required not in payload:
+            raise ValueError(f"campaign configuration is missing {required}")
+    campaign_payload = payload["campaign"]
+    model_payload = payload["model"]
+    training_payload = payload["training"]
+    if not isinstance(campaign_payload, Mapping):
+        raise ValueError("campaign metadata must be a JSON object")
+    if not isinstance(model_payload, Mapping):
+        raise ValueError("campaign model must be a JSON object")
+    if not isinstance(training_payload, Mapping):
+        raise ValueError("campaign training must be a JSON object")
+    dataset_payload = payload.get("dataset")
+    evaluation_payload = payload.get("evaluation")
+    research_payload = payload.get("research")
+    publication_payload = payload.get("publication")
+    for name, value in (
+        ("dataset", dataset_payload),
+        ("evaluation", evaluation_payload),
+        ("research", research_payload),
+        ("publication", publication_payload),
+    ):
+        if value is not None and not isinstance(value, Mapping):
+            raise ValueError(f"campaign {name} must be a JSON object")
+    objective = _objective_from_mapping(campaign_payload)
+    config = CampaignConfig(
+        campaign=dict(campaign_payload),
+        objective=objective,
+        model=ModelConfig(**cast(Mapping[str, Any], model_payload)),
+        training=TrainingConfig(**cast(Mapping[str, Any], training_payload)),
+        dataset=cast(Mapping[str, object] | None, dataset_payload),
+        evaluation=cast(Mapping[str, object] | None, evaluation_payload),
+        research=cast(Mapping[str, object] | None, research_payload),
+        publication=cast(Mapping[str, object] | None, publication_payload),
+    )
+    _validate_capability_contract(config)
+    return config
+
+
+def campaign_to_mapping(campaign: CampaignConfig) -> dict[str, object]:
+    """Return the canonical JSON-shaped representation of a campaign."""
+
+    payload: dict[str, object] = {
+        "campaign": dict(campaign.campaign),
+        "model": asdict(campaign.model),
+        "training": asdict(campaign.training),
+    }
+    for name, value in (
+        ("dataset", campaign.dataset),
+        ("evaluation", campaign.evaluation),
+        ("research", campaign.research),
+        ("publication", campaign.publication),
+    ):
+        if value is not None:
+            payload[name] = dict(value)
+    return payload
+
+
 def load_campaign(path: str | Path) -> CampaignConfig:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    payload = json.loads(
+        Path(path).read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_json_keys,
+    )
     if not isinstance(payload, Mapping):
         raise ValueError("campaign configuration must be a JSON object")
     return campaign_from_mapping(payload)
@@ -238,7 +680,7 @@ def configure_determinism(seed: int) -> None:
 
 def build_model(campaign: CampaignConfig) -> VolunteerDecoder:
     configure_determinism(campaign.training.seed)
-    model = VolunteerDecoder(campaign.model)
+    model = VolunteerDecoder(campaign.model, campaign.objective)
     actual = sum(parameter.numel() for parameter in model.parameters())
     if actual != campaign.model.parameters:
         raise ValueError(
@@ -286,12 +728,7 @@ def validate_dataset_artifacts(
             "checkpoint_selection", "lowest_mean_loss"
         ) != "lowest_mean_loss":
             raise ValueError("unsupported checkpoint selection rule")
-        validation_sequences = int(campaign.evaluation["validation_sequences"])
-        evaluation_batch_size = int(campaign.evaluation["batch_size"])
-        if validation_sequences <= 0 or evaluation_batch_size <= 0:
-            raise ValueError("evaluation dimensions must be positive")
-        if evaluation_batch_size > validation_sequences:
-            raise ValueError("evaluation batch size exceeds validation sequence count")
+        validation = evaluation_slice(campaign, "validation")
         success_gate = campaign.evaluation.get("success_gate")
         if success_gate is not None:
             if not isinstance(success_gate, Mapping):
@@ -308,10 +745,118 @@ def validate_dataset_artifacts(
             minimum_improvement = float(minimum_value)
             if not math.isfinite(minimum_improvement) or minimum_improvement <= 0:
                 raise ValueError("evaluation success-gate improvement must be positive")
-        if validation_sequences > dataset.validation_inputs.shape[0]:
+        if (
+            validation.start_sequence + validation.sequence_count
+            > dataset.validation_inputs.shape[0]
+        ):
             raise ValueError(
                 "campaign evaluation exceeds the packed validation dataset"
             )
+        final_holdout = (
+            evaluation_slice(campaign, "final_holdout")
+            if campaign.evaluation.get("final_holdout") is not None
+            else None
+        )
+        if final_holdout is not None:
+            if (
+                final_holdout.start_sequence + final_holdout.sequence_count
+                > dataset.validation_inputs.shape[0]
+            ):
+                raise ValueError(
+                    "campaign final holdout exceeds the packed validation dataset"
+                )
+            validation_range = range(
+                validation.start_sequence,
+                validation.start_sequence + validation.sequence_count,
+            )
+            final_range = range(
+                final_holdout.start_sequence,
+                final_holdout.start_sequence + final_holdout.sequence_count,
+            )
+            if max(validation_range.start, final_range.start) < min(
+                validation_range.stop,
+                final_range.stop,
+            ):
+                raise ValueError(
+                    "campaign validation and final holdout ranges must be disjoint"
+                )
+        if (
+            campaign.research is not None
+            and campaign.research.get("format")
+            == "orcacolony_capability_research_v1"
+            and final_holdout is None
+        ):
+            raise ValueError(
+                "capability research requires a disjoint final holdout"
+            )
+
+
+def _positive_int(value: object, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{label} must be a positive integer")
+    return value
+
+
+def _nonnegative_int(value: object, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{label} must be a nonnegative integer")
+    return value
+
+
+def evaluation_slice(
+    campaign: CampaignConfig,
+    name: str,
+) -> EvaluationSlice:
+    if campaign.evaluation is None:
+        raise ValueError("campaign does not define an evaluation profile")
+    if name == "validation":
+        start = _nonnegative_int(
+            campaign.evaluation.get("validation_start_sequence", 0),
+            "validation start sequence",
+        )
+        sequence_count = _positive_int(
+            campaign.evaluation.get("validation_sequences"),
+            "validation sequence count",
+        )
+        batch_size = _positive_int(
+            campaign.evaluation.get("batch_size"),
+            "validation batch size",
+        )
+    elif name == "final_holdout":
+        raw = campaign.evaluation.get("final_holdout")
+        if not isinstance(raw, Mapping):
+            raise ValueError("campaign does not define a final holdout")
+        unknown = sorted(
+            set(raw) - {"start_sequence", "sequence_count", "batch_size"}
+        )
+        if unknown:
+            raise ValueError(
+                "final holdout contains unknown fields: " + ", ".join(unknown)
+            )
+        if set(raw) != {"start_sequence", "sequence_count", "batch_size"}:
+            raise ValueError("final holdout is incomplete")
+        start = _nonnegative_int(
+            raw.get("start_sequence"),
+            "final holdout start sequence",
+        )
+        sequence_count = _positive_int(
+            raw.get("sequence_count"),
+            "final holdout sequence count",
+        )
+        batch_size = _positive_int(
+            raw.get("batch_size"),
+            "final holdout batch size",
+        )
+    else:
+        raise ValueError(f"unsupported evaluation slice: {name}")
+    if batch_size > sequence_count:
+        raise ValueError(f"{name} batch size exceeds its sequence count")
+    return EvaluationSlice(
+        name=name,
+        start_sequence=start,
+        sequence_count=sequence_count,
+        batch_size=batch_size,
+    )
 
 
 def fixture_batch(
@@ -357,10 +902,10 @@ def compute_fixture(
     model = build_model(campaign)
     inputs, targets = fixture_batch(campaign, dataset=dataset)
     logits = model(inputs)
-    loss_sum = F.cross_entropy(
-        logits.reshape(-1, campaign.model.vocabulary_size),
-        targets.reshape(-1),
-        reduction="sum",
+    loss_sum, loss_weight_sum = objective_loss_sum(
+        campaign.objective,
+        logits,
+        targets,
     )
     loss_sum.backward()
     gradients = {
@@ -371,7 +916,7 @@ def compute_fixture(
     return FixtureResult(
         parameter_count=sum(parameter.numel() for parameter in model.parameters()),
         loss_sum=float(loss_sum.detach()),
-        loss_weight_sum=targets.numel(),
+        loss_weight_sum=loss_weight_sum,
         gradient_sha256=tensor_sha256(gradients),
     )
 
@@ -779,8 +1324,9 @@ def evaluate_checkpoint(
         raise ValueError("campaign does not define an evaluation profile")
     checkpoint_dir = Path(checkpoint_dir)
     model, _, step, _, _ = _load_checkpoint(campaign, checkpoint_dir)
-    sequence_count = int(campaign.evaluation["validation_sequences"])
-    batch_size = int(campaign.evaluation["batch_size"])
+    validation = evaluation_slice(campaign, "validation")
+    sequence_count = validation.sequence_count
+    batch_size = validation.batch_size
     loss_sum = 0.0
     loss_weight_sum = 0
     model.eval()
@@ -792,15 +1338,16 @@ def evaluate_checkpoint(
                 cursor=cursor,
                 batch_size=current_batch_size,
                 sequence_limit=sequence_count,
+                start_sequence=validation.start_sequence,
             )
             logits = model(inputs)
-            batch_loss = F.cross_entropy(
-                logits.reshape(-1, campaign.model.vocabulary_size),
-                targets.reshape(-1),
-                reduction="sum",
+            batch_loss, batch_weight_sum = objective_loss_sum(
+                campaign.objective,
+                logits,
+                targets,
             )
             loss_sum += float(batch_loss)
-            loss_weight_sum += targets.numel()
+            loss_weight_sum += batch_weight_sum
             cursor += current_batch_size
     mean_loss = loss_sum / loss_weight_sum
     checkpoint_state = json.loads(
@@ -817,6 +1364,69 @@ def evaluate_checkpoint(
         "loss_weight_sum": loss_weight_sum,
         "mean_loss": mean_loss,
         "perplexity": math.exp(mean_loss),
+    }
+
+
+def evaluate_final_holdout(
+    campaign: CampaignConfig,
+    checkpoint_dir: str | Path,
+    dataset: PackedDataset,
+) -> dict[str, object]:
+    """Evaluate the selected dense checkpoint on the reserved promotion slice.
+
+    This function is intentionally separate from repeated checkpoint evaluation.
+    The release builder calls it only after `_select_checkpoint` has fixed the
+    checkpoint using validation evidence.
+    """
+
+    validate_dataset_artifacts(campaign, dataset)
+    final_holdout = evaluation_slice(campaign, "final_holdout")
+    checkpoint = Path(checkpoint_dir)
+    model, _, step, _, _ = _load_checkpoint(campaign, checkpoint)
+    loss_sum = 0.0
+    loss_weight_sum = 0
+    model.eval()
+    with torch.no_grad():
+        cursor = 0
+        while cursor < final_holdout.sequence_count:
+            current_batch_size = min(
+                final_holdout.batch_size,
+                final_holdout.sequence_count - cursor,
+            )
+            inputs, targets = dataset.validation_batch(
+                cursor=cursor,
+                batch_size=current_batch_size,
+                sequence_limit=final_holdout.sequence_count,
+                start_sequence=final_holdout.start_sequence,
+            )
+            batch_loss, batch_weight_sum = objective_loss_sum(
+                campaign.objective,
+                model(inputs),
+                targets,
+            )
+            loss_sum += float(batch_loss)
+            loss_weight_sum += batch_weight_sum
+            cursor += current_batch_size
+    mean_loss = loss_sum / loss_weight_sum
+    checkpoint_state = json.loads(
+        (checkpoint / "state.json").read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_json_keys,
+    )
+    return {
+        "format": "orcacolony_final_holdout_evaluation_v1",
+        "campaign_id": campaign.campaign["id"],
+        "objective": campaign.objective.name,
+        "loss_mask": campaign.objective.loss_mask,
+        "step": step,
+        "dataset_revision": dataset.revision,
+        "checkpoint_sha256": checkpoint_state["model"]["sha256"],
+        "start_sequence": final_holdout.start_sequence,
+        "sequence_count": final_holdout.sequence_count,
+        "loss_sum": loss_sum,
+        "loss_weight_sum": loss_weight_sum,
+        "mean_loss": mean_loss,
+        "perplexity": math.exp(mean_loss),
+        "selection_locked_before_evaluation": True,
     }
 
 
@@ -849,12 +1459,11 @@ def run_training(
         inputs, targets = fixture_batch(campaign, dataset_cursor, dataset)
         optimizer.zero_grad(set_to_none=True)
         logits = model(inputs)
-        loss_sum = F.cross_entropy(
-            logits.reshape(-1, campaign.model.vocabulary_size),
-            targets.reshape(-1),
-            reduction="sum",
+        loss_sum, loss_weight_sum = objective_loss_sum(
+            campaign.objective,
+            logits,
+            targets,
         )
-        loss_weight_sum = targets.numel()
         loss_sum.backward()
         for parameter in model.parameters():
             if parameter.grad is not None:
@@ -893,10 +1502,10 @@ def export_fixture(
     model = build_model(campaign)
     inputs, targets = fixture_batch(campaign, dataset=dataset)
     logits = model(inputs)
-    loss_sum = F.cross_entropy(
-        logits.reshape(-1, campaign.model.vocabulary_size),
-        targets.reshape(-1),
-        reduction="sum",
+    loss_sum, _ = objective_loss_sum(
+        campaign.objective,
+        logits,
+        targets,
     )
     loss_sum.backward()
 

@@ -27,7 +27,6 @@ from safetensors.torch import load_file as load_safetensors_file
 from safetensors.torch import save as save_safetensors
 from safetensors.torch import save_file as save_safetensors_file
 from torch import Tensor
-from torch.nn import functional as F
 
 from .artifacts import PackedDataset
 from .coordinator import _tensor_metrics
@@ -64,6 +63,7 @@ from .reference import (
     _sha256_file,
     build_model,
     fixture_batch,
+    objective_loss_sum,
     run_training,
     tensor_sha256,
     validate_dataset_artifacts,
@@ -860,6 +860,10 @@ def _campaign_payload(campaign: CampaignConfig) -> dict[str, object]:
     }
     if campaign.evaluation is not None:
         payload["evaluation"] = dict(campaign.evaluation)
+    if campaign.research is not None:
+        payload["research"] = dict(campaign.research)
+    if campaign.publication is not None:
+        payload["publication"] = dict(campaign.publication)
     return payload
 
 
@@ -1228,10 +1232,10 @@ class GlobalStepCoordinator:
             else:
                 model = build_model(campaign)
                 model.load_state_dict(initial_model.state_dict())
-                loss_sum = F.cross_entropy(
-                    model(assignment_inputs).reshape(-1, campaign.model.vocabulary_size),
-                    assignment_targets.reshape(-1),
-                    reduction="sum",
+                loss_sum, _ = objective_loss_sum(
+                    campaign.objective,
+                    model(assignment_inputs),
+                    assignment_targets,
                 )
                 loss_sum.backward()
                 loss_sum_value = float(loss_sum.detach())
@@ -1504,6 +1508,7 @@ class GlobalStepCoordinator:
             raise ValueError("global-step dataset revision mismatch")
         campaign_revision = _revision(_campaign_payload(campaign))
         migrated = "participants_revision" not in state
+        credit_profiles_refreshed = False
         profile_migrated = "training_method" not in state
         if migrated or profile_migrated or numerical_profile_migrated:
             state.setdefault("base_step", 0)
@@ -1542,6 +1547,28 @@ class GlobalStepCoordinator:
             raise ValueError("participant revision mismatch")
         if state.get("campaign_revision") != campaign_revision:
             raise ValueError("campaign revision mismatch")
+        stored_participant_payload = state.get("participants")
+        if not isinstance(stored_participant_payload, Mapping):
+            raise ValueError("stored participant authority is invalid")
+        stored_participants = ParticipantRegistry.from_payload(
+            stored_participant_payload,
+            campaign_id=str(campaign.campaign["id"]),
+        )
+        if stored_participants.revision != state.get("participants_revision"):
+            raise ValueError("stored participant authority digest mismatch")
+        if not _exact_json_equal(
+            stored_participants.as_payload(),
+            participants.as_payload(),
+        ):
+            if (
+                stored_participants.format != "orcacolony_participants_v2"
+                or participants.format != "orcacolony_participants_v2"
+            ):
+                raise ValueError(
+                    "legacy participant credit profiles are campaign-locked"
+                )
+            state["participants"] = participants.as_payload()
+            credit_profiles_refreshed = True
         protocol_migrated = (
             "result_protocol_revision" not in state
             and state["state"] != "step_complete"
@@ -1876,6 +1903,7 @@ class GlobalStepCoordinator:
         )
         state_changed = (
             migrated
+            or credit_profiles_refreshed
             or profile_migrated
             or numerical_profile_migrated
             or protocol_migrated
@@ -2483,13 +2511,10 @@ class GlobalStepCoordinator:
             raise ValueError("authenticated oracle model snapshot is unavailable")
         model = build_model(self.campaign)
         model.load_state_dict(self._oracle_model_state)
-        loss_sum = F.cross_entropy(
-            model(assignment_inputs).reshape(
-                -1,
-                self.campaign.model.vocabulary_size,
-            ),
-            assignment_targets.reshape(-1),
-            reduction="sum",
+        loss_sum, _ = objective_loss_sum(
+            self.campaign.objective,
+            model(assignment_inputs),
+            assignment_targets,
         )
         loss_sum.backward()
         gradients = {

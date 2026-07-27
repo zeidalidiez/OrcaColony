@@ -13,7 +13,6 @@ from multiprocessing.connection import Connection
 from pathlib import Path
 
 import torch
-import torch.nn.functional as F
 from safetensors.torch import load as load_safetensors
 from safetensors.torch import save as save_safetensors
 from torch import Tensor
@@ -28,6 +27,7 @@ from orcacolony.reference import (
     configure_determinism,
     fixture_batch,
     load_campaign,
+    objective_mean_loss,
     tensor_sha256,
     validate_dataset_artifacts,
 )
@@ -415,10 +415,10 @@ def _run_parent_assignment(
 
     centralized.train()
     centralized_optimizer.zero_grad(set_to_none=True)
-    centralized_loss_tensor = F.cross_entropy(
-        centralized(inputs).reshape(-1, campaign.model.vocabulary_size),
-        targets.reshape(-1),
-        reduction="mean",
+    centralized_loss_tensor = objective_mean_loss(
+        campaign.objective,
+        centralized(inputs),
+        targets,
     )
     centralized_loss_tensor.backward()
     centralized_raw = _gradient_snapshot(centralized)
@@ -477,10 +477,10 @@ def _run_parent_assignment(
 
     boundary_output = output.detach().clone().requires_grad_(True)
     process_logits = _suffix_logits(process_model, boundary_output, block_index)
-    process_loss_tensor = F.cross_entropy(
-        process_logits.reshape(-1, campaign.model.vocabulary_size),
-        targets.reshape(-1),
-        reduction="mean",
+    process_loss_tensor = objective_mean_loss(
+        campaign.objective,
+        process_logits,
+        targets,
     )
     process_loss_tensor.backward()
     if boundary_output.grad is None:

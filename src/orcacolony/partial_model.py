@@ -20,8 +20,10 @@ from orcacolony.reference import (
     VolunteerDecoder,
     _create_optimizer,
     build_model,
+    evaluation_slice,
     fixture_batch,
     load_campaign,
+    objective_loss_sum,
     tensor_sha256,
     validate_dataset_artifacts,
 )
@@ -172,6 +174,7 @@ class RollingBlockWorker(nn.Module):
         if block_index < 0 or block_index >= len(coordinator.blocks):
             raise ValueError("block index is outside the coordinator model")
         self.config = coordinator.config
+        self.objective = coordinator.objective
         self.block_index = block_index
         self.token_embedding = copy.deepcopy(coordinator.token_embedding)
         self.position_embedding = copy.deepcopy(coordinator.position_embedding)
@@ -310,13 +313,13 @@ def _fixed_fixture_mean_loss(
         ):
             inputs, targets = fixture_batch(campaign, cursor)
             logits = model(inputs)
-            loss = F.cross_entropy(
-                logits.reshape(-1, campaign.model.vocabulary_size),
-                targets.reshape(-1),
-                reduction="sum",
+            loss, batch_weight_sum = objective_loss_sum(
+                campaign.objective,
+                logits,
+                targets,
             )
             loss_sum += float(loss)
-            loss_weight_sum += targets.numel()
+            loss_weight_sum += batch_weight_sum
     return loss_sum / loss_weight_sum
 
 
@@ -329,15 +332,15 @@ def _train_full_step(
 ) -> None:
     inputs, targets = fixture_batch(campaign, cursor, dataset)
     optimizer.zero_grad(set_to_none=True)
-    loss = F.cross_entropy(
-        model(inputs).reshape(-1, campaign.model.vocabulary_size),
-        targets.reshape(-1),
-        reduction="sum",
+    loss, loss_weight_sum = objective_loss_sum(
+        campaign.objective,
+        model(inputs),
+        targets,
     )
     loss.backward()
     for parameter in model.parameters():
         if parameter.grad is not None:
-            parameter.grad.div_(targets.numel())
+            parameter.grad.div_(loss_weight_sum)
     torch.nn.utils.clip_grad_norm_(
         model.parameters(),
         campaign.training.max_gradient_norm,
@@ -373,8 +376,9 @@ def _held_out_mean_loss(
 ) -> float:
     if campaign.evaluation is None:
         raise ValueError("campaign does not define an evaluation profile")
-    sequence_count = int(campaign.evaluation["validation_sequences"])
-    batch_size = int(campaign.evaluation["batch_size"])
+    validation = evaluation_slice(campaign, "validation")
+    sequence_count = validation.sequence_count
+    batch_size = validation.batch_size
     loss_sum = 0.0
     loss_weight_sum = 0
     model.eval()
@@ -386,14 +390,15 @@ def _held_out_mean_loss(
                 cursor=cursor,
                 batch_size=current_batch_size,
                 sequence_limit=sequence_count,
+                start_sequence=validation.start_sequence,
             )
-            loss = F.cross_entropy(
-                model(inputs).reshape(-1, campaign.model.vocabulary_size),
-                targets.reshape(-1),
-                reduction="sum",
+            loss, batch_weight_sum = objective_loss_sum(
+                campaign.objective,
+                model(inputs),
+                targets,
             )
             loss_sum += float(loss)
-            loss_weight_sum += targets.numel()
+            loss_weight_sum += batch_weight_sum
             cursor += current_batch_size
     return loss_sum / loss_weight_sum
 
@@ -499,15 +504,15 @@ def run_block_sharded_experiment(
             assignment_block_sequence.append(block_index)
             session.zero_grad(set_to_none=True)
             session.train()
-            loss = F.cross_entropy(
-                session(inputs).reshape(-1, campaign.model.vocabulary_size),
-                targets.reshape(-1),
-                reduction="sum",
+            loss, loss_weight_sum = objective_loss_sum(
+                campaign.objective,
+                session(inputs),
+                targets,
             )
             loss.backward()
             for parameter in session.block.parameters():
                 if parameter.grad is not None:
-                    parameter.grad.div_(targets.numel())
+                    parameter.grad.div_(loss_weight_sum)
             current_gradient_bytes = _map_worker_gradient(session, coordinator)
             if mapped_gradient_bytes is None:
                 mapped_gradient_bytes = current_gradient_bytes
@@ -627,7 +632,10 @@ def run_block_sharded_experiment(
         dataset_revision=dataset.revision,
         global_steps=steps,
         evaluation_interval=evaluation_interval,
-        evaluation_sequences=int(campaign.evaluation["validation_sequences"]),
+        evaluation_sequences=evaluation_slice(
+            campaign,
+            "validation",
+        ).sequence_count,
         workers_per_global_step=workers_per_step,
         worker_assignments=worker_assignments,
         assignment_block_sequence=tuple(assignment_block_sequence),
@@ -779,15 +787,15 @@ def run_dataset_rolling_block_experiment(
 
         inputs, targets = fixture_batch(campaign, cursor, dataset)
         session.train()
-        loss = F.cross_entropy(
-            session(inputs).reshape(-1, campaign.model.vocabulary_size),
-            targets.reshape(-1),
-            reduction="sum",
+        loss, loss_weight_sum = objective_loss_sum(
+            campaign.objective,
+            session(inputs),
+            targets,
         )
         loss.backward()
         for parameter in session.block.parameters():
             if parameter.grad is not None:
-                parameter.grad.div_(targets.numel())
+                parameter.grad.div_(loss_weight_sum)
         torch.nn.utils.clip_grad_norm_(
             session.block.parameters(),
             campaign.training.max_gradient_norm,
@@ -856,7 +864,10 @@ def run_dataset_rolling_block_experiment(
         dataset_revision=dataset.revision,
         steps=steps,
         evaluation_interval=evaluation_interval,
-        evaluation_sequences=int(campaign.evaluation["validation_sequences"]),
+        evaluation_sequences=evaluation_slice(
+            campaign,
+            "validation",
+        ).sequence_count,
         block_sequence=tuple(block_sequence),
         full_parameter_count=sum(
             parameter.numel() for parameter in coordinator.parameters()
@@ -955,15 +966,15 @@ def run_rolling_block_experiment(
 
         inputs, targets = fixture_batch(campaign, cursor)
         worker.train()
-        loss = F.cross_entropy(
-            worker(inputs).reshape(-1, campaign.model.vocabulary_size),
-            targets.reshape(-1),
-            reduction="sum",
+        loss, loss_weight_sum = objective_loss_sum(
+            campaign.objective,
+            worker(inputs),
+            targets,
         )
         loss.backward()
         for parameter in worker.block.parameters():
             if parameter.grad is not None:
-                parameter.grad.div_(targets.numel())
+                parameter.grad.div_(loss_weight_sum)
         torch.nn.utils.clip_grad_norm_(
             worker.block.parameters(),
             campaign.training.max_gradient_norm,
