@@ -376,6 +376,11 @@ Run two explicitly separate bounded tracks:
 
 ### 2026-07-26
 
+- Added a separate post-run analysis command that verifies every retained run
+  checksum, preserves all public sample outputs, splits teacher-forced prompt
+  and answer metrics, classifies output failures, summarizes gradient and
+  update trajectories, and recomputes exact and nearest training-record
+  comparisons without accepting a private-holdout input.
 - Froze the first Record Patch centralized learnability protocol before the
   measured run. It fixes checkpoints `0`, `1`, `8`, `32`, and `128`, selects
   only by public language-validation loss, requires at least `0.1` language-loss
