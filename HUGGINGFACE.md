@@ -9,12 +9,14 @@ The organization overview is maintained from
 `huggingface/organization-card/README.md`. Hugging Face displays it through the
 public static Space named `OrcaColony/README`. This special Space is the
 organization card only; it is not a demo and does not contain model or dataset
-artifacts. Its current public revision and file digest are recorded in
-`huggingface/organization-card/publication.json`.
+artifacts. The last published public revision and file digest are recorded in
+`huggingface/organization-card/publication.json`; when the retained source has
+newer edits, that record continues to describe the remote card until an
+explicit update is published.
 
 ## Repository layout
 
-Use separate repositories for each immutable campaign release:
+Use separate repositories for each reviewed campaign release:
 
 - Model: `OrcaColony/<campaign-name>`
 - Dataset: `OrcaColony/<campaign-name>-dataset`
@@ -25,39 +27,37 @@ demo or evaluation application that links to versioned model and dataset
 repositories. Do not create one until a model has a useful interaction or tester
 workflow to demonstrate.
 
-The first capability contract reserves
-`OrcaColony/record-patch-t2-v1` and `OrcaColony/record-patch-v1`. These
-repositories have not been created. Reservation in a campaign file is not a
-release.
+Repository names, licenses, and visibility are chosen by the campaign owner
+when that campaign is defined. A name present in a campaign file is only a
+destination declaration. It does not create a repository or claim a result.
 
-The benchmark dataset and evaluator do not depend on a model passing the
-benchmark. `OrcaColony/record-patch-v1` may be published after its license,
-card, runnable evaluator, simple reference scores, split policy, and exact
-revisions are reviewed. It should describe one narrow usage scenario and must
-not imply general model capability.
+The dataset repository is the data package for that campaign. Depending on what
+the owner declared, it may contain training data, evaluation inputs, evaluator
+artifacts, sample-level outputs, or score files. The framework does not create a
+separate benchmark product unless the campaign owner explicitly asks for one.
 
-Failed checkpoints may also be retained on the Hub as experimental research
-artifacts when their cards lead with the failed task score and link the exact
-benchmark revision. They are not promoted models. The ordinary campaign
-publisher still requires a reviewed operational release and private-first
-workflow before it creates or changes the reserved model repository.
+Improved, regressed, unchanged, and inconclusive checkpoints can all be
+published as research results. Publication requires internally consistent
+artifacts and reviewed cards. It does not require a framework-assigned pass
+state.
 
-## Public verification boundary
+## Public evidence boundary
 
-For each published task result, the Hub repositories should make these three
-records easy to distinguish:
+For each published campaign result, the Hub repositories should make these
+records easy to inspect:
 
-1. The benchmark record: dataset, split policy, evaluator, reference scores,
-   limitations, and exact dataset commit.
-2. The model result: exact model commit, benchmark commit, decoding settings,
-   score files, sample outputs, and the narrow claim those scores do or do not
-   support.
-3. The community campaign record, when one exists: accepted work, aggregate
-   compute, and contributor-approved names, pseudonyms, anonymous entries, and
+1. The owner-defined campaign record: question, usage scenario, data, training
+   recipe, evaluator, metrics, analysis plan, and exact revisions.
+2. The model result: exact model commit, evaluation measurements, requested
+   comparisons, sample or aggregate evidence, reproduction command,
+   limitations, and the owner's conclusion when supplied.
+3. The contribution record: accepted work, aggregate compute, and
+   contributor-approved names, pseudonyms, anonymous entries, totals, and
    hardware details.
 
-Agent-authored reports can summarize and interpret those records. They are not
-a substitute for the runnable benchmark or the campaign contribution ledger.
+Agent-authored reports may state the agent's findings and interpretation. They
+must link the underlying files and must not fill in campaign choices or an owner
+decision that was never supplied.
 
 ## Authentication
 
@@ -107,15 +107,16 @@ uv run python -m orcacolony.huggingface verify \
 
 The package contains:
 
-- a model card with explicit systems/candidate/promoted classification,
-  training/data/checkpoint provenance, limitations, and visible contributor
-  acknowledgment;
+- a model card with training/data/checkpoint provenance, the evidence actually
+  supplied, limitations, and visible contributor acknowledgment;
 - a dataset card and exact packed dataset/tokenizer provenance;
 - custom OrcaColony load and generation metadata;
 - the selected restart state and optimizer artifact for trajectory
   reproducibility, in addition to generation weights;
-- repeated validation, a separate language-loss holdout diagnostic, and
-  optional behavioral promotion evidence;
+- recorded training diagnostics;
+- `campaign-evaluation-evidence.json`,
+  `campaign-evaluation-summary.json`, and verified bundled evaluation
+  artifacts when the campaign owner supplied them;
 - `CONTRIBUTORS.md` and `attribution-snapshot.json`;
 - a deterministic publication manifest and checksums.
 
@@ -152,7 +153,7 @@ repository instead of letting a supposedly exact release inherit old files.
 
 The build-time `--visibility` choice is recorded in the publication manifest and
 the uploader must follow it; publication cannot silently override the campaign's
-`visibility_policy`. A capability campaign may choose `private`, `public`, or
+`visibility_policy`. A campaign may choose `private`, `public`, or
 `private_review_then_public`. Use `private_review_then_public` for the ordinary
 OrcaColony flow:
 

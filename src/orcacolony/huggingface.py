@@ -220,6 +220,70 @@ def _card_attribution(
     )
 
 
+def _campaign_evaluation_markdown(
+    evaluation: Mapping[str, object] | None,
+) -> str:
+    if evaluation is None:
+        return "No campaign-owner evaluation evidence was supplied."
+    lines = [
+        "The package includes the campaign-owner evaluation record.",
+    ]
+    comparisons = evaluation.get("comparisons")
+    if isinstance(comparisons, list):
+        for comparison in comparisons:
+            if not isinstance(comparison, Mapping):
+                continue
+            summary = comparison.get("summary")
+            if isinstance(summary, str) and summary.strip():
+                lines.append(f"- Comparison: {summary.strip()}")
+            metrics = comparison.get("metrics")
+            if not isinstance(metrics, list):
+                continue
+            for metric in metrics:
+                if not isinstance(metric, Mapping):
+                    continue
+                label = metric.get("label")
+                unit = metric.get("unit")
+                baseline = metric.get("baseline_value")
+                candidate = metric.get("candidate_value")
+                change = metric.get("absolute_change")
+                direction = metric.get("direction")
+                if (
+                    isinstance(label, str)
+                    and isinstance(unit, str)
+                    and isinstance(direction, str)
+                    and isinstance(baseline, (int, float))
+                    and not isinstance(baseline, bool)
+                    and isinstance(candidate, (int, float))
+                    and not isinstance(candidate, bool)
+                    and isinstance(change, (int, float))
+                    and not isinstance(change, bool)
+                ):
+                    lines.append(
+                        f"  - {label.strip()}: `{baseline}` to `{candidate}` "
+                        f"{unit.strip()} (raw change `{change}`; owner-declared "
+                        f"direction `{direction}`)."
+                    )
+    findings = evaluation.get("findings")
+    if isinstance(findings, list) and findings:
+        lines.append("- Recorded findings:")
+        for finding in findings:
+            if not isinstance(finding, Mapping):
+                continue
+            label = finding.get("label")
+            kind = finding.get("kind")
+            description = finding.get("description")
+            if all(
+                isinstance(value, str) and value.strip()
+                for value in (label, kind, description)
+            ):
+                lines.append(
+                    f"  - {str(label).strip()} ({str(kind).strip()}): "
+                    f"{str(description).strip()}"
+                )
+    return "\n".join(lines)
+
+
 def _model_card(
     *,
     campaign_id: str,
@@ -236,6 +300,7 @@ def _model_card(
     dataset_manifest: Mapping[str, object],
     checkpoint: Mapping[str, object],
     attribution: Mapping[str, object],
+    campaign_evaluation: Mapping[str, object] | None,
     promotion_evidence: Mapping[str, object] | None,
 ) -> str:
     campaign_metadata = campaign.get("campaign")
@@ -253,28 +318,47 @@ def _model_card(
         _card_attribution(attribution)
     )
     research = campaign.get("research")
-    claim = (
-        research.get("claim")
-        if isinstance(research, Mapping)
-        and isinstance(research.get("claim"), str)
-        else "Reproduce and qualify the declared OrcaColony training system."
-    )
+    if (
+        isinstance(research, Mapping)
+        and research.get("format") == "orcacolony_campaign_research_v2"
+    ):
+        question = research.get("question")
+        usage_scenario = research.get("usage_scenario")
+        claim = (
+            f"Usage scenario: {usage_scenario} Research question: {question}"
+            if isinstance(question, str) and isinstance(usage_scenario, str)
+            else "Review the campaign's declared research contract."
+        )
+    else:
+        claim = (
+            research.get("claim")
+            if isinstance(research, Mapping)
+            and isinstance(research.get("claim"), str)
+            else "Reproduce and inspect the declared OrcaColony training system."
+        )
     selected_evaluation = checkpoint.get("evaluation")
     evaluation_text = (
         f"Selected validation mean loss: "
         f"`{selected_evaluation.get('mean_loss')}` at step "
         f"`{selected_evaluation.get('step')}`."
         if isinstance(selected_evaluation, Mapping)
-        else "No repeated behavioral claim is implied by this systems release."
+        else "No built-in validation diagnostic was selected for this release."
+    )
+    campaign_evaluation_text = _campaign_evaluation_markdown(
+        campaign_evaluation
     )
     initial_identity = (
         campaign_lock.get("base_model_sha256")
         or campaign_lock.get("checkpoint_sha256")
     )
     limitations = (
-        promotion_evidence.get("limitations")
-        if isinstance(promotion_evidence, Mapping)
-        else None
+        campaign_evaluation.get("limitations")
+        if isinstance(campaign_evaluation, Mapping)
+        else (
+            promotion_evidence.get("limitations")
+            if isinstance(promotion_evidence, Mapping)
+            else None
+        )
     )
     limitation_lines = (
         "".join(f"- {item}\n" for item in limitations)
@@ -282,21 +366,33 @@ def _model_card(
         and limitations
         and all(isinstance(item, str) and item.strip() for item in limitations)
         else (
-            "- This package has not passed a frozen behavioral capability "
-            "promotion gate.\n"
+            "- No campaign-specific limitation list was supplied with this "
+            "checkpoint release.\n"
         )
     )
-    promotion_text = (
-        "This package includes a release-time language-model holdout diagnostic "
-        "and a declared passing behavioral promotion record."
-        if release_classification == "capability_model"
-        else (
-            "This package includes a reserved language-model holdout result, but "
-            "it does not yet have passing behavioral promotion evidence."
-            if has_language_model_holdout
-            else "This is a systems-evidence checkpoint, not a capability-promoted model."
+    if release_classification == "campaign_result":
+        disposition_text = (
+            "This package includes the campaign owner's evaluation evidence and "
+            "computed metric comparisons. The framework does not assign a pass "
+            "or promotion decision."
         )
-    )
+    elif release_classification == "campaign_checkpoint":
+        disposition_text = (
+            "This package contains a campaign checkpoint without a supplied "
+            "campaign-specific evaluation record."
+        )
+    elif release_classification == "capability_model":
+        disposition_text = (
+            "This historical package includes a release-time language-model "
+            "holdout diagnostic and a legacy passing promotion record."
+        )
+    elif has_language_model_holdout:
+        disposition_text = (
+            "This historical package includes a reserved language-model holdout "
+            "result but no passing legacy promotion record."
+        )
+    else:
+        disposition_text = "This is a systems-evidence checkpoint."
     return (
         "---\n"
         "library_name: orcacolony\n"
@@ -313,7 +409,7 @@ def _model_card(
         f"Repository target: `{model_repo_id}`.\n\n"
         "## Release summary\n\n"
         f"Claim: {claim}\n\n"
-        f"Release classification: `{release_classification}`. {promotion_text}\n\n"
+        f"Release classification: `{release_classification}`. {disposition_text}\n\n"
         f"- Architecture: `{model.get('architecture')}` with "
         f"`{model.get('parameters')}` parameters.\n"
         f"- Objective: `{campaign_metadata.get('objective')}` with "
@@ -330,8 +426,10 @@ def _model_card(
         f"`{dataset_license}`.\n\n"
         "## Evaluation\n\n"
         f"{evaluation_text}\n\n"
-        "The language-model holdout and behavioral promotion records are separate: "
-        "a lower token-prediction loss alone is not proof of useful behavior.\n\n"
+        f"{campaign_evaluation_text}\n\n"
+        "Training diagnostics and the campaign owner's usage evaluation are "
+        "separate records. Review the declared evaluator, inputs, sample-level "
+        "artifacts, and comparisons before drawing a conclusion.\n\n"
         "## Community contributors\n\n"
         f"This checkpoint incorporates `{accepted_assignments}` accepted work "
         f"units covering `{accepted_tokens}` loss-bearing tokens. "
@@ -354,9 +452,13 @@ def _model_card(
         "- `campaign.json` freezes the training contract.\n"
         "- `evaluations.json` contains repeated validation evidence.\n"
         "- `language-model-final-holdout-evaluation.json`, when present, is a "
-        "post-selection language-loss diagnostic, not behavioral proof.\n"
-        "- `promotion-evidence.json`, when present, binds the frozen behavioral "
-        "suite, baseline, artifacts, and reproduction command.\n"
+        "post-selection language-loss diagnostic.\n"
+        "- `campaign-evaluation-evidence.json` and "
+        "`campaign-evaluation-summary.json`, when present, preserve the "
+        "campaign-owner-defined evaluator record, measurements, comparisons, "
+        "findings, limitations, and reproduction command.\n"
+        "- `promotion-evidence.json`, when present, is a legacy v1 campaign "
+        "record retained for historical reproducibility.\n"
         "- `attribution-snapshot.json` and `CONTRIBUTORS.md` preserve release-time credit.\n"
         "- `checkpoint-state.json` and `optimizer.safetensors` preserve the selected "
         "restart trajectory, even though generation needs only the weights.\n"
@@ -406,6 +508,11 @@ def _dataset_card(
         "Read `DATASET-NOTICE.md`, `THIRD_PARTY_DATA.md`, and `manifest.json` before "
         "reuse. Those files identify the upstream source, exact revision, selection, "
         "transformations, and byte/tensor hashes.\n\n"
+        "When the campaign supplied usage-evaluation evidence, "
+        "`campaign-evaluation-evidence.json`, "
+        "`campaign-evaluation-summary.json`, and "
+        "`campaign-evaluation-artifacts/` preserve the declared measurements "
+        "and review files alongside the data.\n\n"
         "## Frozen source and packing\n\n"
         f"- Upstream dataset: `{source.get('dataset')}`.\n"
         f"- Upstream revision: `{source.get('revision')}`.\n"
@@ -501,10 +608,21 @@ def build_huggingface_packages(
     )
     if classification not in {
         "systems_evidence_only",
+        "campaign_checkpoint",
+        "campaign_result",
         "capability_candidate",
         "capability_model",
     }:
         raise ValueError("release classification is invalid")
+    if classification in {"campaign_checkpoint", "campaign_result"}:
+        research = campaign.get("research")
+        if (
+            not isinstance(research, Mapping)
+            or research.get("format") != "orcacolony_campaign_research_v2"
+        ):
+            raise ValueError(
+                "campaign release classification requires a v2 research contract"
+            )
 
     publication = campaign.get("publication")
     if isinstance(publication, Mapping):
@@ -668,6 +786,61 @@ def build_huggingface_packages(
             raise ValueError(
                 "capability model release is missing promotion evidence"
             )
+        campaign_evaluation_path = (
+            release_root / "campaign-evaluation-summary.json"
+        )
+        campaign_evidence_path = (
+            release_root / "campaign-evaluation-evidence.json"
+        )
+        campaign_evaluation_payload: Mapping[str, object] | None = None
+        if campaign_evaluation_path.is_file() and campaign_evidence_path.is_file():
+            if classification != "campaign_result":
+                raise ValueError(
+                    "campaign evaluation evidence requires campaign-result "
+                    "classification"
+                )
+            campaign_evaluation_payload = _load_mapping(
+                campaign_evaluation_path,
+                "campaign evaluation summary",
+            )
+            _copy(
+                campaign_evaluation_path,
+                model_root / campaign_evaluation_path.name,
+            )
+            _copy(
+                campaign_evidence_path,
+                model_root / campaign_evidence_path.name,
+            )
+            _copy(
+                campaign_evaluation_path,
+                dataset_root / campaign_evaluation_path.name,
+            )
+            _copy(
+                campaign_evidence_path,
+                dataset_root / campaign_evidence_path.name,
+            )
+            campaign_artifact_root = (
+                release_root / "campaign-evaluation-artifacts"
+            )
+            if campaign_artifact_root.exists():
+                for relative, source in _regular_file_map(
+                    campaign_artifact_root,
+                    "campaign evaluation artifacts",
+                ).items():
+                    _copy(
+                        source,
+                        model_root / "campaign-evaluation-artifacts" / relative,
+                    )
+                    _copy(
+                        source,
+                        dataset_root / "campaign-evaluation-artifacts" / relative,
+                    )
+        elif campaign_evaluation_path.exists() or campaign_evidence_path.exists():
+            raise ValueError("campaign evaluation release files are incomplete")
+        elif classification == "campaign_result":
+            raise ValueError(
+                "campaign result release is missing campaign evaluation evidence"
+            )
         (model_root / "README.md").write_text(
             _model_card(
                 campaign_id=campaign_id,
@@ -684,6 +857,7 @@ def build_huggingface_packages(
                 dataset_manifest=dataset_manifest,
                 checkpoint=checkpoint,
                 attribution=attribution,
+                campaign_evaluation=campaign_evaluation_payload,
                 promotion_evidence=promotion_payload,
             ),
             encoding="utf-8",

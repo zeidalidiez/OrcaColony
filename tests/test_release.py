@@ -7,12 +7,14 @@ import pytest
 
 from orcacolony import peft
 from orcacolony.artifacts import PackedDataset, build_dataset_artifacts
+from orcacolony.campaign_research import campaign_research_revision
 from orcacolony.campaign_run import CampaignCoordinator
 from orcacolony.multiworker import LeasedGradient
 from orcacolony.participants import ParticipantRegistry
 from orcacolony.peft import load_lora_manifest
 from orcacolony.reference import campaign_from_mapping, load_campaign
 from orcacolony.release import (
+    _copy_campaign_evaluation_artifacts,
     _validate_promotion_evidence,
     build_release_bundle,
     validate_public_dataset_manifest,
@@ -123,6 +125,114 @@ def _promotion_evidence() -> dict[str, object]:
     }
 
 
+def _campaign_research() -> dict[str, object]:
+    return {
+        "format": "orcacolony_campaign_research_v2",
+        "question": "What changed under the owner-supplied usage evaluation?",
+        "usage_scenario": "A test-only owner-defined usage scenario.",
+        "evaluation_contract": {
+            "evaluator": {
+                "id": "test-evaluator",
+                "revision": "7" * 40,
+                "command": ["python", "evaluate.py"],
+            },
+            "artifacts": [
+                {
+                    "id": "test-inputs",
+                    "kind": "dataset",
+                    "revision": "sha256:" + "8" * 64,
+                    "uri": "hf://datasets/OrcaColony/test-inputs@revision",
+                }
+            ],
+            "metrics": [
+                {
+                    "id": "usage-score",
+                    "label": "Usage score",
+                    "description": "Test-only owner-defined usage score.",
+                    "direction": "maximize",
+                    "unit": "ratio",
+                }
+            ],
+        },
+        "analysis_plan": ["Compare the two test evaluation snapshots."],
+    }
+
+
+def _campaign_evidence(
+    research: dict[str, object],
+    *,
+    campaign_id: str,
+    campaign_revision: str,
+    release_checkpoint_sha256: str,
+    initial_artifact_sha256: str,
+    released_artifact_sha256: str,
+) -> dict[str, object]:
+    return {
+        "format": "orcacolony_campaign_evaluation_evidence_v1",
+        "campaign_id": campaign_id,
+        "campaign_revision": campaign_revision,
+        "research_revision": campaign_research_revision(research),
+        "release_evaluation_id": "released",
+        "evaluations": [
+            {
+                "id": "initial",
+                "label": "Initial checkpoint",
+                "subject": {
+                    "id": "initial-model",
+                    "label": "Initial model",
+                    "revision": "9" * 64,
+                },
+                "measurements": [{"metric_id": "usage-score", "value": 0.1}],
+                "artifacts": [
+                    {
+                        "id": "initial-samples",
+                        "sha256": initial_artifact_sha256,
+                        "uri": "bundle:initial-samples.json",
+                    }
+                ],
+            },
+            {
+                "id": "released",
+                "label": "Released checkpoint",
+                "subject": {
+                    "id": "released-model",
+                    "label": "Released model",
+                    "revision": release_checkpoint_sha256,
+                },
+                "measurements": [{"metric_id": "usage-score", "value": 0.2}],
+                "artifacts": [
+                    {
+                        "id": "released-samples",
+                        "sha256": released_artifact_sha256,
+                        "uri": "bundle:released-samples.json",
+                    }
+                ],
+            },
+        ],
+        "comparisons": [
+            {
+                "id": "initial-to-released",
+                "baseline_evaluation_id": "initial",
+                "candidate_evaluation_id": "released",
+                "summary": "Test comparison requested by the campaign owner.",
+            }
+        ],
+        "findings": [
+            {
+                "id": "test-finding",
+                "label": "Test finding",
+                "kind": "improvement",
+                "description": "The declared test score increased by 0.1.",
+            }
+        ],
+        "limitations": ["This is release integration test evidence."],
+        "reproduction": {
+            "command": ["python", "evaluate.py"],
+            "notes": "Run against the bundled test artifacts.",
+        },
+    }
+
+
 def _participants(campaign_id: object) -> ParticipantRegistry:
     worker_ids = ["release-a", "release-b"]
     return ParticipantRegistry.from_payload(
@@ -162,6 +272,65 @@ def test_promotion_evidence_requires_threshold_and_baseline_improvement() -> Non
         checkpoint_sha256="4" * 64,
         dataset_revision="5" * 64,
     )
+
+
+def test_campaign_evaluation_artifact_bundle_fails_closed(
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    sample = artifact_root / "samples.json"
+    sample.write_text('{"sample":"evidence"}\n', encoding="utf-8")
+    evidence = {
+        "evaluations": [
+            {
+                "artifacts": [
+                    {
+                        "id": "samples",
+                        "sha256": hashlib.sha256(sample.read_bytes()).hexdigest(),
+                        "uri": "bundle:samples.json",
+                    }
+                ]
+            }
+        ]
+    }
+    destination = tmp_path / "release-artifacts"
+
+    _copy_campaign_evaluation_artifacts(
+        evidence,
+        artifact_root,
+        destination,
+    )
+    assert (destination / "samples.json").read_bytes() == sample.read_bytes()
+
+    evidence["evaluations"][0]["artifacts"][0]["sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="digest differs"):
+        _copy_campaign_evaluation_artifacts(
+            evidence,
+            artifact_root,
+            tmp_path / "wrong-digest",
+        )
+
+    evidence["evaluations"][0]["artifacts"][0]["sha256"] = hashlib.sha256(
+        sample.read_bytes()
+    ).hexdigest()
+    evidence["evaluations"][0]["artifacts"][0]["uri"] = "bundle:../samples.json"
+    with pytest.raises(ValueError, match="path is unsafe"):
+        _copy_campaign_evaluation_artifacts(
+            evidence,
+            artifact_root,
+            tmp_path / "traversal",
+        )
+
+    linked = artifact_root / "linked.json"
+    linked.symlink_to(sample)
+    evidence["evaluations"][0]["artifacts"][0]["uri"] = "bundle:linked.json"
+    with pytest.raises(ValueError, match="may not contain symlinks"):
+        _copy_campaign_evaluation_artifacts(
+            evidence,
+            artifact_root,
+            tmp_path / "symlink",
+        )
 
 
 @pytest.mark.parametrize(
@@ -234,7 +403,15 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
             "train_sha256": artifact_manifest["files"]["train.safetensors"],
             "validation_sha256": artifact_manifest["files"]["validation.safetensors"],
         },
-        evaluation={"validation_sequences": 4, "batch_size": 2},
+        evaluation={
+            "validation_sequences": 4,
+            "batch_size": 2,
+            "success_gate": {
+                "metric": "mean_loss",
+                "minimum_improvement_from_initialization": 100.0,
+            },
+        },
+        research=_campaign_research(),
     )
     participants = _participants(campaign.campaign["id"])
     coordinator = CampaignCoordinator.create(
@@ -269,6 +446,28 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
     project_license.write_text("MIT test license\n")
     third_party_notice = tmp_path / "THIRD_PARTY_DATA.md"
     third_party_notice.write_text("Test dataset notice\n")
+    evaluation_artifacts = tmp_path / "evaluation-artifacts"
+    evaluation_artifacts.mkdir()
+    initial_samples = evaluation_artifacts / "initial-samples.json"
+    released_samples = evaluation_artifacts / "released-samples.json"
+    initial_samples.write_text('{"score":0.1}\n', encoding="utf-8")
+    released_samples.write_text('{"score":0.2}\n', encoding="utf-8")
+    dashboard = coordinator.dashboard()
+    assert dashboard["evaluation_gate"]["state"] == "failed"
+    selected_evaluation = min(
+        dashboard["evaluations"],
+        key=lambda entry: (entry["mean_loss"], entry["step"]),
+    )
+    evidence = _campaign_evidence(
+        campaign.research,  # type: ignore[arg-type]
+        campaign_id=str(campaign.campaign["id"]),
+        campaign_revision=str(coordinator._lock_payload()["campaign_revision"]),
+        release_checkpoint_sha256=str(selected_evaluation["checkpoint_sha256"]),
+        initial_artifact_sha256=hashlib.sha256(initial_samples.read_bytes()).hexdigest(),
+        released_artifact_sha256=hashlib.sha256(
+            released_samples.read_bytes()
+        ).hexdigest(),
+    )
 
     first = tmp_path / "release-a"
     second = tmp_path / "release-b"
@@ -281,6 +480,8 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
         third_party_notice=third_party_notice,
         public_coordinator_url="https://coordinator.example:443",
         output_dir=first,
+        evaluation_evidence=evidence,
+        evaluation_artifact_root=evaluation_artifacts,
     )
     second_manifest = build_release_bundle(
         campaign,
@@ -291,6 +492,8 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
         third_party_notice=third_party_notice,
         public_coordinator_url="https://coordinator.example:443",
         output_dir=second,
+        evaluation_evidence=evidence,
+        evaluation_artifact_root=evaluation_artifacts,
     )
 
     assert first_manifest == second_manifest
@@ -333,8 +536,19 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
         peft.EXACT_CPU_FP32_PROFILE
     )
     assert first_manifest["dataset_revision"] == dataset.revision
-    assert first_manifest["release_classification"] == "systems_evidence_only"
+    assert first_manifest["release_classification"] == "campaign_result"
     assert first_manifest["language_model_final_holdout_evaluation"] is None
+    assert first_manifest["campaign_evaluation"]["comparisons"][0]["metrics"][0][
+        "absolute_change"
+    ] == pytest.approx(0.1)
+    assert (first / "campaign-evaluation-evidence.json").is_file()
+    assert (first / "campaign-evaluation-summary.json").is_file()
+    assert (
+        first / "campaign-evaluation-artifacts" / "initial-samples.json"
+    ).is_file()
+    assert (
+        first / "campaign-evaluation-artifacts" / "released-samples.json"
+    ).is_file()
     assert first_manifest["files"]
     public_dashboard = json.loads(
         (first / "public-dashboard.json").read_text(encoding="utf-8")

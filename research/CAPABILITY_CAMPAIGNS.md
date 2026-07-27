@@ -1,4 +1,16 @@
-# Capability-campaign contract
+# Historical capability-campaign contract
+
+This document preserves the
+`orcacolony_capability_research_v1` contract used by the Record Patch prototype.
+Its mandatory baseline, thresholds, holdouts, guardrails, checkpoint selection,
+and promotion classification are historical experiment choices. They are not
+the framework for new campaigns.
+
+New campaigns use
+[`CAMPAIGN_FRAMEWORK.md`](CAMPAIGN_FRAMEWORK.md), where the campaign owner
+supplies the usage scenario, evaluator, metrics, comparisons, and decisions.
+The framework validates and publishes those choices without adding a task or a
+pass/fail gate.
 
 Systems evidence answers whether a training mechanism is correct, recoverable,
 or resource-feasible. A capability campaign answers whether a selected model is

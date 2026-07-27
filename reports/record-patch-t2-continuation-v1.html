@@ -43,7 +43,7 @@
 <body>
 <main>
   <div class="eyebrow">OrcaColony / Report 012 / Agent findings</div>
-  <div class="status">NARROW TASK GATE FAILED · NO COMMUNITY CAMPAIGN STARTED</div>
+  <div class="status">HISTORICAL OWNER-OPERATED EXPERIMENT · 0/32 EXACT</div>
   <div class="hero">
     <div>
       <h1>JSON formatting improved. Record editing did not.</h1>
@@ -63,11 +63,11 @@
       <div class="metric"><b class="fail">0 / 32</b>exact patched records</div>
       <div class="metric"><b class="fail">6 / 158</b>expected key-value pairs reproduced</div>
     </div>
-    <p>The language diagnostic selected step 512 without using task behavior. The task gate required at least one additional exact public record and did not pass. Neither reserved final holdout was opened.</p>
+    <p>The language diagnostic selected step 512 without using the usage metric. Under this experiment's predeclared criteria, the result did not pass. Neither reserved final holdout was opened.</p>
   </section>
 
   <section>
-    <h2>What this benchmark measures</h2>
+    <h2>What this evaluation measures</h2>
     <p>Record Patch v1 represents one practical operation: take a flat JSON record, apply ordered <code>SET</code>, <code>DELETE</code>, and <code>RENAME</code> instructions, then emit the exact canonical result. Exact match is intentionally strict because a missing field, wrong value, duplicate key, or unapplied operation makes a transformed record unusable.</p>
     <table>
       <thead>
@@ -182,26 +182,20 @@
   </section>
 
   <section>
-    <h2>My next experiment</h2>
-    <p>The most informative next comparison is an answer-only causal loss mask from the same initialization for 512 steps. The model, tokenizer, generated examples, data order, batch size, AdamW settings, learning rate, decoding, milestones, and exact task evaluator should remain fixed.</p>
-    <p>This tests one concrete hypothesis: the all-token objective may spend too much of the small training budget predicting the prompt instead of learning the output transformation. Insufficient exposure remains possible because the run covered less than half an epoch, but simply extending the same objective again would not isolate that question.</p>
-    <ol>
-      <li>Add and test an explicit answer-token mask in the packed dataset and objective contract.</li>
-      <li>Freeze the comparison before training and use public validation only.</li>
-      <li>Keep both reserved final holdouts closed.</li>
-      <li>Do not request community compute until a local recipe produces exact public task matches.</li>
-    </ol>
+    <h2>Historical follow-up hypothesis</h2>
+    <p>At the time of analysis, I proposed an answer-only causal loss comparison from the same initialization as one way to isolate whether prompt-token loss consumed too much of the small training budget. That was an agent hypothesis about this experiment, not a decision about OrcaColony's next campaign.</p>
+    <p>A future campaign owner may choose that comparison, choose a different experiment, or leave Record Patch closed. The framework does not make that choice.</p>
   </section>
 
   <section>
-    <h2>Public verification and credit</h2>
-    <p>This page is my interpretation as the software agent that ran and analyzed the control. The planned Hugging Face benchmark repository is the public verification surface: frozen data, split policy, runnable evaluator, simple reference scores, exact revisions, and score files. A model result should bind an exact model revision to that benchmark revision and lead with its narrow task score.</p>
+    <h2>Public evidence and credit</h2>
+    <p>This page is my interpretation as the software agent that ran and analyzed the control. If published on Hugging Face, the research record should include the exact model and data revisions, runnable evaluator, score files, sample outputs, and limitations. This experiment does not imply a separate benchmark product.</p>
     <p>This run was owner-operated local qualification, not a community campaign. It claims no community contribution. When community campaigns begin, accepted work and contributor-approved names, pseudonyms, anonymous entries, totals, and hardware details belong with each campaign release.</p>
   </section>
 
   <section>
     <h2>Files and reproduction</h2>
-    <p><a href="evidence/record-patch-t2-continuation-v1.json">Complete agent analysis and all public sample outputs</a> · <a href="../capability/record-patch-v1/continuation-protocol.json">Frozen continuation protocol</a> · <a href="../capability/record-patch-v1/behavioral-validation.jsonl">Public benchmark cases</a> · <a href="../campaign/record-patch-t2-v1.json">Campaign</a> · <a href="../src/orcacolony/record_patch_continuation.py">Runner source</a> · <a href="../src/orcacolony/record_patch_continuation_analysis.py">Analysis source</a></p>
+    <p><a href="evidence/record-patch-t2-continuation-v1.json">Complete agent analysis and all public sample outputs</a> · <a href="../capability/record-patch-v1/continuation-protocol.json">Frozen continuation protocol</a> · <a href="../capability/record-patch-v1/behavioral-validation.jsonl">Public evaluation cases</a> · <a href="../campaign/record-patch-t2-v1.json">Campaign</a> · <a href="../src/orcacolony/record_patch_continuation.py">Runner source</a> · <a href="../src/orcacolony/record_patch_continuation_analysis.py">Analysis source</a></p>
     <table>
       <tbody>
         <tr><th>Selected model</th><td><code>4c224ecc8e5f395c42876d21d47084ae704e208974c4374c8669c947afad02a8</code></td></tr>
@@ -230,7 +224,7 @@ uv run python -m orcacolony.record_patch_continuation \
   --output reports/evidence/record-patch-t2-continuation-v1.json</pre>
   </section>
 
-  <footer>OrcaColony Report 012 · 2026-07-26 · Agent findings from a failed narrow task-benchmark control</footer>
+  <footer>OrcaColony Report 012 · 2026-07-26 · Agent findings from a historical owner-operated evaluation</footer>
 </main>
 </body>
 </html>

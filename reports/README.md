@@ -7,22 +7,24 @@ Open [`index.html`](index.html) in a browser to browse published reports.
 ## Reporting boundary
 
 These pages are agent-authored research findings. They state what was run, what
-was observed, how the agent interprets it, and what should be tested next. They
-are not an independent certification of model quality.
+was observed, and how the reporting agent interprets the supplied evidence.
+They are not an independent certification of model quality and must not fill in
+campaign choices that the owner did not make.
 
-For a task benchmark, the public verification record belongs with the
-Hugging Face dataset, evaluator, model revision, and score files. For a
-community campaign, accepted-work records and contributor-approved credit
-belong with that campaign's release. Local report checksums make the findings
-auditable, but do not turn a narrow task score into evidence of general
-intelligence.
+For a campaign result, the public research record belongs with the exact
+Hugging Face model and data revisions, the campaign-owner-defined evaluator,
+score files, bundled evidence, limitations, accepted-work records, and
+contributor-approved credit. Local report checksums make the findings auditable,
+but do not make the reporting agent the owner of the campaign.
 
 ## Two parallel tracks
 
 1. **Method engineering (P5–P7)** continues through bounded, runnable experiments. It does not wait for time-consuming human campaign review.
-2. **Practical campaigns** remain human-directed. The campaign owner chooses the use case, data, examples, rubric, checkpoint interpretation, and promotion decision.
+2. **Practical campaigns** remain owner-directed. The campaign owner chooses the use case, data, examples, rubric, checkpoint interpretation, decision criteria, and next campaign.
 
-Automation may collect measurements, verify revisions, render comparisons, and preserve reproduction commands. It must not silently decide that a model is useful, promote a checkpoint, or replace human interpretation of examples.
+Automation may collect measurements, verify revisions, render owner-requested
+comparisons, and preserve reproduction commands. It must not silently choose a
+task, metric, threshold, model decision, or next experiment.
 
 ## Report requirements
 
@@ -50,31 +52,32 @@ Human-directed campaigns add reports for:
 
 P5–P7 systems reports may be published before those campaign reviews are complete, but must label systems evidence separately from practical model-quality evidence.
 
-Start each practical model report from
-[`CAPABILITY_REPORT_TEMPLATE.md`](CAPABILITY_REPORT_TEMPLATE.md). It requires
-baseline/checkpoint output deltas, bucketed errors, optimizer diagnostics,
-memorization and forgetting checks, contributor-approved attribution, exact
-artifacts, environment capture, and Hub commit revisions.
+Start each new campaign report from
+[`CAMPAIGN_REPORT_TEMPLATE.md`](CAMPAIGN_REPORT_TEMPLATE.md). It requires the
+reporting agent to identify owner-defined fields, measured comparisons,
+training diagnostics, contributor-approved attribution, exact artifacts,
+environment capture, and Hub commit revisions without filling in missing
+campaign decisions.
 
-The existing code uses the term `capability` for its promotion records. In
-reports, that term is limited to the declared use case and benchmark. A Record
-Patch result supports only a claim about applying Record Patch operations.
+The older
+[`CAPABILITY_REPORT_TEMPLATE.md`](CAPABILITY_REPORT_TEMPLATE.md) filename is
+retained only for historical Record Patch links.
 
-The first practical task record is
+The retained Record Patch initialization record is
 [`record-patch-t2-baseline.html`](record-patch-t2-baseline.html). It retains the
 zero-exact-match initialization result, sample outputs, withheld-holdout
 boundary, and byte-identical reproduction under the supported Python 3.11
 runtime before any training.
 
-The first training-effect record is
+The first Record Patch training-effect record is
 [`record-patch-t2-learnability-v1.html`](record-patch-t2-learnability-v1.html).
-It preserves the failed 128-step public learnability gate, all checkpoint
+It preserves the failed 128-step experiment criterion, all checkpoint
 outputs, prompt and answer diagnostics, optimizer measurements, train-to-public
-similarity checks, resource use, and the decision to keep volunteer training
-blocked while a same-trajectory continuation was tested.
+similarity checks, resource use, and the subsequent same-trajectory
+continuation.
 
 The continuation findings are
 [`record-patch-t2-continuation-v1.html`](record-patch-t2-continuation-v1.html).
 They record the rise to `30/32` strict canonical JSON alongside `0/32` exact
-and semantic record matches, distinguish task scoring from language
-diagnostics, and select an answer-only objective as the next isolated control.
+and semantic record matches and distinguish the experiment's usage metric from
+language diagnostics. They do not select the project's next campaign.

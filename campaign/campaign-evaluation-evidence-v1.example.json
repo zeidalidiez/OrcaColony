@@ -1,0 +1,79 @@
+{
+  "campaign_id": "REPLACE-WITH-CAMPAIGN-ID",
+  "campaign_revision": "REPLACE-WITH-CAMPAIGN-SHA256",
+  "comparisons": [
+    {
+      "baseline_evaluation_id": "replace-with-first-evaluation-id",
+      "candidate_evaluation_id": "replace-with-second-evaluation-id",
+      "id": "replace-with-comparison-id",
+      "summary": "REPLACE with a factual description of why these records are being compared."
+    }
+  ],
+  "evaluations": [
+    {
+      "artifacts": [
+        {
+          "id": "replace-with-sample-results-id",
+          "sha256": "REPLACE-WITH-FILE-SHA256",
+          "uri": "bundle:REPLACE-WITH-RELATIVE-FILE"
+        }
+      ],
+      "id": "replace-with-first-evaluation-id",
+      "label": "REPLACE with a reader-facing label",
+      "measurements": [
+        {
+          "metric_id": "replace-with-declared-metric-id",
+          "value": 0
+        }
+      ],
+      "subject": {
+        "id": "replace-with-subject-id",
+        "label": "REPLACE with the exact evaluated model or checkpoint",
+        "revision": "REPLACE-WITH-EXACT-SUBJECT-REVISION"
+      }
+    },
+    {
+      "artifacts": [
+        {
+          "id": "replace-with-release-results-id",
+          "sha256": "REPLACE-WITH-FILE-SHA256",
+          "uri": "bundle:REPLACE-WITH-RELATIVE-FILE"
+        }
+      ],
+      "id": "replace-with-second-evaluation-id",
+      "label": "REPLACE with a reader-facing label",
+      "measurements": [
+        {
+          "metric_id": "replace-with-declared-metric-id",
+          "value": 0
+        }
+      ],
+      "subject": {
+        "id": "replace-with-release-subject-id",
+        "label": "REPLACE with the released checkpoint",
+        "revision": "REPLACE-WITH-RELEASE-CHECKPOINT-SHA256"
+      }
+    }
+  ],
+  "findings": [
+    {
+      "description": "REPLACE with a finding supported by the attached evidence.",
+      "id": "replace-with-finding-id",
+      "kind": "inconclusive",
+      "label": "REPLACE with a reader-facing finding"
+    }
+  ],
+  "format": "orcacolony_campaign_evaluation_evidence_v1",
+  "limitations": [
+    "REPLACE with a concrete limitation."
+  ],
+  "release_evaluation_id": "replace-with-second-evaluation-id",
+  "reproduction": {
+    "command": [
+      "python",
+      "REPLACE-WITH-EVALUATOR"
+    ],
+    "notes": "REPLACE with the exact environment and invocation notes."
+  },
+  "research_revision": "REPLACE-WITH-RESEARCH-CONTRACT-SHA256"
+}

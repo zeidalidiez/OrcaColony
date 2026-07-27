@@ -16,6 +16,7 @@ from safetensors.torch import load as load_safetensors
 from safetensors.torch import load_file as load_safetensors_file
 
 from .artifacts import PackedDataset
+from .campaign_research import build_campaign_evaluation_summary
 from .campaign_run import CampaignCoordinator
 from .multiworker import (
     _campaign_payload,
@@ -288,6 +289,78 @@ def _copy_public_file(source: Path, destination: Path) -> None:
         raise ValueError(f"release input must be a regular file: {source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, destination)
+
+
+def _copy_campaign_evaluation_artifacts(
+    evidence: Mapping[str, object],
+    artifact_root: Path | None,
+    destination: Path,
+) -> None:
+    evaluations = evidence.get("evaluations")
+    if not isinstance(evaluations, list):
+        raise ValueError("campaign evaluation evidence evaluations are invalid")
+    copied: dict[str, str] = {}
+    for evaluation in evaluations:
+        if not isinstance(evaluation, Mapping):
+            raise ValueError("campaign evaluation evidence evaluation is invalid")
+        artifacts = evaluation.get("artifacts")
+        if not isinstance(artifacts, list):
+            raise ValueError("campaign evaluation evidence artifacts are invalid")
+        for artifact in artifacts:
+            if not isinstance(artifact, Mapping):
+                raise ValueError("campaign evaluation evidence artifact is invalid")
+            uri = artifact.get("uri")
+            if not isinstance(uri, str) or not uri.startswith("bundle:"):
+                continue
+            if artifact_root is None:
+                raise ValueError(
+                    "bundled campaign evaluation artifacts require an artifact root"
+                )
+            raw_relative = uri.removeprefix("bundle:")
+            relative = Path(raw_relative)
+            if (
+                relative.is_absolute()
+                or raw_relative.startswith(("/", "\\"))
+                or "\\" in raw_relative
+                or not relative.parts
+                or any(part in {"", ".", ".."} for part in relative.parts)
+            ):
+                raise ValueError("campaign evaluation artifact path is unsafe")
+            unresolved = artifact_root / relative
+            if any(
+                candidate.is_symlink()
+                for candidate in (
+                    artifact_root.joinpath(*relative.parts[:index])
+                    for index in range(1, len(relative.parts) + 1)
+                )
+            ):
+                raise ValueError(
+                    "campaign evaluation artifact path may not contain symlinks"
+                )
+            source = unresolved.resolve()
+            if (
+                not source.is_relative_to(artifact_root)
+                or not source.is_file()
+                or source.is_symlink()
+            ):
+                raise ValueError(
+                    f"campaign evaluation artifact is missing: {raw_relative}"
+                )
+            expected_sha256 = artifact.get("sha256")
+            if not _is_sha256(expected_sha256) or _sha256_file(source) != (
+                expected_sha256
+            ):
+                raise ValueError(
+                    f"campaign evaluation artifact digest differs: {raw_relative}"
+                )
+            relative_name = relative.as_posix()
+            previous = copied.get(relative_name)
+            if previous is not None and previous != expected_sha256:
+                raise ValueError(
+                    "campaign evaluation artifact path has conflicting digests"
+                )
+            copied[relative_name] = str(expected_sha256)
+            _copy_public_file(source, destination / relative)
 
 
 def _validate_promotion_evidence(
@@ -710,21 +783,32 @@ def build_release_bundle(
     third_party_notice: str | Path,
     public_coordinator_url: str | None,
     output_dir: str | Path,
+    evaluation_evidence: Mapping[str, object] | None = None,
+    evaluation_artifact_root: str | Path | None = None,
     promotion_evidence: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     coordinator.validate_evaluation_authority()
+    if evaluation_artifact_root is not None and evaluation_evidence is None:
+        raise ValueError(
+            "campaign evaluation artifact root requires evaluation evidence"
+        )
     dashboard = coordinator.dashboard()
     if dashboard["campaign"]["state"] != "campaign_complete":
         raise ValueError("release bundle requires a completed campaign")
-    evaluation_gate = dashboard.get("evaluation_gate")
-    if (
-        isinstance(evaluation_gate, Mapping)
-        and evaluation_gate.get("state") != "passed"
-    ):
-        raise ValueError("release bundle requires the declared evaluation gate to pass")
 
     dataset_root = Path(dataset_root).resolve()
     browser_root = Path(browser_root).resolve()
+    artifact_root = (
+        Path(evaluation_artifact_root).resolve()
+        if evaluation_artifact_root is not None
+        else None
+    )
+    if artifact_root is not None and (
+        artifact_root.is_symlink() or not artifact_root.is_dir()
+    ):
+        raise ValueError(
+            "campaign evaluation artifact root must be a regular directory"
+        )
     if public_coordinator_url is not None:
         public_coordinator_url = normalize_http_origin(public_coordinator_url)
     dataset = coordinator.dataset
@@ -735,7 +819,10 @@ def build_release_bundle(
         raise ValueError("release dataset revision does not match the campaign")
 
     output_dir = Path(output_dir).resolve()
-    for input_root in (dataset_root, browser_root, coordinator.state_dir.resolve()):
+    input_roots = [dataset_root, browser_root, coordinator.state_dir.resolve()]
+    if artifact_root is not None:
+        input_roots.append(artifact_root)
+    for input_root in input_roots:
         if output_dir.is_relative_to(input_root):
             raise ValueError("release output may not be inside an input directory")
     if output_dir.exists():
@@ -1064,14 +1151,55 @@ def build_release_bundle(
             )
             if copied_model_sha256 != checkpoint_sha256:
                 raise ValueError("copied release checkpoint digest is inconsistent")
-        capability_contract = (
+        legacy_capability_contract = (
             campaign.research is not None
             and campaign.research.get("format")
             == "orcacolony_capability_research_v1"
         )
+        campaign_research_contract = (
+            campaign.research is not None
+            and campaign.research.get("format")
+            == "orcacolony_campaign_research_v2"
+        )
+        if evaluation_evidence is not None and promotion_evidence is not None:
+            raise ValueError(
+                "release accepts either campaign evaluation evidence or legacy "
+                "promotion evidence, not both"
+            )
+        campaign_evaluation_summary: Mapping[str, object] | None = None
+        if campaign_research_contract:
+            if promotion_evidence is not None:
+                raise ValueError(
+                    "campaign research releases do not use promotion evidence"
+                )
+            if evaluation_evidence is not None:
+                campaign_evaluation_summary = build_campaign_evaluation_summary(
+                    campaign.research,
+                    evaluation_evidence,
+                    campaign_id=str(campaign.campaign["id"]),
+                    campaign_revision=str(lock["campaign_revision"]),
+                    release_checkpoint_sha256=checkpoint_sha256,
+                )
+                _write_json(
+                    temporary / "campaign-evaluation-evidence.json",
+                    evaluation_evidence,
+                )
+                _write_json(
+                    temporary / "campaign-evaluation-summary.json",
+                    campaign_evaluation_summary,
+                )
+                _copy_campaign_evaluation_artifacts(
+                    evaluation_evidence,
+                    artifact_root,
+                    temporary / "campaign-evaluation-artifacts",
+                )
+        elif evaluation_evidence is not None:
+            raise ValueError(
+                "campaign evaluation evidence requires a campaign research contract"
+            )
         final_holdout_evaluation: Mapping[str, object] | None = None
         promotion_passed = False
-        if capability_contract:
+        if legacy_capability_contract:
             final_holdout_evaluation = (
                 evaluate_lora_final_holdout(
                     lora,
@@ -1143,8 +1271,15 @@ def build_release_bundle(
                 "selection. Behavioral promotion is separate and requires "
                 "`promotion-evidence.json`.\n\n"
                 if final_holdout_evaluation is not None
-                else "- This is a systems-evidence release, not a capability-promoted "
-                "model; it has no release-time language-model holdout result.\n\n"
+                else (
+                    "- `campaign-evaluation-evidence.json` and "
+                    "`campaign-evaluation-summary.json` record the campaign "
+                    "owner's declared evaluation and comparisons. They do not "
+                    "impose a framework success gate.\n\n"
+                    if campaign_evaluation_summary is not None
+                    else "- No campaign-specific evaluation evidence was supplied "
+                    "to this release.\n\n"
+                )
             )
             + "Serve `site/` from an HTTPS static origin. Its mutable coordinator origin "
             "is pinned in `site/index.html`; rebuild with `--public-coordinator-url` "
@@ -1193,14 +1328,23 @@ def build_release_bundle(
                 if promotion_passed
                 else (
                     "capability_candidate"
-                    if capability_contract
-                    else "systems_evidence_only"
+                    if legacy_capability_contract
+                    else (
+                        "campaign_result"
+                        if campaign_evaluation_summary is not None
+                        else (
+                            "campaign_checkpoint"
+                            if campaign_research_contract
+                            else "systems_evidence_only"
+                        )
+                    )
                 )
             ),
             "checkpoint": checkpoint_manifest,
             "language_model_final_holdout_evaluation": (
                 final_holdout_evaluation
             ),
+            "campaign_evaluation": campaign_evaluation_summary,
             "files": payload_files,
         }
         _write_json(temporary / "release-manifest.json", release_manifest)
@@ -1243,6 +1387,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path("THIRD_PARTY_DATA.md"),
     )
     parser.add_argument("--public-coordinator-url")
+    parser.add_argument("--evaluation-evidence", type=Path)
+    parser.add_argument("--evaluation-artifacts", type=Path)
     parser.add_argument("--promotion-evidence", type=Path)
     parser.add_argument(
         "--numerical-profile",
@@ -1288,6 +1434,12 @@ def main() -> None:
         third_party_notice=args.third_party_notice,
         public_coordinator_url=args.public_coordinator_url,
         output_dir=args.output,
+        evaluation_evidence=(
+            json.loads(args.evaluation_evidence.read_text(encoding="utf-8"))
+            if args.evaluation_evidence is not None
+            else None
+        ),
+        evaluation_artifact_root=args.evaluation_artifacts,
         promotion_evidence=(
             json.loads(args.promotion_evidence.read_text(encoding="utf-8"))
             if args.promotion_evidence is not None

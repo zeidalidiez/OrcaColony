@@ -1,6 +1,23 @@
 # OrcaColony
 
-OrcaColony is a volunteer-compute framework and reproducible research vehicle for community model training. Its proven local systems path accumulates independent, bounded contributions against one canonical checkpoint; active studies evaluate PEFT, local offload, partial-model work, tiled recovery, and sparse experts. Task-benchmark infrastructure proceeds as a parallel track: every promoted model must have a fixed use case, versioned behavioral baseline and suite, positive baseline improvement, separately reserved language-loss and behavioral holdouts, training-effect analysis, contributor attribution snapshot, and reproducible Hugging Face model and dataset packages. Each score supports only its declared task claim, not a general-intelligence claim. The Milestone 0 through Milestone 3 reference, browser, multi-worker, persistent campaign, trusted-participant, live dashboard, evaluation, and operational-release paths described in [SPEC.md](SPEC.md) are runnable. A bounded local T1 preflight exercises the Milestone 4 system profile through 12 real-data optimizer steps. The first T2 benchmark, evaluator, supported-runtime baseline, and two negative training-effect results are complete, but public Hub benchmark/model publication and a remote trusted-participant campaign remain incomplete.
+OrcaColony is a volunteer-compute framework and reproducible research vehicle
+for community model training. It accumulates independent, bounded
+contributions against one canonical checkpoint and preserves accepted-work
+credit. Active systems studies evaluate PEFT, local offload, partial-model work,
+tiled recovery, and sparse experts.
+
+The framework does not choose what a campaign should train or measure. When a
+campaign is created, its owner supplies the model, data, training recipe, usage
+scenario, evaluator, metrics, comparisons, interpretation criteria, publication
+targets, and next-step decisions. OrcaColony validates revisions, runs the
+declared training machinery, records evidence, computes only the requested
+metric deltas, packages the result whether positive or negative, and preserves
+contributor-approved credit.
+
+The Milestone 0 through Milestone 3 reference, browser, multi-worker,
+persistent-campaign, trusted-participant, dashboard, evaluation, and release
+paths described in [SPEC.md](SPEC.md) are runnable. A bounded local T1 preflight
+exercises the Milestone 4 system profile through 12 real-data optimizer steps.
 
 See [PROGRESS_REPORT.md](PROGRESS_REPORT.md) for the current build position, completed work, blockers, priority order, and immediate bounded target. Browse [reports/index.html](reports/index.html) for human-readable findings, comparisons, limitations, and next-iteration decisions.
 
@@ -29,28 +46,31 @@ uv run python -m orcacolony.research record \
   --output .artifacts/p1-research-contract-result
 ```
 
-The command fails closed on malformed or unlinked inputs and atomically produces canonical source manifests, captured environment provenance, digest-verified snapshots of committed `repo:` evidence, explicit unresolved-artifact warnings, `result.json`, a readable `RESULT.md`, and `SHA256SUMS`. Validated and promoted outcomes must pass the study's fixed use-case metric and every guardrail; rejected and inconclusive records retain their findings and limitations.
+The command fails closed on malformed or unlinked inputs and atomically produces canonical source manifests, captured environment provenance, digest-verified snapshots of committed `repo:` evidence, explicit unresolved-artifact warnings, `result.json`, a readable `RESULT.md`, and `SHA256SUMS`. This older study recorder remains the systems-method evidence path.
 
 Machine-readable research records remain under `research/`. The separate root [`reports/`](reports/) directory publishes self-contained HTML for human interpretation. P5–P7 method engineering continues through bounded executable studies while slower owner-directed data, example, checkpoint, and practical-quality review proceeds in parallel.
 
-Task-model promotion uses the stricter contract currently named
-[`research/CAPABILITY_CAMPAIGNS.md`](research/CAPABILITY_CAMPAIGNS.md). Hub
-repository layout, credential handling, deterministic packaging, and explicit
-publication are documented in [`HUGGINGFACE.md`](HUGGINGFACE.md).
+New training campaigns use the neutral
+[`research/CAMPAIGN_FRAMEWORK.md`](research/CAMPAIGN_FRAMEWORK.md) contract.
+It accepts the campaign owner's evaluator, metrics, evidence, and comparisons
+without inserting a task or a pass/fail gate. Hub repository layout, credential
+handling, deterministic packaging, and explicit publication are documented in
+[`HUGGINGFACE.md`](HUGGINGFACE.md).
 
 The HTML pages under `reports/` are agent-authored findings and interpretation.
-The runnable Hugging Face benchmark, exact model revision, evaluator output,
-and campaign contribution record are the public verification surface.
+The exact model and data revisions, declared evaluator, score files, bundled
+evidence, campaign contribution record, and limitations are the public research
+record.
 
-## First task benchmark
+## Historical Record Patch prototype
 
 [`capability/record-patch-v1/TASK.md`](capability/record-patch-v1/TASK.md)
-defines the first true-T2 task. A 17,538,816-parameter decoder must apply ordered
+records a completed owner-operated prototype. A 17,538,816-parameter decoder
+was evaluated on applying ordered
 `SET`, `DELETE`, and `RENAME` operations to flat JSON records and emit the exact
-canonical result. The task has deterministic CC0 data, a public 32-example
-behavioral-validation suite, a separately keyed 128-example final holdout, an
-exact sample-level evaluator, fixed thresholds, contributor intake, and
-private-first Hugging Face destinations.
+canonical result. The experiment retained deterministic CC0 data, a public
+32-example evaluation set, an exact sample-level evaluator, and two negative
+training-effect results.
 
 The measured random initialization scored `0/32` exact and `2/32` valid JSON.
 Read [`reports/record-patch-t2-baseline.html`](reports/record-patch-t2-baseline.html)
@@ -72,13 +92,13 @@ now fixed in
 [`capability/record-patch-v1/continuation-protocol.json`](capability/record-patch-v1/continuation-protocol.json):
 it resumes the exact step-128 model, optimizer, and data cursor and evaluates
 total steps 128, 256, and 512 before any objective or learning-rate change.
-That continuation also failed the task gate. Step 512 reduced public language
+Under that experiment's predeclared criteria, the continuation did not pass.
+Step 512 reduced public language
 loss to `1.2297` and produced strict canonical JSON on `30/32` cases, but
 remained `0/32` exact and `0/32` semantic record matches. Added exposure learned
-output form, not the ordered record edit. The next isolated recipe comparison
-is an answer-only loss mask with the model, data, order, optimizer, learning
-rate, decoding, and task evaluator held fixed. A community campaign remains
-blocked. Read
+output form, not the ordered record edit. The repository does not treat that
+result as the default task, metric, gate, or next experiment for a future
+campaign. Read
 [`reports/record-patch-t2-learnability-v1.html`](reports/record-patch-t2-learnability-v1.html)
 for the first run and
 [`reports/record-patch-t2-continuation-v1.html`](reports/record-patch-t2-continuation-v1.html)
@@ -165,7 +185,7 @@ This establishes connected adapter-only coordination, not reduced frozen-base ex
 
 ## Persistent multi-step campaign
 
-The campaign runner automatically promotes each completed global step, versions its checkpoint, opens the next round with the preserved optimizer and dataset cursor, and rebuilds a campaign-wide accepted-work ledger:
+The campaign runner automatically advances each completed global step, versions its checkpoint, opens the next round with the preserved optimizer and dataset cursor, and rebuilds a campaign-wide accepted-work ledger:
 
 ```bash
 uv run python -m orcacolony.campaign_run \
