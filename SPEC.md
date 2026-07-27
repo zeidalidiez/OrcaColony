@@ -985,6 +985,52 @@ attribution snapshot. Public acknowledgment files are generated from the
 accepted ledger and the release-time credit-profile snapshot, not maintained by
 hand.
 
+### 16.4 Auxiliary contribution ledger
+
+Accepted direct-training work remains derived from the coordinator ledger.
+Participant role labels are not evidence that data curation, evaluator
+construction, review, hosting, or other auxiliary work occurred.
+
+Before release, the campaign owner may supply a separate private
+`orcacolony_auxiliary_contributions_v1` ledger. It binds the exact campaign ID
+and campaign revision and requires an explicit owner-reviewed state. A reviewed
+ledger may contain an empty contributor list when the owner determined that no
+auxiliary work occurred. An omitted ledger is recorded as `not_supplied`; it is
+not interpreted as an empty ledger.
+
+Every auxiliary contribution records:
+
+- a private stable contributor ID;
+- confirmed named, pseudonymous, or anonymous public-credit choices;
+- separate permissions to publish the work details, time, and hardware;
+- optional person-time seconds, compute-time seconds, and hardware
+  descriptions;
+- an owner-defined work kind and factual description;
+- a `completed`, `partial`, or `failed_informative` disposition;
+- one or more evidence URIs and lowercase SHA-256 identities.
+
+The disposition describes the auxiliary work record only.
+`failed_informative` does not represent an accepted training assignment,
+optimizer input, or claim of model improvement.
+
+Local evidence uses a confined `bundle:` path. Preflight and release verify all
+bundled bytes, including evidence that remains private. The public release
+copies only evidence attached to contribution details the contributor approved
+for publication. External URIs remain digest-bearing declared references and
+are not described as locally verified.
+
+The generated `auxiliary-contribution-snapshot.json` binds the reviewed source
+ledger digest, campaign revision, exact released checkpoint and step, aggregate
+counts, public identities, approved resource disclosure, and evidence
+verification state. Private contributor IDs, private resource details, and
+withheld evidence do not enter the snapshot. `CONTRIBUTORS.md` presents direct
+training and auxiliary credit in separate sections.
+
+Private Hugging Face review packages may expose a `not_supplied` warning. Public
+Hugging Face packaging requires an owner-reviewed populated or explicitly
+empty auxiliary ledger so a missing record cannot be presented as proof that no
+one donated auxiliary time or hardware.
+
 ---
 
 ## 17. Campaign configuration
@@ -1154,6 +1200,7 @@ The generated `README.md` model card visibly states:
 - Intended uses and limitations.
 - Model and dataset licenses.
 - Total contributor count and a direct acknowledgment link.
+- Separately reviewed auxiliary-contributor and contribution counts.
 
 The corpus link belongs near the top of the model card rather than being buried in a provenance appendix.
 
@@ -1162,6 +1209,11 @@ The corpus link belongs near the top of the model card rather than being buried 
 Every release model card includes a visible `Community contributors` section thanking all contributors. It links to `CONTRIBUTORS.md`, which contains every opted-in public name or pseudonym and explicitly counts anonymous contributors.
 
 A release must not omit a contributor merely because their contribution was small. Any accepted direct-training work included in the released checkpoint is eligible for acknowledgment according to that contributor's chosen credit profile.
+
+Auxiliary contributors are acknowledged from the separate owner-reviewed
+ledger. Their work, time, hardware, and evidence are shown only under their
+confirmed public disclosure choices and are never added to accepted
+direct-training token totals.
 
 ### 18.3 Required release files
 
@@ -1190,6 +1242,8 @@ model/
   promotion-evidence.json                        # legacy v1 when present
   public-ledger.json
   attribution-snapshot.json
+  auxiliary-contribution-snapshot.json
+  auxiliary-contribution-artifacts/              # approved verified files
   dataset-manifest.json
   THIRD_PARTY_DATA.md
   orcacolony-release.json
@@ -1209,6 +1263,8 @@ dataset/
   campaign-evaluation-artifacts/     # verified bundle: files
   THIRD_PARTY_DATA.md
   attribution-snapshot.json
+  auxiliary-contribution-snapshot.json
+  auxiliary-contribution-artifacts/  # approved verified files
   orcacolony-release.json
   release-SHA256SUMS
 
@@ -1227,6 +1283,8 @@ site/
 public-dashboard.json
 public-ledger.json
 attribution-snapshot.json
+auxiliary-contribution-snapshot.json
+auxiliary-contribution-artifacts/
 CONTRIBUTORS.md
 release-manifest.json
 SHA256SUMS
@@ -1497,8 +1555,15 @@ Version 0.1 is complete when:
 9. Accepted contributions are tracked by opaque contributor ID, chosen public attribution, and checkpoint.
 10. Fixed one-step and fixed-K-step distributed fixtures satisfy the frozen numerical parity profile; campaign loss curves are an additional health signal.
 11. The final model card directly links the exact training corpus or dataset revision and source manifest.
-12. The Hugging Face release visibly thanks all contributors, lists every opted-in contributor in `CONTRIBUTORS.md`, and counts anonymous contributors.
-13. The final or best checkpoint, campaign manifest, dataset manifest, evaluations, code revision, attribution snapshot, and contribution ledger are published.
+12. The Hugging Face release visibly thanks all direct-training and
+    owner-reviewed auxiliary contributors, lists every opted-in public
+    contributor in `CONTRIBUTORS.md`, and counts anonymous contributors in each
+    separate record.
+13. The owner-reviewed auxiliary ledger may be explicitly empty, but a missing
+    auxiliary record cannot enter a public Hugging Face package.
+14. The owner-selected checkpoint, campaign manifest, dataset manifest,
+    evaluations, code revision, attribution snapshots, and public contribution
+    records are published.
 
 ---
 
@@ -1547,7 +1612,10 @@ This sequence separates infrastructure validation from claims of model usefulnes
 10. **Every released model includes reproducible campaign and contribution provenance.**
 11. **Contributors control how they are credited.** Named, pseudonymous, linked, team-based, and anonymous attribution are supported.
 12. **The model page directly names and links the training corpus.** Dataset sources, revisions, licenses, and preprocessing are visible.
-13. **Every accepted contributor is thanked.** The model card links to a complete generated acknowledgment file rather than recognizing only top contributors.
+13. **Every accepted or owner-reviewed contributor is thanked.** The model card
+    links to a complete generated acknowledgment file rather than recognizing
+    only top contributors, while keeping direct-training and auxiliary work
+    separate.
 14. **Working software and runnable experiments precede broad process.** Tests and documentation stay bounded to the active milestone or study and expand only in response to demonstrated needs.
 15. **Community participation is incremental and transient.** The design does not assume that contributors dedicate permanent workers or remain online together.
 16. **GPU VRAM is not the permanent model-size boundary.** Qualified native profiles may use system RAM and explicit local-storage offload; uncontrolled swapping is not a profile.

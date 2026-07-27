@@ -16,6 +16,15 @@ from safetensors.torch import load as load_safetensors
 from safetensors.torch import load_file as load_safetensors_file
 
 from .artifacts import PackedDataset
+from .auxiliary_contributions import (
+    AuxiliaryContributionLedger,
+    auxiliary_contribution_markdown,
+    build_auxiliary_contribution_snapshot,
+    copy_public_auxiliary_contribution_artifacts,
+    load_auxiliary_contributions,
+    verify_auxiliary_contribution_artifacts,
+    verify_public_auxiliary_snapshot_artifacts,
+)
 from .campaign_research import (
     build_campaign_evaluation_summary,
     campaign_evaluation_release_revision,
@@ -758,11 +767,17 @@ def build_release_bundle(
     evaluation_artifact_root: str | Path | None = None,
     release_checkpoint_step: int | None = None,
     promotion_evidence: Mapping[str, object] | None = None,
+    auxiliary_contributions: AuxiliaryContributionLedger | None = None,
+    auxiliary_artifact_root: str | Path | None = None,
 ) -> dict[str, object]:
     coordinator.validate_evaluation_authority()
     if evaluation_artifact_root is not None and evaluation_evidence is None:
         raise ValueError(
             "campaign evaluation artifact root requires evaluation evidence"
+        )
+    if auxiliary_artifact_root is not None and auxiliary_contributions is None:
+        raise ValueError(
+            "auxiliary contribution artifact root requires an auxiliary ledger"
         )
     dashboard = coordinator.dashboard()
     if dashboard["campaign"]["state"] != "campaign_complete":
@@ -775,12 +790,40 @@ def build_release_bundle(
         if evaluation_artifact_root is not None
         else None
     )
+    auxiliary_root = (
+        Path(auxiliary_artifact_root).resolve()
+        if auxiliary_artifact_root is not None
+        else None
+    )
     if artifact_root is not None and (
         artifact_root.is_symlink() or not artifact_root.is_dir()
     ):
         raise ValueError(
             "campaign evaluation artifact root must be a regular directory"
         )
+    if auxiliary_root is not None and (
+        auxiliary_root.is_symlink() or not auxiliary_root.is_dir()
+    ):
+        raise ValueError(
+            "auxiliary contribution artifact root must be a regular directory"
+        )
+    campaign_identity = _revision(_campaign_payload(campaign))
+    if auxiliary_contributions is not None and (
+        auxiliary_contributions.campaign_id
+        != str(campaign.campaign["id"])
+        or auxiliary_contributions.campaign_revision != campaign_identity
+    ):
+        raise ValueError(
+            "auxiliary contribution ledger differs from the release campaign"
+        )
+    verified_auxiliary_artifacts = (
+        verify_auxiliary_contribution_artifacts(
+            auxiliary_contributions,
+            auxiliary_root,
+        )
+        if auxiliary_contributions is not None
+        else {}
+    )
     if public_coordinator_url is not None:
         public_coordinator_url = normalize_http_origin(public_coordinator_url)
     dataset = coordinator.dataset
@@ -794,6 +837,8 @@ def build_release_bundle(
     input_roots = [dataset_root, browser_root, coordinator.state_dir.resolve()]
     if artifact_root is not None:
         input_roots.append(artifact_root)
+    if auxiliary_root is not None:
+        input_roots.append(auxiliary_root)
     for input_root in input_roots:
         if output_dir.is_relative_to(input_root):
             raise ValueError("release output may not be inside an input directory")
@@ -1090,14 +1135,37 @@ def build_release_bundle(
             coordinator.participants,
             internal_entries,
         )
+        auxiliary_snapshot = build_auxiliary_contribution_snapshot(
+            auxiliary_contributions,
+            campaign_id=str(dashboard["campaign"]["id"]),
+            campaign_revision=str(lock["campaign_revision"]),
+            release_checkpoint_sha256=checkpoint_sha256,
+            release_checkpoint_step=step,
+            verified_bundle_artifacts=verified_auxiliary_artifacts,
+        )
         _write_json(
             temporary / "attribution-snapshot.json",
             attribution_snapshot,
         )
+        _write_json(
+            temporary / "auxiliary-contribution-snapshot.json",
+            auxiliary_snapshot,
+        )
         (temporary / "CONTRIBUTORS.md").write_text(
-            attribution_markdown(attribution_snapshot),
+            attribution_markdown(attribution_snapshot).rstrip()
+            + "\n\n"
+            + auxiliary_contribution_markdown(auxiliary_snapshot),
             encoding="utf-8",
             newline="\n",
+        )
+        copy_public_auxiliary_contribution_artifacts(
+            auxiliary_root,
+            temporary / "auxiliary-contribution-artifacts",
+            verified_auxiliary_artifacts,
+        )
+        verify_public_auxiliary_snapshot_artifacts(
+            auxiliary_snapshot,
+            temporary / "auxiliary-contribution-artifacts",
         )
         _write_json(
             temporary / "evaluations.json",
@@ -1282,7 +1350,11 @@ def build_release_bundle(
             "- `site/` is the static browser worker and public campaign dashboard.\n"
             "- `public-ledger.json` contains only contributor-approved public credit.\n\n"
             "- `attribution-snapshot.json` and `CONTRIBUTORS.md` freeze release-time "
-            "credit choices and accepted contribution totals.\n\n"
+            "credit choices and accepted direct-training totals.\n"
+            "- `auxiliary-contribution-snapshot.json` separately records "
+            "owner-reviewed auxiliary work and contributor-approved disclosure. "
+            "Verified public evidence is under "
+            "`auxiliary-contribution-artifacts/` when supplied.\n\n"
             + (
                 "- `language-model-final-holdout-evaluation.json` records the "
                 "reserved language-loss diagnostic performed after checkpoint "
@@ -1336,6 +1408,12 @@ def build_release_bundle(
                 coordinator.participants.credit_revision
             ),
             "attribution_snapshot_sha256": attribution_snapshot[
+                "snapshot_sha256"
+            ],
+            "auxiliary_contribution_record_status": auxiliary_snapshot[
+                "record_status"
+            ],
+            "auxiliary_contribution_snapshot_sha256": auxiliary_snapshot[
                 "snapshot_sha256"
             ],
             "dataset_revision": dataset.revision,
@@ -1406,6 +1484,19 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--evaluation-evidence", type=Path)
     parser.add_argument("--evaluation-artifacts", type=Path)
     parser.add_argument(
+        "--auxiliary-contributions",
+        type=Path,
+        help=(
+            "private owner-reviewed auxiliary contribution ledger; never "
+            "copied into the public release"
+        ),
+    )
+    parser.add_argument(
+        "--auxiliary-artifacts",
+        type=Path,
+        help="root for digest-verified bundle: evidence named by the ledger",
+    )
+    parser.add_argument(
         "--release-checkpoint-step",
         type=int,
         help=(
@@ -1441,6 +1532,15 @@ def main() -> None:
         campaign_id=str(campaign.campaign["id"]),
     )
     dataset = PackedDataset.load(args.dataset_artifacts)
+    auxiliary_contributions = (
+        load_auxiliary_contributions(
+            args.auxiliary_contributions,
+            campaign_id=str(campaign.campaign["id"]),
+            campaign_revision=_revision(_campaign_payload(campaign)),
+        )
+        if args.auxiliary_contributions is not None
+        else None
+    )
     coordinator = CampaignCoordinator.load(
         campaign,
         args.campaign_state,
@@ -1470,6 +1570,8 @@ def main() -> None:
             if args.promotion_evidence is not None
             else None
         ),
+        auxiliary_contributions=auxiliary_contributions,
+        auxiliary_artifact_root=args.auxiliary_artifacts,
     )
     print(json.dumps(manifest, indent=2, sort_keys=True))
 

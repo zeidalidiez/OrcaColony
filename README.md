@@ -1,6 +1,6 @@
 # OrcaColony
 
-**Repository version:** [`0.1.1`](VERSION)
+**Repository version:** [`0.1.2`](VERSION)
 
 OrcaColony is a self-hostable framework and reproducible research vehicle for
 community model training. It lets independent contributors complete bounded
@@ -36,7 +36,7 @@ threshold, checkpoint choice, or follow-up experiment.
 | Training framework | Deterministic reference, browser, multi-worker, restart, retry, release, and attribution paths are implemented | [Specification](SPEC.md), [detailed guide](IMPLEMENTATION_GUIDE.md) |
 | Campaign research | Owner-defined v2 contracts, evidence preflight, checkpoint binding, and Hugging Face packaging are implemented | [Campaign framework](research/CAMPAIGN_FRAMEWORK.md) |
 | Systems research | PEFT, local placement, partial-model, tiled recovery, and sparse-expert methods have bounded studies with explicit limitations | [Research index](research/README.md), [reports](reports/index.html) |
-| Contributor credit | Accepted direct-training work and contributor disclosure choices are supported; a separate auxiliary-work ledger remains open | [Campaign formats](campaign/README.md), [current roadmap](PROGRESS_REPORT.md) |
+| Contributor credit | Accepted direct-training work and a separate owner-reviewed auxiliary-work ledger preserve contributor disclosure choices and evidence | [Campaign formats](campaign/README.md), [current roadmap](PROGRESS_REPORT.md) |
 | Practical campaign | Intentionally undefined until a campaign owner supplies the complete contract | [Current roadmap](PROGRESS_REPORT.md) |
 | Public model and data release | Organization page exists; no owner-defined campaign model or dataset package has been published yet | [Hugging Face publication](HUGGINGFACE.md) |
 | Public volunteer deployment | Trusted local paths are proven; untrusted public compute integrity and operator-owned hosting remain incomplete | [Current roadmap](PROGRESS_REPORT.md) |
@@ -114,6 +114,16 @@ uv run python -m orcacolony.campaign_lifecycle validate-evidence \
 These commands validate supplied choices. They do not create a metric,
 threshold, release decision, or campaign plan.
 
+Auxiliary work is reviewed separately and may be preflighted without exposing
+private contributor IDs:
+
+```bash
+uv run python -m orcacolony.campaign_lifecycle validate-contributions \
+  --config campaign/<campaign>.json \
+  --ledger <private-auxiliary-contributions.json> \
+  --artifacts <auxiliary-evidence-directory>
+```
+
 ## Evidence and credit
 
 The public record for a completed campaign is intended to include:
@@ -125,6 +135,9 @@ The public record for a completed campaign is intended to include:
 - reproducible commands and deterministic package checksums;
 - accepted-work totals and each contributor's approved name, pseudonym,
   anonymity, totals, roles, and hardware disclosures;
+- a separate owner-reviewed record for data work, evaluator construction,
+  review, hosting, and failed-but-informative compute, with contributor-approved
+  time, hardware, work details, and evidence;
 - exact Hugging Face model and dataset commits after publication.
 
 Agent-authored reports may explain findings, but the proof remains in the

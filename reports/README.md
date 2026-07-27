@@ -14,8 +14,10 @@ campaign choices that the owner did not make.
 For a campaign result, the public research record belongs with the exact
 Hugging Face model and data revisions, the campaign-owner-defined evaluator,
 score files, bundled evidence, limitations, accepted-work records, and
-contributor-approved credit. Local report checksums make the findings auditable,
-but do not make the reporting agent the owner of the campaign.
+contributor-approved direct and auxiliary credit. Auxiliary work remains
+separate from accepted optimizer work and links its own evidence identities.
+Local report checksums make the findings auditable, but do not make the
+reporting agent the owner of the campaign.
 
 ## Two parallel tracks
 

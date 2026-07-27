@@ -71,13 +71,17 @@ or an interpretation is correct.
 
 ## Contributor credit
 
-Link `CONTRIBUTORS.md` and `attribution-snapshot.json`. Credit accepted training
-work according to each contributor's named, pseudonymous, anonymous, totals,
-profile, and hardware preferences.
+Link `CONTRIBUTORS.md`, `attribution-snapshot.json`, and
+`auxiliary-contribution-snapshot.json`. Credit accepted training work according
+to each contributor's named, pseudonymous, anonymous, totals, profile, and
+hardware preferences.
 
-Do not imply that direct-training credit covers data work, evaluation design,
-review, hosting, or other auxiliary contributions unless those contributions
-were separately recorded and approved for publication.
+Report owner-reviewed auxiliary data work, evaluator construction, review,
+hosting, and failed-but-informative compute separately. Link its published
+evidence under `auxiliary-contribution-artifacts/` or identify the exact
+external evidence URI and digest. Respect each contributor's approved work,
+time, hardware, and anonymity choices. Do not imply that auxiliary work was
+accepted into the optimizer.
 
 ## Owner decision
 

@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-07-27
 
-**Repository version:** [`0.1.1`](VERSION)
+**Repository version:** [`0.1.2`](VERSION)
 
 **Current phase:** Parallel P7 systems research and project-navigation hardening
 
@@ -61,6 +61,8 @@ as evidence of broader intelligence.
 - Multi-worker assignments, leases, retries, stale-result rejection, and at-most-once accepted work.
 - Crash-safe canonical checkpoint advancement and persistent multi-step campaigns.
 - Owner-approved, default-deny participation and privacy-filtered v1 attribution.
+- Separate owner-reviewed, evidence-bearing auxiliary contribution records with
+  contributor-controlled public work, time, and hardware disclosure.
 - Frozen TinyStories data/tokenizer provenance and real-data T1 campaigns.
 - Initialization and checkpoint evaluation with machine-readable success gates.
 - Public dashboard, exact-origin browser deployment support, and deterministic privacy-filtered release bundles.
@@ -77,7 +79,10 @@ framework binds the released checkpoint, computes raw and declared-direction
 metric changes, verifies bundled evidence files, records limitations, and
 packages positive, negative, unchanged, or inconclusive results without a
 mandatory success gate. Deterministic Hugging Face model and dataset packages
-include the evaluation record and contributor-selected credit.
+include the evaluation record and contributor-selected credit. Accepted
+direct-training work remains coordinator-derived. Auxiliary work now uses a
+separate owner-reviewed ledger with its own evidence and privacy-filtered
+release snapshot rather than being implied by participant role labels.
 
 The v2 release path now takes its checkpoint authority from the owner-supplied
 release evaluation or an explicit owner-supplied step. It no longer applies the
@@ -334,10 +339,10 @@ Completed within the first P3 measurement and native-baseline slice:
 
 Run two explicitly separate bounded tracks:
 
-1. **Project maintenance track:** review and merge repository version `0.1.1`,
-   per-commit version enforcement, and the root README information-architecture
-   pass. The detailed implementation commands and systems-proof narrative
-   remain preserved in `IMPLEMENTATION_GUIDE.md`.
+1. **Project maintenance track:** review and merge repository version `0.1.2`
+   with the separate auxiliary contribution ledger, release snapshot, evidence
+   copying, Hugging Face public-package gate, example, and operator
+   documentation.
 2. **P7 systems track:** freeze and persistently cache the untied final
    norm/output head in both centralized and distributed sparse controls. Train
    only router, shared trunk, and experts, preserve byte-exact canonical AdamW,
@@ -360,10 +365,11 @@ Run two explicitly separate bounded tracks:
   the generated release snapshot. The implementation separates worker authority
   from reloadable credit choices and accounts for accepted tokens,
   worker-reported time, roles, and opted-in hardware classes.
-- Accepted direct-training work is covered by the generated attribution
-  snapshot. A separate evidence ledger for auxiliary work such as data curation,
-  evaluator construction, review, hosting, or failed-but-helpful compute attempts
-  does not yet exist and must not be implied by the current role labels.
+- Exercise the auxiliary contribution ledger with real contributor-approved
+  data work, evaluator work, review, hosting, or failed-but-informative compute
+  records. The implementation now requires evidence identities, separates these
+  records from accepted training, verifies local bundle bytes, and preserves
+  time, hardware, detail, and anonymity choices.
 - Migrate remaining generated/external research references into durable,
   digest-verifiable locations. Committed `repo:` artifacts now verify and bundle;
   other URI schemes are explicitly reported as unresolved rather than implied
@@ -394,6 +400,32 @@ Run two explicitly separate bounded tracks:
 
 ### 2026-07-27
 
+- Added the separate private `orcacolony_auxiliary_contributions_v1` ledger for
+  owner-reviewed non-training work. Every entry binds the exact campaign
+  revision, an owner-defined work kind, factual description, disposition, and
+  evidence identity. It supports completed, partial, and
+  failed-but-informative work without relabeling any of it as accepted optimizer
+  input.
+- Added contributor-confirmed named, pseudonymous, anonymous, work-detail,
+  person-time, compute-time, and hardware disclosure controls. The deterministic
+  public snapshot excludes private IDs and withheld details, while its source
+  digest, campaign revision, checkpoint, step, totals, and evidence state are
+  bound into the operational release.
+- Added auxiliary evidence preflight, confined `bundle:` path verification, and
+  public copying only for contributor-approved evidence. The private source
+  ledger and private evidence remain outside the release.
+- Integrated the snapshot, combined acknowledgments, and approved evidence into
+  deterministic model and dataset Hub packages. Public package construction now
+  requires an owner-reviewed populated or explicitly empty ledger; an omitted
+  ledger remains visibly `not_supplied` in private review instead of being
+  treated as proof that no auxiliary work occurred.
+- The one-thread repository gate passed all `321` tests. The changed lifecycle,
+  release, and Hugging Face command-line paths parsed; version `0.1.2` was
+  synchronized and validated; all local Markdown links resolved; and the source
+  distribution and wheel built with `orcacolony 0.1.2` metadata.
+- This framework slice does not define or run a campaign and does not choose a
+  model, dataset, metric, threshold, checkpoint, publication outcome, or
+  follow-up experiment.
 - Established visible repository version `0.1.1`. `VERSION`,
   `pyproject.toml`, `src/orcacolony/__init__.py`, and `uv.lock` now agree.
   Added a dependency-free check that requires a strictly increasing,

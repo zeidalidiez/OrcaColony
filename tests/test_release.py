@@ -7,6 +7,7 @@ import pytest
 
 from orcacolony import peft
 from orcacolony.artifacts import PackedDataset, build_dataset_artifacts
+from orcacolony.auxiliary_contributions import AuxiliaryContributionLedger
 from orcacolony.campaign_research import campaign_research_revision
 from orcacolony.campaign_run import CampaignCoordinator
 from orcacolony.multiworker import LeasedGradient
@@ -255,6 +256,93 @@ def _participants(campaign_id: object) -> ParticipantRegistry:
     )
 
 
+def _auxiliary_contributions(
+    *,
+    campaign_id: str,
+    campaign_revision: str,
+    public_evidence_sha256: str,
+    anonymous_evidence_sha256: str,
+) -> AuxiliaryContributionLedger:
+    return AuxiliaryContributionLedger.from_payload(
+        {
+            "format": "orcacolony_auxiliary_contributions_v1",
+            "campaign_id": campaign_id,
+            "campaign_revision": campaign_revision,
+            "owner_reviewed": True,
+            "contributors": [
+                {
+                    "contributor_id": "private-auxiliary-release-id",
+                    "credit": {
+                        "visibility": "pseudonymous",
+                        "display_name": "Release Helper",
+                        "profile_url": "https://huggingface.co/release-helper",
+                        "team": None,
+                        "show_contribution_details": True,
+                        "show_time": True,
+                        "show_hardware": True,
+                        "public_disclosure_confirmed": True,
+                    },
+                    "resources": {
+                        "person_time_seconds": 1200,
+                        "compute_time_seconds": 2400,
+                        "hardware": ["test CPU host"],
+                    },
+                    "contributions": [
+                        {
+                            "id": "release-review",
+                            "kind": "release-review",
+                            "description": "Reviewed the deterministic release fixture.",
+                            "status": "completed",
+                            "evidence": [
+                                {
+                                    "id": "release-review-record",
+                                    "sha256": public_evidence_sha256,
+                                    "uri": "bundle:review/release-review.json",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "contributor_id": "private-anonymous-auxiliary-id",
+                    "credit": {
+                        "visibility": "anonymous",
+                        "display_name": None,
+                        "profile_url": None,
+                        "team": None,
+                        "show_contribution_details": False,
+                        "show_time": False,
+                        "show_hardware": False,
+                        "public_disclosure_confirmed": True,
+                    },
+                    "resources": {
+                        "person_time_seconds": None,
+                        "compute_time_seconds": 600,
+                        "hardware": ["private test hardware"],
+                    },
+                    "contributions": [
+                        {
+                            "id": "failed-release-check",
+                            "kind": "compute-investigation",
+                            "description": "Private failed-but-informative fixture.",
+                            "status": "failed_informative",
+                            "evidence": [
+                                {
+                                    "id": "private-failure-record",
+                                    "sha256": anonymous_evidence_sha256,
+                                    "uri": "bundle:private/failure.json",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            ],
+        },
+        campaign_id=campaign_id,
+        campaign_revision=campaign_revision,
+    )
+
+
 def test_promotion_evidence_requires_threshold_and_baseline_improvement() -> None:
     campaign = _capability_campaign()
     evidence = _promotion_evidence()
@@ -452,6 +540,23 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
     released_samples = evaluation_artifacts / "released-samples.json"
     initial_samples.write_text('{"score":0.1}\n', encoding="utf-8")
     released_samples.write_text('{"score":0.2}\n', encoding="utf-8")
+    auxiliary_artifacts = tmp_path / "auxiliary-artifacts"
+    public_auxiliary_evidence = (
+        auxiliary_artifacts / "review" / "release-review.json"
+    )
+    anonymous_auxiliary_evidence = (
+        auxiliary_artifacts / "private" / "failure.json"
+    )
+    public_auxiliary_evidence.parent.mkdir(parents=True)
+    anonymous_auxiliary_evidence.parent.mkdir(parents=True)
+    public_auxiliary_evidence.write_text(
+        '{"review":"complete"}\n',
+        encoding="utf-8",
+    )
+    anonymous_auxiliary_evidence.write_text(
+        '{"failure":"informative"}\n',
+        encoding="utf-8",
+    )
     dashboard = coordinator.dashboard()
     assert dashboard["evaluation_gate"]["state"] == "failed"
     diagnostic_selected_evaluation = min(
@@ -474,6 +579,18 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
             released_samples.read_bytes()
         ).hexdigest(),
     )
+    auxiliary_contributions = _auxiliary_contributions(
+        campaign_id=str(campaign.campaign["id"]),
+        campaign_revision=str(
+            coordinator._lock_payload()["campaign_revision"]
+        ),
+        public_evidence_sha256=hashlib.sha256(
+            public_auxiliary_evidence.read_bytes()
+        ).hexdigest(),
+        anonymous_evidence_sha256=hashlib.sha256(
+            anonymous_auxiliary_evidence.read_bytes()
+        ).hexdigest(),
+    )
 
     first = tmp_path / "release-a"
     second = tmp_path / "release-b"
@@ -488,6 +605,8 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
         output_dir=first,
         evaluation_evidence=evidence,
         evaluation_artifact_root=evaluation_artifacts,
+        auxiliary_contributions=auxiliary_contributions,
+        auxiliary_artifact_root=auxiliary_artifacts,
     )
     second_manifest = build_release_bundle(
         campaign,
@@ -500,6 +619,8 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
         output_dir=second,
         evaluation_evidence=evidence,
         evaluation_artifact_root=evaluation_artifacts,
+        auxiliary_contributions=auxiliary_contributions,
+        auxiliary_artifact_root=auxiliary_artifacts,
     )
 
     assert first_manifest == second_manifest
@@ -514,6 +635,16 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
     assert (first / "THIRD_PARTY_DATA.md").is_file()
     assert (first / "CONTRIBUTORS.md").is_file()
     assert (first / "attribution-snapshot.json").is_file()
+    assert (first / "auxiliary-contribution-snapshot.json").is_file()
+    assert (
+        first
+        / "auxiliary-contribution-artifacts"
+        / "review"
+        / "release-review.json"
+    ).is_file()
+    assert not (
+        first / "auxiliary-contribution-artifacts" / "private"
+    ).exists()
     assert (first / "site" / "pkg" / "worker_bg.wasm").is_file()
     assert not (first / "site" / "fixture").exists()
     assert (
@@ -536,6 +667,11 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
     assert "Hidden Name" not in public_text
     assert "release-a" not in public_text
     assert "release-b" not in public_text
+    assert "private-auxiliary-release-id" not in public_text
+    assert "private-anonymous-auxiliary-id" not in public_text
+    assert "Private failed-but-informative fixture" not in public_text
+    assert "private test hardware" not in public_text
+    assert "Release Helper" in public_text
     assert first_manifest["checkpoint"]["step"] == 0
     assert first_manifest["checkpoint"]["selection"] == (
         "campaign_evaluation_evidence"
@@ -545,6 +681,21 @@ def test_release_bundle_is_deterministic_complete_and_privacy_filtered(
         peft.EXACT_CPU_FP32_PROFILE
     )
     assert first_manifest["dataset_revision"] == dataset.revision
+    assert first_manifest["auxiliary_contribution_record_status"] == (
+        "owner_reviewed"
+    )
+    auxiliary_snapshot = json.loads(
+        (first / "auxiliary-contribution-snapshot.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert auxiliary_snapshot["release_checkpoint_step"] == 0
+    assert auxiliary_snapshot["release_checkpoint_sha256"] == (
+        first_manifest["checkpoint"]["model_sha256"]
+    )
+    assert first_manifest["auxiliary_contribution_snapshot_sha256"] == (
+        auxiliary_snapshot["snapshot_sha256"]
+    )
     assert first_manifest["release_classification"] == "campaign_result"
     assert first_manifest["language_model_final_holdout_evaluation"] is None
     assert first_manifest["campaign_evaluation"]["comparisons"][0]["metrics"][0][

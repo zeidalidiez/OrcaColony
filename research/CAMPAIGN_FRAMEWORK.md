@@ -101,6 +101,34 @@ hashes and copies them into `campaign-evaluation-artifacts/`. Other durable URIs
 remain references and are labeled as such rather than being treated as locally
 verified files.
 
+## Auxiliary contribution evidence
+
+Accepted direct-training credit is generated from the coordinator ledger.
+Auxiliary work is not inferred from participant role labels. Before release,
+the owner separately reviews
+`orcacolony_auxiliary_contributions_v1`, starting from
+[`../campaign/auxiliary-contributions-v1.example.json`](../campaign/auxiliary-contributions-v1.example.json).
+
+Every auxiliary entry has an owner-defined work kind, a factual description, a
+work disposition, and one or more SHA-256 evidence identities. Optional person
+time, compute time, hardware, and contribution details are published only
+under confirmed contributor disclosure choices. Anonymous entries are counted
+without publishing their work, time, hardware, or evidence details.
+
+Preflight the private record and its local evidence without exposing private
+contributor IDs:
+
+```bash
+uv run python -m orcacolony.campaign_lifecycle validate-contributions \
+  --config campaign/<campaign>.json \
+  --ledger <private-auxiliary-contributions.json> \
+  --artifacts <auxiliary-evidence-directory>
+```
+
+The `completed`, `partial`, and `failed_informative` dispositions describe the
+auxiliary record. None means that work entered the optimizer or that the model
+improved.
+
 ## Release and publication
 
 A completed campaign can be released whether its measurements improved,
@@ -124,7 +152,11 @@ When evaluation evidence is supplied, the release contains:
 - the exact model, optimizer state, campaign, data, tokenizer, source, and
   checksums;
 - `attribution-snapshot.json` and `CONTRIBUTORS.md`, generated from accepted
-  work and each contributor's public-credit choices.
+  direct-training work and each contributor's public-credit choices;
+- `auxiliary-contribution-snapshot.json`, generated from the separate
+  owner-reviewed auxiliary ledger;
+- `auxiliary-contribution-artifacts/`, containing only contributor-approved
+  local evidence whose digest was verified.
 
 The Hugging Face builder copies the evaluation record and bundled artifacts
 into both the model and dataset packages. The model card reports the evidence
@@ -141,12 +173,21 @@ uv run python -m orcacolony.release \
   --browser-root spikes/burn-browser-gradient/www \
   --evaluation-evidence <campaign-evaluation.json> \
   --evaluation-artifacts <evaluation-artifact-directory> \
+  --auxiliary-contributions <private-auxiliary-contributions.json> \
+  --auxiliary-artifacts <auxiliary-evidence-directory> \
   --release-checkpoint-step <step-selected-by-campaign-owner> \
   --output .artifacts/<campaign>-release
 ```
 
 `--release-checkpoint-step` is optional when the release evaluation identifies
 exactly one built-in evaluated checkpoint.
+
+If the owner reviewed the campaign and determined that no auxiliary work
+occurred, the supplied ledger uses an empty `contributors` list. If no ledger
+is supplied, the release says `not_supplied` rather than claiming there were no
+auxiliary contributions. A private Hugging Face review package may retain that
+warning, but public packaging requires an owner-reviewed populated or
+explicitly empty record.
 
 Publication remains an explicit second step. See
 [`../HUGGINGFACE.md`](../HUGGINGFACE.md) for deterministic package review and
