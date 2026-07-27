@@ -710,8 +710,9 @@ def attribution_markdown(snapshot: Mapping[str, object]) -> str:
     lines = [
         "# Community contributors",
         "",
-        "Every accepted contribution represented in this release is credited according "
-        "to the contributor's release-time public credit preference.",
+        "Every accepted direct-training contribution represented in this release "
+        "is credited according to the contributor's release-time public credit "
+        "preference.",
         "",
     ]
     if contributors:
@@ -739,7 +740,7 @@ def attribution_markdown(snapshot: Mapping[str, object]) -> str:
                     "worker-reported seconds"
                 )
             lines.append(
-                f"- {label}" + (f" — {'; '.join(details)}" if details else "")
+                f"- {label}" + (f"; {'; '.join(details)}" if details else "")
             )
             hardware = contributor.get("hardware")
             if isinstance(hardware, list):

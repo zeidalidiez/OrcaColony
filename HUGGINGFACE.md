@@ -53,7 +53,8 @@ records easy to inspect:
    limitations, and the owner's conclusion when supplied.
 3. The contribution record: accepted work, aggregate compute, and
    contributor-approved names, pseudonyms, anonymous entries, totals, and
-   hardware details.
+   hardware details. Accepted direct-training work and owner-reviewed auxiliary
+   work remain separate records.
 
 Agent-authored reports may state the agent's findings and interpretation. They
 must link the underlying files and must not fill in campaign choices or an owner
@@ -99,6 +100,11 @@ uv run python -m orcacolony.campaign_lifecycle validate-evidence \
   --evidence <campaign-evaluation.json> \
   --evaluation-artifacts <evaluation-artifact-directory> \
   --release-checkpoint-sha256 <owner-selected-checkpoint-sha256>
+
+uv run python -m orcacolony.campaign_lifecycle validate-contributions \
+  --config campaign/<campaign>.json \
+  --ledger <private-auxiliary-contributions.json> \
+  --artifacts <auxiliary-evidence-directory>
 ```
 
 These commands expose exact content revisions and verify the evidence without
@@ -140,7 +146,21 @@ The package contains:
   `campaign-evaluation-summary.json`, and verified bundled evaluation
   artifacts when the campaign owner supplied them;
 - `CONTRIBUTORS.md` and `attribution-snapshot.json`;
+- `auxiliary-contribution-snapshot.json` and any contributor-approved,
+  digest-verified files under `auxiliary-contribution-artifacts/`;
 - a deterministic publication manifest and checksums.
+
+The private auxiliary source ledger is never placed in either Hub repository.
+The snapshot binds its reviewed source digest, campaign revision, released
+checkpoint, public credit choices, and evidence identities without exposing
+private contributor IDs. Auxiliary time, hardware, and work details appear only
+when the contributor approved each disclosure.
+
+If no auxiliary work occurred, supply a reviewed ledger with an empty
+`contributors` list. Omitting the ledger creates a visible `not_supplied`
+snapshot for private review, not a claim that nobody helped. The builder refuses
+`--visibility public` until the release contains an owner-reviewed populated or
+explicitly empty auxiliary record.
 
 The model-license value is intentionally required. The repository's MIT software
 license does not silently decide the license for trained weights. The dataset
@@ -181,7 +201,9 @@ OrcaColony flow:
 
 1. Build, verify, inspect, and publish the private package.
 2. Complete license, attribution, model-card, evidence, and independent tester
-   review without changing the release inputs.
+   review without changing the release inputs. Confirm that the auxiliary
+   record includes everyone who donated relevant time or hardware, or is an
+   explicitly reviewed empty record.
 3. Build a new package from the exact same operational release and source
    revision with `--visibility public`; verify and inspect it again.
 4. Explicitly change both existing Hub repositories from private to public in

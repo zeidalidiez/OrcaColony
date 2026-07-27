@@ -326,6 +326,12 @@ uv run python -m orcacolony.release \
 
 That historical systems-proof configuration selects the checkpoint with the lowest frozen held-out loss and includes its model, optimizer and restart metadata; exact packed data and tokenizer; evaluation records; a public dashboard snapshot and privacy-filtered contribution ledger; the fixture-free static browser site; a canonical release manifest; and `SHA256SUMS`. New v2 research campaigns use the checkpoint supplied by their owner through evaluation evidence or an explicit release step. Participant manifests and credentials are deliberately excluded.
 
+Current public-release review also supplies the private
+`--auxiliary-contributions` ledger and, when it uses local `bundle:` evidence,
+`--auxiliary-artifacts`. The release publishes only the privacy-filtered
+snapshot and contributor-approved verified evidence. See `campaign/README.md`
+for the current format and explicit empty-record path.
+
 ## Bounded T1 system proof
 
 `campaign/t1-tinystories-system-proof.json` extends the same frozen T1 campaign profile to 12 optimizer steps and declares a pre-run success gate requiring held-out mean-loss improvement of at least `0.5` from initialization. A completed local run used two concurrently active, separately attributed CPU/WASM browser identities and produced:

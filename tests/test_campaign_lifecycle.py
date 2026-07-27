@@ -9,6 +9,7 @@ import pytest
 from orcacolony.campaign_lifecycle import (
     inspect_campaign_contract,
     main,
+    preflight_auxiliary_contributions,
     preflight_campaign_evidence,
 )
 from orcacolony.campaign_research import campaign_research_revision
@@ -219,6 +220,91 @@ def test_evidence_loader_rejects_duplicate_json_keys(
             release_checkpoint_sha256="e" * 64,
             evaluation_artifact_root=None,
         )
+
+
+def test_auxiliary_contribution_preflight_hides_private_ids(
+    tmp_path: Path,
+) -> None:
+    config_path, _ = _config(tmp_path)
+    campaign = load_campaign(config_path)
+    artifacts = tmp_path / "auxiliary-artifacts"
+    artifacts.mkdir()
+    evidence = artifacts / "review.json"
+    evidence.write_text('{"review":"complete"}\n', encoding="utf-8")
+    evidence_sha256 = hashlib.sha256(evidence.read_bytes()).hexdigest()
+    ledger = {
+        "format": "orcacolony_auxiliary_contributions_v1",
+        "campaign_id": campaign.campaign["id"],
+        "campaign_revision": campaign_revision(campaign),
+        "owner_reviewed": True,
+        "contributors": [
+            {
+                "contributor_id": "private-lifecycle-id",
+                "credit": {
+                    "visibility": "pseudonymous",
+                    "display_name": "Lifecycle Helper",
+                    "profile_url": None,
+                    "team": None,
+                    "show_contribution_details": True,
+                    "show_time": False,
+                    "show_hardware": False,
+                    "public_disclosure_confirmed": True,
+                },
+                "resources": {
+                    "person_time_seconds": None,
+                    "compute_time_seconds": None,
+                    "hardware": [],
+                },
+                "contributions": [
+                    {
+                        "id": "lifecycle-review",
+                        "kind": "review",
+                        "description": "Reviewed the lifecycle fixture.",
+                        "status": "completed",
+                        "evidence": [
+                            {
+                                "id": "review-record",
+                                "sha256": evidence_sha256,
+                                "uri": "bundle:review.json",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    ledger_path = tmp_path / "auxiliary-contributions.json"
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+
+    preflight = preflight_auxiliary_contributions(
+        config_path,
+        ledger_path,
+        artifact_root=artifacts,
+    )
+
+    assert preflight["contributor_count"] == 1
+    assert preflight["contribution_count"] == 1
+    assert preflight["verified_public_bundle_artifacts"] == [
+        {"path": "review.json", "sha256": evidence_sha256}
+    ]
+    assert "private-lifecycle-id" not in json.dumps(preflight)
+    assert "Lifecycle Helper" not in json.dumps(preflight)
+
+    output = tmp_path / "auxiliary-preflight.json"
+    main(
+        [
+            "validate-contributions",
+            "--config",
+            str(config_path),
+            "--ledger",
+            str(ledger_path),
+            "--artifacts",
+            str(artifacts),
+            "--output",
+            str(output),
+        ]
+    )
+    assert json.loads(output.read_text(encoding="utf-8")) == preflight
 
 
 def test_cli_writes_inspection_without_overwriting(

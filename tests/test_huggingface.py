@@ -29,6 +29,8 @@ def _release(
     *,
     visibility_policy: str | None = None,
     campaign_result: bool = False,
+    auxiliary_status: str = "owner_reviewed",
+    include_auxiliary_contributor: bool = True,
 ) -> None:
     campaign = {
         "campaign": {
@@ -84,6 +86,83 @@ def _release(
             "question": "What changed in the test campaign?",
             "usage_scenario": "A test-only usage scenario.",
         }
+    campaign_revision = "c" * 64
+    auxiliary_artifact = b'{"review":"complete"}\n'
+    auxiliary_public_contributors = (
+        [
+            {
+                "display_name": "Hub Helper",
+                "visibility": "pseudonymous",
+                "profile_url": None,
+                "team": None,
+                "credit_profile_revision": "f" * 64,
+                "contributions": [
+                    {
+                        "id": "hub-review",
+                        "kind": "release-review",
+                        "description": "Reviewed the Hub fixture.",
+                        "status": "completed",
+                        "evidence": [
+                            {
+                                "id": "hub-review-record",
+                                "sha256": hashlib.sha256(
+                                    auxiliary_artifact
+                                ).hexdigest(),
+                                "uri": "bundle:review.json",
+                                "verification": "bundled_sha256_verified",
+                            }
+                        ],
+                    }
+                ],
+                "resources": {
+                    "person_time_seconds": 60,
+                    "compute_time_seconds": 120,
+                    "hardware": ["test host"],
+                },
+            }
+        ]
+        if (
+            auxiliary_status == "owner_reviewed"
+            and include_auxiliary_contributor
+        )
+        else []
+    )
+    auxiliary_count = len(auxiliary_public_contributors)
+    auxiliary_snapshot: dict[str, object] = {
+        "format": "orcacolony_auxiliary_contribution_snapshot_v1",
+        "campaign_id": "orcacolony-hub-test",
+        "campaign_revision": campaign_revision,
+        "release_checkpoint_sha256": hashlib.sha256(b"model").hexdigest(),
+        "release_checkpoint_step": 1,
+        "record_status": auxiliary_status,
+        "source_ledger_sha256": (
+            "e" * 64 if auxiliary_status == "owner_reviewed" else None
+        ),
+        "public_contributors": auxiliary_public_contributors,
+        "anonymous_contributors": {
+            "count": 0,
+            "contribution_count": 0,
+        },
+        "all_contributions": {
+            "contributor_count": auxiliary_count,
+            "contribution_count": auxiliary_count,
+        },
+        "public_resource_totals": {
+            "person_time_seconds": 60 * auxiliary_count,
+            "compute_time_seconds": 120 * auxiliary_count,
+            "contributors_with_public_hardware": auxiliary_count,
+        },
+        "measurement_notes": [],
+    }
+    auxiliary_snapshot_sha256 = hashlib.sha256(
+        json.dumps(
+            auxiliary_snapshot,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    auxiliary_snapshot["snapshot_sha256"] = auxiliary_snapshot_sha256
     text_files = {
         "campaign.json": json.dumps(campaign).encode(),
         "campaign-lock.json": json.dumps(
@@ -107,7 +186,12 @@ def _release(
                 "snapshot_sha256": "test",
             }
         ).encode(),
-        "CONTRIBUTORS.md": b"# Community contributors\n",
+        "auxiliary-contribution-snapshot.json": json.dumps(
+            auxiliary_snapshot
+        ).encode(),
+        "CONTRIBUTORS.md": (
+            b"# Community contributors\n\n## Auxiliary contributions\n"
+        ),
         "LICENSE": b"test license\n",
         "THIRD_PARTY_DATA.md": b"third-party data\n",
         "dataset/manifest.json": json.dumps(
@@ -131,6 +215,11 @@ def _release(
     }
     for name, payload in text_files.items():
         _write(root / name, payload)
+    if auxiliary_count:
+        _write(
+            root / "auxiliary-contribution-artifacts" / "review.json",
+            auxiliary_artifact,
+        )
     if campaign_result:
         _write(
             root / "campaign-evaluation-evidence.json",
@@ -189,6 +278,11 @@ def _release(
     manifest = {
         "format": "orcacolony_release_bundle_v1",
         "campaign_id": "orcacolony-hub-test",
+        "campaign_revision": campaign_revision,
+        "auxiliary_contribution_record_status": auxiliary_status,
+        "auxiliary_contribution_snapshot_sha256": (
+            auxiliary_snapshot_sha256
+        ),
         "release_classification": (
             "campaign_result" if campaign_result else "systems_evidence_only"
         ),
@@ -231,6 +325,17 @@ def test_huggingface_package_build_is_deterministic_and_separates_repos(
 
     assert first_manifest == second_manifest
     assert first_manifest["visibility"] == "private"
+    assert first_manifest["auxiliary_contribution_record_status"] == (
+        "owner_reviewed"
+    )
+    release_auxiliary_snapshot = json.loads(
+        (
+            release / "auxiliary-contribution-snapshot.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert first_manifest["auxiliary_contribution_snapshot_sha256"] == (
+        release_auxiliary_snapshot["snapshot_sha256"]
+    )
     assert (first / "SHA256SUMS").read_bytes() == (
         second / "SHA256SUMS"
     ).read_bytes()
@@ -240,7 +345,22 @@ def test_huggingface_package_build_is_deterministic_and_separates_repos(
     assert (first / "model" / "MODEL-LICENSE.md").is_file()
     assert (first / "model" / "ORCACOLONY-SOFTWARE-LICENSE").is_file()
     assert (first / "model" / "README.md").is_file()
+    assert (
+        first / "model" / "auxiliary-contribution-snapshot.json"
+    ).is_file()
+    assert (
+        first
+        / "model"
+        / "auxiliary-contribution-artifacts"
+        / "review.json"
+    ).is_file()
     assert (first / "dataset" / "train.safetensors").is_file()
+    assert (
+        first
+        / "dataset"
+        / "auxiliary-contribution-artifacts"
+        / "review.json"
+    ).is_file()
     assert (first / "dataset" / "DATASET-LICENSE.md").is_file()
     assert (first / "dataset" / "README.md").is_file()
     assert verify_huggingface_packages(first) == first_manifest
@@ -249,6 +369,7 @@ def test_huggingface_package_build_is_deterministic_and_separates_repos(
     assert "OrcaColony/orcacolony-hub-test-dataset" in model_card
     assert "Community contributors" in model_card
     assert "1` chose anonymous credit" in model_card
+    assert "owner-reviewed auxiliary record contains `1`" in model_card
 
     _write(first / "model" / "unmanifested.py", b"unexpected")
     with pytest.raises(ValueError, match="unmanifested or missing"):
@@ -374,6 +495,57 @@ def test_huggingface_package_rejects_visibility_outside_campaign_policy(
             source_revision="a" * 40,
             visibility="public",
         )
+
+
+def test_public_package_requires_reviewed_auxiliary_record(
+    tmp_path: Path,
+) -> None:
+    release = tmp_path / "release"
+    release.mkdir()
+    _release(
+        release,
+        visibility_policy="private_review_then_public",
+        auxiliary_status="not_supplied",
+    )
+
+    with pytest.raises(ValueError, match="owner-reviewed auxiliary"):
+        build_huggingface_packages(
+            release,
+            tmp_path / "hub",
+            model_repo_id="OrcaColony/orcacolony-hub-test",
+            dataset_repo_id="OrcaColony/orcacolony-hub-test-dataset",
+            model_license="mit",
+            dataset_license="cdla-sharing-1.0",
+            source_repository="https://github.com/zeidalidiez/OrcaColony",
+            source_revision="a" * 40,
+            visibility="public",
+        )
+
+
+def test_public_package_accepts_reviewed_empty_auxiliary_record(
+    tmp_path: Path,
+) -> None:
+    release = tmp_path / "release"
+    release.mkdir()
+    _release(
+        release,
+        visibility_policy="private_review_then_public",
+        include_auxiliary_contributor=False,
+    )
+
+    manifest = build_huggingface_packages(
+        release,
+        tmp_path / "hub",
+        model_repo_id="OrcaColony/orcacolony-hub-test",
+        dataset_repo_id="OrcaColony/orcacolony-hub-test-dataset",
+        model_license="mit",
+        dataset_license="cdla-sharing-1.0",
+        source_repository="https://github.com/zeidalidiez/OrcaColony",
+        source_revision="a" * 40,
+        visibility="public",
+    )
+
+    assert manifest["visibility"] == "public"
 
 
 def test_publish_refuses_existing_visibility_mismatch_before_writes(

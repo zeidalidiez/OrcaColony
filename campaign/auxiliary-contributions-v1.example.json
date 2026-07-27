@@ -1,0 +1,43 @@
+{
+  "format": "orcacolony_auxiliary_contributions_v1",
+  "campaign_id": "replace-with-campaign-id",
+  "campaign_revision": "replace-with-64-character-lowercase-campaign-revision",
+  "owner_reviewed": true,
+  "contributors": [
+    {
+      "contributor_id": "replace-with-private-stable-id",
+      "credit": {
+        "visibility": "pseudonymous",
+        "display_name": "Example Contributor",
+        "profile_url": "https://huggingface.co/example",
+        "team": null,
+        "show_contribution_details": true,
+        "show_time": true,
+        "show_hardware": true,
+        "public_disclosure_confirmed": true
+      },
+      "resources": {
+        "person_time_seconds": 3600,
+        "compute_time_seconds": 7200,
+        "hardware": [
+          "replace-with-contributor-approved-public-hardware-description"
+        ]
+      },
+      "contributions": [
+        {
+          "id": "replace-with-unique-contribution-id",
+          "kind": "replace-with-owner-defined-work-kind",
+          "description": "Replace with a factual description reviewed by the campaign owner and contributor.",
+          "status": "completed",
+          "evidence": [
+            {
+              "id": "replace-with-evidence-id",
+              "sha256": "replace-with-lowercase-sha256-of-evidence",
+              "uri": "bundle:replace-with-relative-evidence-path.json"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -56,6 +56,61 @@ freezes the selected choices in `attribution-snapshot.json` and
 Legacy v1 participant files keep their original all-fields-locked revision for
 historical recovery compatibility.
 
+## Auxiliary contribution manifests
+
+Direct-training credit comes from accepted coordinator work and remains in the
+participant and attribution records above. Data work, evaluator construction,
+review, hosting, and failed-but-informative compute attempts use the separate
+private `orcacolony_auxiliary_contributions_v1` input. Start from
+`auxiliary-contributions-v1.example.json`.
+
+The auxiliary ledger:
+
+- binds the exact campaign ID and campaign revision;
+- requires the owner to mark the complete record as reviewed;
+- uses private stable contributor IDs that never enter the public release;
+- records an owner-defined work kind, factual description, disposition, and at
+  least one SHA-256 evidence identity for every contribution;
+- separately records person time, compute time, and hardware;
+- requires confirmed choices for public name, pseudonym, anonymity, work
+  details, time, and hardware.
+
+The supported dispositions are `completed`, `partial`, and
+`failed_informative`. They describe the auxiliary work record only.
+`failed_informative` does not mean that failed compute was accepted into an
+optimizer step. Work kinds are supplied by the campaign owner rather than
+selected from a framework list.
+
+Local evidence uses `bundle:<relative-path>`. Preflight verifies every such
+file, including evidence that will remain private, while reporting no private
+contributor IDs:
+
+```bash
+uv run python -m orcacolony.campaign_lifecycle validate-contributions \
+  --config campaign/<campaign>.json \
+  --ledger <private-auxiliary-contributions.json> \
+  --artifacts <auxiliary-evidence-directory>
+```
+
+At release time, pass the same private ledger and artifact root:
+
+```bash
+uv run python -m orcacolony.release \
+  ... \
+  --auxiliary-contributions <private-auxiliary-contributions.json> \
+  --auxiliary-artifacts <auxiliary-evidence-directory>
+```
+
+The private source ledger is not copied. The release contains
+`auxiliary-contribution-snapshot.json`, a combined `CONTRIBUTORS.md`, and only
+the contributor-approved, digest-verified files under
+`auxiliary-contribution-artifacts/`.
+
+When no auxiliary work occurred, the owner still supplies a reviewed ledger
+with an empty `contributors` list. Omitting the ledger produces an explicit
+`not_supplied` snapshot. That state is allowed for private review packages but
+the Hugging Face builder refuses to create a public package from it.
+
 ## Historical Record Patch prototype
 
 `record-patch-t2-v1.json` freezes the 17,538,816-parameter Record Patch campaign,

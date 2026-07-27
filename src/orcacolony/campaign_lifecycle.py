@@ -6,6 +6,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
+from .auxiliary_contributions import (
+    load_auxiliary_contributions,
+    verify_auxiliary_contribution_artifacts,
+)
 from .campaign_research import (
     build_campaign_evaluation_summary,
     campaign_research_revision,
@@ -119,6 +123,53 @@ def preflight_campaign_evidence(
     }
 
 
+def preflight_auxiliary_contributions(
+    config_path: str | Path,
+    ledger_path: str | Path,
+    *,
+    artifact_root: str | Path | None,
+) -> dict[str, object]:
+    """Validate owner-reviewed auxiliary credit without exposing private IDs."""
+
+    campaign = load_campaign(config_path)
+    identity = campaign_revision(campaign)
+    ledger = load_auxiliary_contributions(
+        ledger_path,
+        campaign_id=str(campaign.campaign["id"]),
+        campaign_revision=identity,
+    )
+    bindings = verify_auxiliary_contribution_artifacts(
+        ledger,
+        artifact_root,
+    )
+    ledger_payload = ledger.as_payload()
+    contributors = cast(
+        list[Mapping[str, object]],
+        ledger_payload["contributors"],
+    )
+    contribution_count = sum(
+        len(cast(list[object], contributor["contributions"]))
+        for contributor in contributors
+    )
+    return {
+        "format": "orcacolony_auxiliary_contribution_preflight_v1",
+        "campaign_id": campaign.campaign["id"],
+        "campaign_revision": identity,
+        "source_ledger_sha256": ledger.revision,
+        "owner_reviewed": True,
+        "contributor_count": len(contributors),
+        "contribution_count": contribution_count,
+        "verified_public_bundle_artifacts": [
+            {"path": path, "sha256": binding["sha256"]}
+            for path, binding in sorted(bindings.items())
+            if binding["public"] is True
+        ],
+        "verified_private_bundle_artifact_count": sum(
+            binding["public"] is False for binding in bindings.values()
+        ),
+    }
+
+
 def _write_json(payload: Mapping[str, object], output: Path | None) -> None:
     serialized = json.dumps(payload, indent=2, sort_keys=True) + "\n"
     if output is None:
@@ -133,8 +184,8 @@ def _write_json(payload: Mapping[str, object], output: Path | None) -> None:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate owner-supplied campaign research and evidence without "
-            "supplying campaign choices"
+            "Validate owner-supplied campaign research, evidence, and "
+            "contribution records without supplying campaign choices"
         )
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -155,6 +206,18 @@ def _build_parser() -> argparse.ArgumentParser:
     evidence.add_argument("--release-checkpoint-sha256", required=True)
     evidence.add_argument("--evaluation-artifacts", type=Path)
     evidence.add_argument("--output", type=Path)
+
+    contributions = subparsers.add_parser(
+        "validate-contributions",
+        help=(
+            "preflight an owner-reviewed auxiliary contribution ledger and "
+            "its bundled evidence"
+        ),
+    )
+    contributions.add_argument("--config", type=Path, required=True)
+    contributions.add_argument("--ledger", type=Path, required=True)
+    contributions.add_argument("--artifacts", type=Path)
+    contributions.add_argument("--output", type=Path)
     return parser
 
 
@@ -162,12 +225,18 @@ def main(argv: list[str] | None = None) -> None:
     args = _build_parser().parse_args(argv)
     if args.command == "inspect":
         payload = inspect_campaign_contract(args.config)
-    else:
+    elif args.command == "validate-evidence":
         payload = preflight_campaign_evidence(
             args.config,
             args.evidence,
             release_checkpoint_sha256=args.release_checkpoint_sha256,
             evaluation_artifact_root=args.evaluation_artifacts,
+        )
+    else:
+        payload = preflight_auxiliary_contributions(
+            args.config,
+            args.ledger,
+            artifact_root=args.artifacts,
         )
     _write_json(payload, args.output)
 

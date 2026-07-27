@@ -12,6 +12,11 @@ from pathlib import Path
 from typing import Mapping
 from urllib.parse import urlsplit
 
+from .auxiliary_contributions import (
+    validate_auxiliary_contribution_snapshot,
+    verify_public_auxiliary_snapshot_artifacts,
+)
+
 
 _REPO_ID = re.compile(
     r"OrcaColony/[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9])?\Z"
@@ -220,6 +225,56 @@ def _card_attribution(
     )
 
 
+def _card_auxiliary_contributions(
+    auxiliary: Mapping[str, object],
+) -> tuple[str, int, int, int, int]:
+    status = auxiliary.get("record_status")
+    totals = auxiliary.get("all_contributions")
+    contributors = auxiliary.get("public_contributors")
+    anonymous = auxiliary.get("anonymous_contributors")
+    if (
+        auxiliary.get("format")
+        != "orcacolony_auxiliary_contribution_snapshot_v1"
+        or status not in {"not_supplied", "owner_reviewed"}
+        or not isinstance(totals, Mapping)
+        or not isinstance(contributors, list)
+        or any(not isinstance(item, Mapping) for item in contributors)
+        or not isinstance(anonymous, Mapping)
+    ):
+        raise ValueError("release auxiliary contribution snapshot is invalid")
+    contributor_count = _card_count(
+        totals.get("contributor_count"),
+        "auxiliary contributor count",
+    )
+    contribution_count = _card_count(
+        totals.get("contribution_count"),
+        "auxiliary contribution count",
+    )
+    anonymous_count = _card_count(
+        anonymous.get("count"),
+        "anonymous auxiliary contributor count",
+    )
+    if contributor_count != len(contributors) + anonymous_count:
+        raise ValueError(
+            "auxiliary contributor total differs from its public and anonymous counts"
+        )
+    if status == "not_supplied" and (
+        contributor_count != 0
+        or contribution_count != 0
+        or auxiliary.get("source_ledger_sha256") is not None
+    ):
+        raise ValueError(
+            "unsupplied auxiliary contribution record contains contribution data"
+        )
+    return (
+        str(status),
+        contributor_count,
+        contribution_count,
+        len(contributors),
+        anonymous_count,
+    )
+
+
 def _campaign_evaluation_markdown(
     evaluation: Mapping[str, object] | None,
 ) -> str:
@@ -300,6 +355,7 @@ def _model_card(
     dataset_manifest: Mapping[str, object],
     checkpoint: Mapping[str, object],
     attribution: Mapping[str, object],
+    auxiliary_contributions: Mapping[str, object],
     campaign_evaluation: Mapping[str, object] | None,
     promotion_evidence: Mapping[str, object] | None,
 ) -> str:
@@ -317,6 +373,13 @@ def _model_card(
     accepted_assignments, accepted_tokens, public_count, anonymous_count = (
         _card_attribution(attribution)
     )
+    (
+        auxiliary_status,
+        auxiliary_contributor_count,
+        auxiliary_contribution_count,
+        auxiliary_public_count,
+        auxiliary_anonymous_count,
+    ) = _card_auxiliary_contributions(auxiliary_contributions)
     research = campaign.get("research")
     if (
         isinstance(research, Mapping)
@@ -403,6 +466,19 @@ def _model_card(
         )
     else:
         disposition_text = "This is a systems-evidence checkpoint."
+    if auxiliary_status == "owner_reviewed":
+        auxiliary_credit_text = (
+            f"The owner-reviewed auxiliary record contains "
+            f"`{auxiliary_contribution_count}` contribution(s) from "
+            f"`{auxiliary_contributor_count}` contributor(s). "
+            f"`{auxiliary_public_count}` chose named or pseudonymous credit and "
+            f"`{auxiliary_anonymous_count}` chose anonymous credit."
+        )
+    else:
+        auxiliary_credit_text = (
+            "No owner-reviewed auxiliary contribution record was supplied. "
+            "This private review package is not ready for public publication."
+        )
     return (
         "---\n"
         "library_name: orcacolony\n"
@@ -446,9 +522,13 @@ def _model_card(
         f"`{public_count}` contributing participant(s) chose named or "
         f"pseudonymous acknowledgment and `{anonymous_count}` chose anonymous "
         "credit.\n\n"
+        f"{auxiliary_credit_text}\n\n"
         "[View the complete contributor acknowledgments](./CONTRIBUTORS.md). "
-        "Counts, optional worker-reported time, and contributor-approved hardware "
-        "classes are frozen in `attribution-snapshot.json`.\n\n"
+        "Accepted direct-training counts, optional worker-reported time, and "
+        "approved direct-worker hardware classes are frozen in "
+        "`attribution-snapshot.json`. Approved auxiliary work, time, hardware, "
+        "and evidence identities are separate in "
+        "`auxiliary-contribution-snapshot.json`.\n\n"
         "## Load and generate\n\n"
         "Install OrcaColony from the exact source revision below, then run:\n\n"
         "```bash\n"
@@ -470,6 +550,10 @@ def _model_card(
         "- `promotion-evidence.json`, when present, is a legacy v1 campaign "
         "record retained for historical reproducibility.\n"
         "- `attribution-snapshot.json` and `CONTRIBUTORS.md` preserve release-time credit.\n"
+        "- `auxiliary-contribution-snapshot.json` and "
+        "`auxiliary-contribution-artifacts/`, when present, preserve separately "
+        "reviewed auxiliary work and evidence without presenting it as accepted "
+        "training.\n"
         "- `checkpoint-state.json` and `optimizer.safetensors` preserve the selected "
         "restart trajectory, even though generation needs only the weights.\n"
         "- `orcacolony-release.json` and `release-SHA256SUMS` bind this package to "
@@ -492,6 +576,7 @@ def _dataset_card(
     source_revision: str,
     dataset_manifest: Mapping[str, object],
     attribution: Mapping[str, object],
+    auxiliary_contributions: Mapping[str, object],
 ) -> str:
     source = dataset_manifest.get("source")
     packing = dataset_manifest.get("packing")
@@ -499,6 +584,23 @@ def _dataset_card(
         raise ValueError("release dataset card metadata is invalid")
     accepted_assignments, accepted_tokens, public_count, anonymous_count = (
         _card_attribution(attribution)
+    )
+    (
+        auxiliary_status,
+        auxiliary_contributor_count,
+        auxiliary_contribution_count,
+        _,
+        _,
+    ) = _card_auxiliary_contributions(auxiliary_contributions)
+    auxiliary_text = (
+        f"The owner-reviewed auxiliary record contains "
+        f"`{auxiliary_contribution_count}` contribution(s) from "
+        f"`{auxiliary_contributor_count}` contributor(s)."
+        if auxiliary_status == "owner_reviewed"
+        else (
+            "No owner-reviewed auxiliary contribution record was supplied; "
+            "this private review package is not ready for public publication."
+        )
     )
     return (
         "---\n"
@@ -539,6 +641,7 @@ def _dataset_card(
         f"`{public_count}` contributor(s) chose public acknowledgment and "
         f"`{anonymous_count}` chose anonymous credit. "
         "[View the complete acknowledgments](./CONTRIBUTORS.md).\n\n"
+        f"{auxiliary_text}\n\n"
         f"Packaging source: [{source_repository}]({source_repository}) at "
         f"`{source_revision}`.\n"
     )
@@ -594,6 +697,18 @@ def build_huggingface_packages(
         release_root / "attribution-snapshot.json",
         "attribution snapshot",
     )
+    auxiliary_contributions = _load_mapping(
+        release_root / "auxiliary-contribution-snapshot.json",
+        "auxiliary contribution snapshot",
+    )
+    validate_auxiliary_contribution_snapshot(auxiliary_contributions)
+    verify_public_auxiliary_snapshot_artifacts(
+        auxiliary_contributions,
+        release_root / "auxiliary-contribution-artifacts",
+    )
+    auxiliary_status, _, _, _, _ = _card_auxiliary_contributions(
+        auxiliary_contributions
+    )
     dataset_source = dataset_manifest.get("source")
     if (
         not isinstance(dataset_source, Mapping)
@@ -612,6 +727,24 @@ def build_huggingface_packages(
     campaign_id = campaign_metadata.get("id")
     if not isinstance(campaign_id, str) or not campaign_id:
         raise ValueError("release campaign ID is invalid")
+    if (
+        auxiliary_contributions.get("campaign_id") != campaign_id
+        or auxiliary_contributions.get("campaign_revision")
+        != release_manifest.get("campaign_revision")
+        or auxiliary_contributions.get("record_status")
+        != release_manifest.get("auxiliary_contribution_record_status")
+        or auxiliary_contributions.get("snapshot_sha256")
+        != release_manifest.get("auxiliary_contribution_snapshot_sha256")
+    ):
+        raise ValueError(
+            "auxiliary contribution snapshot differs from the release manifest"
+        )
+    if visibility == "public" and auxiliary_status != "owner_reviewed":
+        raise ValueError(
+            "public Hugging Face packaging requires an owner-reviewed "
+            "auxiliary contribution record, including an explicit empty record "
+            "when no auxiliary work occurred"
+        )
     classification = release_manifest.get(
         "release_classification",
         "systems_evidence_only",
@@ -669,6 +802,7 @@ def build_huggingface_packages(
         "evaluations.json",
         "public-ledger.json",
         "attribution-snapshot.json",
+        "auxiliary-contribution-snapshot.json",
         "CONTRIBUTORS.md",
         "LICENSE",
         "THIRD_PARTY_DATA.md",
@@ -730,6 +864,19 @@ def build_huggingface_packages(
         checkpoint = release_manifest.get("checkpoint")
         if not isinstance(checkpoint, Mapping):
             raise ValueError("release checkpoint manifest is invalid")
+        release_checkpoint_sha256 = (
+            checkpoint.get("resume_state_sha256")
+            or checkpoint.get("model_sha256")
+        )
+        if (
+            auxiliary_contributions.get("release_checkpoint_sha256")
+            != release_checkpoint_sha256
+            or auxiliary_contributions.get("release_checkpoint_step")
+            != checkpoint.get("step")
+        ):
+            raise ValueError(
+                "auxiliary contribution snapshot differs from the release checkpoint"
+            )
         objective = campaign_metadata.get("objective")
         loss_mask = campaign_metadata.get("loss_mask")
         config: dict[str, object] = {
@@ -756,6 +903,10 @@ def build_huggingface_packages(
             ("evaluations.json", "evaluations.json"),
             ("public-ledger.json", "public-ledger.json"),
             ("attribution-snapshot.json", "attribution-snapshot.json"),
+            (
+                "auxiliary-contribution-snapshot.json",
+                "auxiliary-contribution-snapshot.json",
+            ),
             ("CONTRIBUTORS.md", "CONTRIBUTORS.md"),
             ("LICENSE", "ORCACOLONY-SOFTWARE-LICENSE"),
             ("THIRD_PARTY_DATA.md", "THIRD_PARTY_DATA.md"),
@@ -851,6 +1002,26 @@ def build_huggingface_packages(
             raise ValueError(
                 "campaign result release is missing campaign evaluation evidence"
             )
+        auxiliary_artifact_root = (
+            release_root / "auxiliary-contribution-artifacts"
+        )
+        if auxiliary_artifact_root.exists():
+            for relative, source in _regular_file_map(
+                auxiliary_artifact_root,
+                "auxiliary contribution artifacts",
+            ).items():
+                _copy(
+                    source,
+                    model_root
+                    / "auxiliary-contribution-artifacts"
+                    / relative,
+                )
+                _copy(
+                    source,
+                    dataset_root
+                    / "auxiliary-contribution-artifacts"
+                    / relative,
+                )
         (model_root / "README.md").write_text(
             _model_card(
                 campaign_id=campaign_id,
@@ -867,6 +1038,7 @@ def build_huggingface_packages(
                 dataset_manifest=dataset_manifest,
                 checkpoint=checkpoint,
                 attribution=attribution,
+                auxiliary_contributions=auxiliary_contributions,
                 campaign_evaluation=campaign_evaluation_payload,
                 promotion_evidence=promotion_payload,
             ),
@@ -887,6 +1059,10 @@ def build_huggingface_packages(
             ("release-manifest.json", "orcacolony-release.json"),
             ("SHA256SUMS", "release-SHA256SUMS"),
             ("attribution-snapshot.json", "attribution-snapshot.json"),
+            (
+                "auxiliary-contribution-snapshot.json",
+                "auxiliary-contribution-snapshot.json",
+            ),
             ("CONTRIBUTORS.md", "CONTRIBUTORS.md"),
         ):
             _copy(release_root / source_name, dataset_root / target_name)
@@ -908,6 +1084,7 @@ def build_huggingface_packages(
                 source_revision=source_revision,
                 dataset_manifest=dataset_manifest,
                 attribution=attribution,
+                auxiliary_contributions=auxiliary_contributions,
             ),
             encoding="utf-8",
             newline="\n",
@@ -922,6 +1099,10 @@ def build_huggingface_packages(
                 release_root / "release-manifest.json"
             ),
             "release_classification": classification,
+            "auxiliary_contribution_record_status": auxiliary_status,
+            "auxiliary_contribution_snapshot_sha256": (
+                auxiliary_contributions["snapshot_sha256"]
+            ),
             "visibility": visibility,
             "targets": {
                 "model": {
@@ -983,6 +1164,32 @@ def verify_huggingface_packages(package_dir: str | Path) -> Mapping[str, object]
         raise ValueError("unsupported Hugging Face publication package")
     if manifest.get("visibility") not in {"public", "private"}:
         raise ValueError("publication visibility is invalid")
+    auxiliary_status = manifest.get(
+        "auxiliary_contribution_record_status"
+    )
+    auxiliary_snapshot_sha256 = manifest.get(
+        "auxiliary_contribution_snapshot_sha256"
+    )
+    if (
+        auxiliary_status not in {"not_supplied", "owner_reviewed"}
+        or not isinstance(auxiliary_snapshot_sha256, str)
+        or len(auxiliary_snapshot_sha256) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in auxiliary_snapshot_sha256
+        )
+    ):
+        raise ValueError(
+            "publication auxiliary contribution identity is invalid"
+        )
+    if (
+        manifest.get("visibility") == "public"
+        and auxiliary_status != "owner_reviewed"
+    ):
+        raise ValueError(
+            "public publication package lacks an owner-reviewed "
+            "auxiliary contribution record"
+        )
     files = manifest.get("files")
     if not isinstance(files, Mapping):
         raise ValueError("publication file map is missing")
@@ -1021,6 +1228,22 @@ def verify_huggingface_packages(package_dir: str | Path) -> Mapping[str, object]
         raise ValueError(
             "publication package contains an unmanifested or missing file"
         )
+    for repository in ("model", "dataset"):
+        auxiliary = _load_mapping(
+            root
+            / repository
+            / "auxiliary-contribution-snapshot.json",
+            f"{repository} auxiliary contribution snapshot",
+        )
+        validate_auxiliary_contribution_snapshot(auxiliary)
+        if (
+            auxiliary.get("record_status") != auxiliary_status
+            or auxiliary.get("snapshot_sha256")
+            != auxiliary_snapshot_sha256
+        ):
+            raise ValueError(
+                "publication auxiliary contribution identity differs"
+            )
     checksum_entries["publication-manifest.json"] = _sha256_file(
         root / "publication-manifest.json"
     )
