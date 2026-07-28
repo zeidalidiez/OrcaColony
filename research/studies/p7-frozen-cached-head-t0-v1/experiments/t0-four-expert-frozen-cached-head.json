@@ -1,0 +1,106 @@
+{
+  "format": "orcacolony_experiment_v1",
+  "study_id": "p7-frozen-cached-head-t0-v1",
+  "experiment_id": "t0-four-expert-frozen-cached-head",
+  "title": "Exact T0 four-expert update with a frozen cached head",
+  "status": "validated",
+  "subject": {
+    "kind": "sparse-expert-systems-control",
+    "id": "t0-four-expert-frozen-cached-head",
+    "revision": "14dd341b57cc1ab79518037e7c3d1e5cde712332"
+  },
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "14dd341b57cc1ab79518037e7c3d1e5cde712332",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/14dd341b57cc1ab79518037e7c3d1e5cde712332"
+    },
+    {
+      "id": "t0-campaign",
+      "kind": "repo-json-sha256",
+      "revision": "6712386e457e34417ba0c32c8082c86061f8a70c8bd65422695d0091d04bcad8",
+      "uri": "repo:campaign/t0-smoke.json"
+    },
+    {
+      "id": "primary-evidence",
+      "kind": "repo-json-sha256",
+      "revision": "c4c8b93f74e2adc43d7fb9127b8dabc5257e7e4a95b133a7233fb7c596d2bc12",
+      "uri": "repo:reports/evidence/p7-sparse-expert-cached-head-t0.json"
+    },
+    {
+      "id": "repeat-evidence",
+      "kind": "repo-json-sha256",
+      "revision": "a4dbf9994d7cd4da552be3ddb4f44851a80a9cc0915d8eda17e8650a33528f9d",
+      "uri": "repo:reports/evidence/p7-sparse-expert-cached-head-t0-repeat.json"
+    }
+  ],
+  "method": {
+    "training_method": {
+      "id": "frozen-head-sparse-expert-step",
+      "label": "Frozen-head sparse-expert update",
+      "description": "Train the router, shared trunk, and four experts while the final norm and untied output head remain immutable."
+    },
+    "execution_topology": {
+      "id": "coordinator-routed-independent-experts",
+      "label": "Coordinator-routed independent expert workers",
+      "description": "The coordinator computes shared hidden rows and routing; each local worker returns one expert gradient and selected-row input adjoints."
+    },
+    "memory_profiles": [
+      {
+        "id": "in-process-cpu-fp32-accounting",
+        "label": "In-process CPU FP32 accounting",
+        "description": "Centralized and distributed models execute locally in one process; tensor payload fields are exact byte accounting rather than observed network traffic."
+      }
+    ],
+    "numerical_profiles": [
+      {
+        "id": "python-cpu-fp32-exact",
+        "label": "Python CPU FP32 exact control",
+        "description": "One-thread PyTorch FP32 execution compares raw and clipped gradients, AdamW tensors, complete model tensors, loss, and routing exactly."
+      }
+    ]
+  },
+  "worker_profiles": [
+    {
+      "id": "local-in-process-expert-worker",
+      "label": "Local in-process expert worker",
+      "description": "A copied expert and frozen head execute one selected token partition without authentication, process isolation, or network transport."
+    }
+  ],
+  "resource_budget": {
+    "limits": [
+      {
+        "id": "optimizer-steps",
+        "label": "Optimizer steps per run",
+        "value": 1,
+        "unit": "steps"
+      },
+      {
+        "id": "expert-workers",
+        "label": "Independent expert workers",
+        "value": 4,
+        "unit": "workers"
+      },
+      {
+        "id": "deterministic-runs",
+        "label": "Primary and repeat runs",
+        "value": 2,
+        "unit": "runs"
+      },
+      {
+        "id": "wall-time",
+        "label": "Maximum wall time per run",
+        "value": 120,
+        "unit": "seconds"
+      }
+    ]
+  },
+  "reproduction": {
+    "command": [
+      "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 uv run python -m orcacolony.sparse_expert --config campaign/t0-smoke.json --expert-count 4 --router-aux-weight 0.01 --frozen-cached-head --output .artifacts/p7-cached-head-primary.json",
+      "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 uv run python -m orcacolony.sparse_expert --config campaign/t0-smoke.json --expert-count 4 --router-aux-weight 0.01 --frozen-cached-head --output .artifacts/p7-cached-head-repeat.json"
+    ],
+    "notes": "Run from implementation commit 14dd341b57cc1ab79518037e7c3d1e5cde712332. Compare both JSON files after excluding centralized_step_seconds, distributed_step_seconds, and combined_process_peak_rss_bytes."
+  }
+}

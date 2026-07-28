@@ -1537,6 +1537,14 @@ method into the stable framework uses the qualification rules in Section 25.
 - Investigate expert-sharded or other sparse architectures only after the simpler memory and partial-model studies establish the relevant bottlenecks.
 - Define router, shared-state, availability, replication, reconciliation, evaluation, and release semantics before implementation.
 - Treat live model-parallel peer systems as a measured research option, not the default assumption for community participation.
+- Preserve the exact replicated sparse update as the control. A frozen shared
+  head may advance only when centralized and decomposed trainable gradients,
+  clipping, optimizer state, model state, loss, routing, and frozen-head
+  identity remain exact.
+- The first matched T0 cached-head control reduced accounted warm aggregate
+  tensor traffic by 53.17% but increased cold traffic by 7.34%. This qualifies
+  an authenticated T1 process experiment only. It does not qualify cache reuse,
+  transport, memory, retry, model quality, or production support.
 
 ---
 

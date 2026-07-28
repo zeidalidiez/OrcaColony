@@ -1,0 +1,152 @@
+{
+  "format": "orcacolony_experiment_evidence_v1",
+  "study_id": "p7-frozen-cached-head-t0-v1",
+  "experiment_id": "t0-four-expert-frozen-cached-head",
+  "outcome": "validated",
+  "completed_at": "2026-07-28T04:47:12Z",
+  "summary": "Two one-thread T0 runs reproduced every deterministic field. Centralized and distributed trainable gradients, clipped gradients, AdamW state, complete model state, loss, routing, and frozen-head identity matched exactly. Four cold expert workers used 13,144,064 tensor bytes round trip, 7.34% above the matched cold full control. After both paths retained the same immutable 2,098,176-byte head, warm expert traffic used 4,751,360 bytes, 53.17% below the matched warm full control.",
+  "measurements": [
+    {
+      "id": "warm-aggregate-round-trip-reduction",
+      "label": "Warm aggregate round-trip reduction",
+      "value": 0.5317388232919569,
+      "unit": "ratio"
+    },
+    {
+      "id": "cold-aggregate-round-trip-increase",
+      "label": "Cold aggregate round-trip increase",
+      "value": 0.07342364943970558,
+      "unit": "ratio"
+    },
+    {
+      "id": "matched-full-warm-round-trip",
+      "label": "Matched full warm round trip",
+      "value": 10146816,
+      "unit": "bytes"
+    },
+    {
+      "id": "expert-warm-aggregate-round-trip",
+      "label": "Expert warm aggregate round trip",
+      "value": 4751360,
+      "unit": "bytes"
+    },
+    {
+      "id": "matched-full-cold-round-trip",
+      "label": "Matched full cold round trip",
+      "value": 12244992,
+      "unit": "bytes"
+    },
+    {
+      "id": "expert-cold-aggregate-round-trip",
+      "label": "Expert cold aggregate round trip",
+      "value": 13144064,
+      "unit": "bytes"
+    },
+    {
+      "id": "frozen-head-cache",
+      "label": "Frozen head cache per worker",
+      "value": 2098176,
+      "unit": "bytes"
+    },
+    {
+      "id": "worker-gradient-upload",
+      "label": "Expert gradient upload per worker",
+      "value": 527872,
+      "unit": "bytes"
+    },
+    {
+      "id": "deterministic-runs",
+      "label": "Matching deterministic runs",
+      "value": 2,
+      "unit": "runs"
+    },
+    {
+      "id": "repository-tests",
+      "label": "Passing repository tests",
+      "value": 323,
+      "unit": "tests"
+    }
+  ],
+  "evaluation": {
+    "primary_metric": {
+      "id": "warm-aggregate-round-trip-reduction",
+      "value": 0.5317388232919569
+    },
+    "guardrails": [
+      {
+        "id": "exact-canonical-update",
+        "passed": true,
+        "detail": "Maximum centralized-to-distributed raw-gradient, clipped-gradient, and complete-model differences were 0.0; paired gradient, optimizer, and model SHA-256 values matched."
+      },
+      {
+        "id": "frozen-head-closure",
+        "passed": true,
+        "detail": "The initial, centralized-final, and distributed-final head SHA-256 was d559917a27b24b83058a15e7427b745bd96c11ae0eb370be9c84ebf175d49fd7, with zero gradient bytes and zero optimizer-state parameters."
+      },
+      {
+        "id": "matched-cache-accounting",
+        "passed": true,
+        "detail": "Cold controls include the frozen head in model download. Warm controls retain the same 2,098,176 head bytes and refresh all trainable parameters; both include their exact gradient uploads and input traffic."
+      },
+      {
+        "id": "deterministic-repeat",
+        "passed": true,
+        "detail": "Primary and repeat records matched in every field except centralized/distributed elapsed seconds and combined-process peak RSS."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "exact-frozen-head-decomposition",
+      "label": "Frozen-head expert decomposition is exact",
+      "description": "Removing head trainability did not break exact mapping of router, shared-trunk, or expert gradients into one coordinator-owned AdamW update.",
+      "kind": "positive"
+    },
+    {
+      "id": "warm-aggregate-advantage",
+      "label": "Warm aggregate traffic is materially lower",
+      "description": "With the same immutable head retained by both paths, four experts used 53.17% fewer accounted tensor bytes than the full sparse control.",
+      "kind": "positive"
+    },
+    {
+      "id": "cold-fanout-remains-negative",
+      "label": "Cold fan-out remains more expensive",
+      "description": "Duplicating the head across four newly initialized workers left the cold expert round trip 7.34% above the matched full control.",
+      "kind": "negative"
+    },
+    {
+      "id": "process-value-unproven",
+      "label": "The warm result is accounting, not process evidence",
+      "description": "This control justifies the next authenticated T1 process experiment; it does not prove cache reuse, memory, latency, reliability, or model quality in that environment.",
+      "kind": "neutral"
+    }
+  ],
+  "limitations": [
+    "The model is randomly initialized T0, the data is synthetic, and the run has one optimizer step; no useful model behavior or training quality is established.",
+    "Workers are local objects in one process. Authentication, process isolation, network transfer, cache persistence across assignments, restart, and retry are not executed.",
+    "Tensor traffic is exact accounting, not packet-level measurement. Serialization, protocol headers, compression, and transport latency are excluded.",
+    "The warm comparison gives both paths the same immutable-head cache and refreshes every trainable tensor after coordinator AdamW. Other cache or delta-update policies may change the result.",
+    "Capacity routing forced 128 tokens to every expert by rerouting 44 of 512 tokens. The measured balance is policy intervention, not learned specialization.",
+    "Elapsed time and combined-process peak RSS are observational and differ between the two runs."
+  ],
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "14dd341b57cc1ab79518037e7c3d1e5cde712332",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/14dd341b57cc1ab79518037e7c3d1e5cde712332"
+    },
+    {
+      "id": "primary-evidence",
+      "kind": "repo-json-sha256",
+      "revision": "c4c8b93f74e2adc43d7fb9127b8dabc5257e7e4a95b133a7233fb7c596d2bc12",
+      "uri": "repo:reports/evidence/p7-sparse-expert-cached-head-t0.json"
+    },
+    {
+      "id": "repeat-evidence",
+      "kind": "repo-json-sha256",
+      "revision": "a4dbf9994d7cd4da552be3ddb4f44851a80a9cc0915d8eda17e8650a33528f9d",
+      "uri": "repo:reports/evidence/p7-sparse-expert-cached-head-t0-repeat.json"
+    }
+  ]
+}

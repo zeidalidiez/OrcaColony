@@ -67,6 +67,12 @@ pretending that their bytes were verified.
 - `p3-native-resource-profile-v1` validates privacy-filtered runtime/payload/memory/storage observations with real connected Burn CPU/WASM workers, then qualifies digest-validated cached-base native CPU workers on frozen TinyStories at 6.9M and 91.5M parameters. Warm assignments avoid all base and adapter fetch payloads while retaining numerical and held-out-loss guardrails. It records one-shot cache validation/runtime initialization as the dominant warm T2 cost and does not claim packet-level network measurement, quantized placement, mapped/NVMe offload, or useful model quality.
 - `p3-persistent-native-session-v1` validates bounded in-process model/adapter reuse at T2. One authenticated process completes both shards with one model build and one adapter load, removes 99.9986% of one-shot warm setup time, and retains identical checkpoint and held-out behavior. It also records failure-atomic adapter refresh and the lack of participant-diversity and memory-placement gains.
 - `p4-numerical-profile-qualification-v1` closes the local P3 placement matrix and P4 admission contract by validating connected homogeneous int8 across resident conversion and direct authenticated layer bundles. Four real T1 assignments cross a coordinator restart with exact profile-oracle gradients, profile-bound v2 checkpoints, positive frozen holdout movement, zero warm model payload, and fail-closed separation from bit-exact CPU FP32 and separately named Burn profiles.
+- `p7-frozen-cached-head-t0-v1` validates an exact one-step sparse-expert
+  decomposition with the final norm and untied output head frozen and retained
+  by both matched cache models. Four warm experts used 53.17% fewer accounted
+  tensor bytes than the full control, while cold fan-out remained 7.34% more
+  expensive. It does not claim process cache reuse, measured transport,
+  reliability, memory savings, training quality, or production readiness.
 
 Reproduce the persistent release study's source evidence with:
 
@@ -115,6 +121,19 @@ uv run python research/studies/p4-numerical-profile-qualification-v1/scripts/run
   --dataset-artifacts .artifacts/p4-numerical-profile-dataset \
   --output .artifacts/p4-numerical-profile-proof
 ```
+
+Validate and bundle the committed P7 frozen cached-head evidence with:
+
+```bash
+uv run python -m orcacolony.research record \
+  --study research/studies/p7-frozen-cached-head-t0-v1/study.json \
+  --experiment research/studies/p7-frozen-cached-head-t0-v1/experiments/t0-four-expert-frozen-cached-head.json \
+  --evidence research/studies/p7-frozen-cached-head-t0-v1/evidence/t0-four-expert-frozen-cached-head.json \
+  --output .artifacts/p7-frozen-cached-head-result
+```
+
+Its raw primary and repeat commands are pinned to implementation commit
+`14dd341b57cc1ab79518037e7c3d1e5cde712332` in the experiment manifest.
 
 Every committed study, linked experiment, and conventionally named evidence file is rebuilt by the repository test suite. To render any result directly, substitute that study's three manifest paths in the command above and choose a fresh ignored output directory.
 

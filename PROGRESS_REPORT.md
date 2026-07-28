@@ -2,9 +2,9 @@
 
 **Last updated:** 2026-07-27
 
-**Repository version:** [`0.1.3`](VERSION)
+**Repository version:** [`0.1.4`](VERSION)
 
-**Current phase:** P7 frozen cached-head control and evidence capture
+**Current phase:** P7 authenticated process control after published cached-head T0 evidence
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -280,7 +280,10 @@ Completed within the first P3 measurement and native-baseline slice:
 - Held-out TinyStories mean loss improved monotonically from `9.041835904121399` to `8.740711331367493`, but the full-model control reached `7.6404712200164795`. Rolling improvement was `0.30112457275390625`, only 21.49% of the control's `1.4013646841049194`. An independent repeat matched every deterministic field exactly, including all seven evaluation pairs and both final model hashes; isolated-process wall time was 26.972–27.927 seconds and combined-process peak RSS was 700,350,464–705,372,160 bytes.
 - The schedule-normalized block-sharded control assigned all six blocks from one checkpoint and batch before one coordinator AdamW step. All six live optimizer trajectories reached step 12, frozen shared tensors acquired no optimizer state, and every deterministic field repeated exactly. Held-out improvement rose to `0.5503915548324585`, 82.78% above sequential rotation but only 39.28% of the full control; only `0.007922887802124023` additional improvement—1.44% of the sharded total—occurred from step 8 to 12, showing a shallow-objective plateau.
 - Block affinity kept each worker's unique tensor-position exposure at `11,811,840` bytes, 57.21% below full. Warm colony download per step was 31.34% below a full replica, but the colony paid `70,871,040` cold bytes (2.57 full-model equivalents), `279,367,680` persistent download bytes (only 15.67% below full), `506,818,560` round-trip bytes (23.51% below full), and `71,264,256` aggregate resident tensor bytes across six workers. Direct shallow block training is therefore preserved as a useful negative result and is not promoted.
-- P6 and P7 implementation do not wait on the slower practical-campaign review loop. The first owner-directed campaign target is noisy bug reports to validated triage JSON; its data, rubric, baseline examples, checkpoints, and final interpretation remain manual approval points.
+- P6 and P7 implementation do not wait on a practical-campaign review loop. No
+  practical campaign is defined. A future campaign owner supplies its use case,
+  model, data, training recipe, evaluator, metrics, comparisons, checkpoints,
+  interpretation, publication settings, and participants.
 
 ### Cross-cutting worker reliability — hidden assignment canaries
 
@@ -324,7 +327,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P7 — Explore sparse experts and other advanced topologies
 
-**Status:** Active research - exact frozen cached-head T0 control implemented
+**Status:** Active research - exact frozen cached-head T0 control validated and published
 
 - Expert-sharded or sparse models.
 - Router and shared-trunk training.
@@ -344,22 +347,27 @@ Completed within the first P3 measurement and native-baseline slice:
   and the unchanged head digest matched exactly. Against a fair full control
   that also omits frozen-head gradients and retains the same immutable head
   after its cold assignment, four cold expert workers remained 7.34% more
-  expensive, while warm persistent aggregate traffic was 53.17% lower.
-  Committed evidence and the findings report remain the next handoff.
+  expensive, while warm persistent aggregate traffic was 53.17% lower. The
+  primary and repeat JSON records, linked machine-readable study, independent
+  SQL recomputations, and self-contained Report 013 now preserve that finding.
+  This is exact tensor accounting in one process, not transport, memory,
+  reliability, training-quality, or production evidence.
 
 ## Immediate next bounded target
 
-Pin the frozen cached-head evidence to the exact implementation commit, publish
-the machine-readable primary and repeat records and an agent-authored findings
-report, and independently recompute every traffic claim. The measured warm
-aggregate advantage is sufficient to make authenticated T1/process execution
-the next P7 experiment, but the cold regression must remain visible and no
-quality or production claim may be made from this T0 control.
+Run the frozen-head topology through authenticated T1 process workers. Retain
+and revalidate the same immutable head across assignments, refresh all trainable
+state, compare matched persistent full and expert processes, measure serialized
+bytes and isolated worker RSS, and deliberately exercise worker loss. Preserve
+exact centralized equivalence and the 7.34% cold penalty as guardrails. Model
+quality remains outside this systems slice and requires a separate
+owner-supplied practical campaign contract.
 
 ## Remaining major work
 
-- Publish the P7 cached-head evidence and findings, then continue with
-  authenticated-data, process-memory, retry, and quality qualification.
+- Continue P7 with authenticated-data, process-memory, cache-reuse, and retry
+  qualification. Quality qualification belongs to a separately defined
+  owner-directed campaign.
 - Run the first practical campaign after its owner supplies the model, data,
   training recipe, usage scenario, evaluator, metrics, comparisons, publication
   settings, and participants. No default task or model size is selected by the
@@ -406,6 +414,33 @@ quality or production claim may be made from this T0 control.
 
 ### 2026-07-27
 
+- Published the primary and repeat frozen cached-head records at SHA-256
+  `c4c8b93f74e2adc43d7fb9127b8dabc5257e7e4a95b133a7233fb7c596d2bc12`
+  and
+  `a4dbf9994d7cd4da552be3ddb4f44851a80a9cc0915d8eda17e8650a33528f9d`.
+  Both pin implementation commit
+  `14dd341b57cc1ab79518037e7c3d1e5cde712332` and match in every field
+  except the declared step-time and combined-process peak-RSS observations.
+- Added the validated `p7-frozen-cached-head-t0-v1` study and Report 013.
+  The report's canonical artifact includes a grouped cold/warm traffic chart,
+  exact byte table, runnable SQLite sources, the raw reproduction commands,
+  evidence hashes, limitations, and the authenticated T1 process boundary.
+  Independent SQLite execution reproduced its one-row headline and four-row
+  traffic datasets exactly.
+- Corrected the report index, P5 report text, and project handoff to remove a
+  stale claim that a noisy-bug-report practical campaign had been selected.
+  No practical campaign is defined; future campaign choices remain with its
+  owner.
+- The portable report validator, package builder, structural verification,
+  source-link checks, and HTTP title/load check passed. Chromium is not
+  installed and the shared preview snapshot failed, so visual browser
+  inspection remains explicitly unverified.
+- The final one-thread repository gate passed all `323` tests in 118.56
+  seconds. Source and test compilation, the sparse-expert CLI, version `0.1.4`
+  synchronization and commit progression, source/wheel builds, wheel metadata
+  and temporary-file exclusion, research-bundle checksums, evidence
+  determinism, diff whitespace, and added-line credential-pattern checks also
+  passed.
 - Added a separate `--frozen-cached-head` P7 control while retaining the
   original trainable-head tracer unchanged. The final norm/output head is
   frozen in both centralized and distributed execution, remains available for
@@ -418,8 +453,9 @@ quality or production claim may be made from this T0 control.
   control retaining the same frozen head.
 - Added focused tests for trainable-state closure, frozen-head immutability,
   optimizer exclusion, exact distributed equivalence, fair byte formulas, and
-  the new command-line path. Evidence publication is deliberately deferred to a
-  second versioned commit so it can name this implementation revision exactly.
+  the new command-line path. At version `0.1.3`, evidence publication was
+  deliberately deferred to this second versioned commit so it could name the
+  implementation revision exactly.
 - The one-thread repository gate passed all `323` tests. Version `0.1.3`,
   source and test compilation, the sparse-expert CLI, and whitespace checks
   also passed.
