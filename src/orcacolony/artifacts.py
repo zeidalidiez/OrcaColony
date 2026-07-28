@@ -31,6 +31,25 @@ DATASET_ARTIFACT_NAMES = frozenset(
     }
 )
 TINYSTORIES_REVISION = "f54c09fd23315a6f9c86f9dc80f725de7d8f9c64"
+TINYSTORIES_FROZEN_MANIFEST_SHA256 = (
+    "99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af"
+)
+TINYSTORIES_FROZEN_FILE_SHA256 = MappingProxyType(
+    {
+        "tokenizer.json": (
+            "7cb0fc243e7fa2bcfb9e1087ece80f3cbffc642d2c53f3213edaab218d0139bb"
+        ),
+        "train.safetensors": (
+            "a1e065dc862c48d7d39a98e50c7250648b6702514c440cbef1f156f7657b5e6d"
+        ),
+        "validation.safetensors": (
+            "a8a8868b8a2a6aa14b53f9cb18d6e47a027e90532df7607a1297817bd692c706"
+        ),
+        "DATASET-NOTICE.md": (
+            "1f0f23f2e732f985727b23cd3417648eb70c1bcda98278195c72ffd70c7c7235"
+        ),
+    }
+)
 TINYSTORIES_SOURCE = {
     "dataset": "roneneldan/TinyStories",
     "revision": TINYSTORIES_REVISION,
@@ -206,6 +225,15 @@ def _canonical_json(payload: Mapping[str, object]) -> str:
     return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
 
+def _text_bytes(payload: str, *, line_ending: str) -> bytes:
+    if line_ending not in {"lf", "crlf"}:
+        raise ValueError("dataset text line ending must be lf or crlf")
+    normalized = payload.replace("\r\n", "\n").replace("\r", "\n")
+    if line_ending == "crlf":
+        normalized = normalized.replace("\n", "\r\n")
+    return normalized.encode("utf-8")
+
+
 def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
@@ -290,6 +318,7 @@ def build_dataset_artifacts(
     vocab_size: int,
     context_length: int,
     notice_changes: str | None = None,
+    text_line_ending: str = "lf",
 ) -> dict[str, object]:
     output_dir = Path(output_dir)
     if output_dir.exists() and any(output_dir.iterdir()):
@@ -300,7 +329,12 @@ def build_dataset_artifacts(
     validation_stories, validation_used = _complete_stories(validation_bytes)
     tokenizer = _train_tokenizer(train_stories, vocab_size)
     tokenizer_path = output_dir / "tokenizer.json"
-    tokenizer_path.write_text(tokenizer.to_str(pretty=True) + "\n", encoding="utf-8")
+    tokenizer_path.write_bytes(
+        _text_bytes(
+            tokenizer.to_str(pretty=True) + "\n",
+            line_ending=text_line_ending,
+        )
+    )
 
     train_inputs, train_targets, train_tokens = _pack_stories(
         tokenizer, train_stories, context_length
@@ -326,14 +360,16 @@ def build_dataset_artifacts(
         "subset, encoded the text, and packed shifted input/target tensors. "
         "These files are modified and rearranged data, not the original raw files."
     )
-    notice_path.write_text(
-        "# Dataset notice\n\n"
-        f"Source: `{source.get('dataset', 'unknown')}`\n\n"
-        f"Revision: `{source.get('revision', 'unknown')}`\n\n"
-        f"License: `{source.get('license', 'unknown')}`\n\n"
-        f"License URL: {source.get('license_url', 'not supplied')}\n\n"
-        f"Changes: {changes}\n",
-        encoding="utf-8",
+    notice_path.write_bytes(
+        _text_bytes(
+            "# Dataset notice\n\n"
+            f"Source: `{source.get('dataset', 'unknown')}`\n\n"
+            f"Revision: `{source.get('revision', 'unknown')}`\n\n"
+            f"License: `{source.get('license', 'unknown')}`\n\n"
+            f"License URL: {source.get('license_url', 'not supplied')}\n\n"
+            f"Changes: {changes}\n",
+            line_ending=text_line_ending,
+        )
     )
 
     files = {
@@ -380,8 +416,11 @@ def build_dataset_artifacts(
         },
         "files": files,
     }
-    (output_dir / "manifest.json").write_text(
-        _canonical_json(manifest), encoding="utf-8"
+    (output_dir / "manifest.json").write_bytes(
+        _text_bytes(
+            _canonical_json(manifest),
+            line_ending=text_line_ending,
+        )
     )
     return manifest
 
@@ -421,14 +460,31 @@ def build_tinystories_subset(
         **TINYSTORIES_SOURCE,
         "selection": "byte prefix ending at the last complete <|endoftext|> story",
     }
-    return build_dataset_artifacts(
+    manifest = build_dataset_artifacts(
         train_bytes=_download_prefix("TinyStories-train.txt", train_bytes),
         validation_bytes=_download_prefix("TinyStories-valid.txt", validation_bytes),
         output_dir=output_dir,
         source=source,
         vocab_size=vocab_size,
         context_length=context_length,
+        text_line_ending="crlf",
     )
+    if (
+        train_bytes == 16 * 1024 * 1024
+        and validation_bytes == 2 * 1024 * 1024
+        and vocab_size == 8192
+        and context_length == 256
+    ):
+        actual_files = manifest.get("files")
+        manifest_sha256 = _sha256_file(Path(output_dir) / "manifest.json")
+        if (
+            actual_files != dict(TINYSTORIES_FROZEN_FILE_SHA256)
+            or manifest_sha256 != TINYSTORIES_FROZEN_MANIFEST_SHA256
+        ):
+            raise RuntimeError(
+                "default TinyStories build did not reproduce the frozen artifact"
+            )
+    return manifest
 
 
 def _build_parser() -> argparse.ArgumentParser:

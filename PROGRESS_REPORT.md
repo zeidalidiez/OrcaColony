@@ -2,9 +2,9 @@
 
 **Last updated:** 2026-07-27
 
-**Repository version:** [`0.1.4`](VERSION)
+**Repository version:** [`0.1.5`](VERSION)
 
-**Current phase:** P7 authenticated process control after published cached-head T0 evidence
+**Current phase:** P7 authenticated persistent-process control awaiting T1 measurement
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -327,7 +327,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P7 — Explore sparse experts and other advanced topologies
 
-**Status:** Active research - exact frozen cached-head T0 control validated and published
+**Status:** Active research - authenticated persistent-process control implemented
 
 - Expert-sharded or sparse models.
 - Router and shared-trunk training.
@@ -352,16 +352,39 @@ Completed within the first P3 measurement and native-baseline slice:
   SQL recomputations, and self-contained Report 013 now preserve that finding.
   This is exact tensor accounting in one process, not transport, memory,
   reliability, training-quality, or production evidence.
+- Added a trusted-local spawned-process control with a matched persistent full
+  sparse worker and persistent expert workers. Each stable worker accepts two
+  independent one-step assignments from identical initialization, authenticates
+  the exact campaign, dataset, immutable head, trainable state, input, routes,
+  and result frames, and caches the frozen head once while trainable state is
+  refreshed per assignment.
+- Full and expert results are reconstructed under coordinator-owned clipping and
+  AdamW and compared with the centralized frozen-head oracle. Workers are
+  scheduled one at a time to bound this host's load. Evidence labels
+  safetensors and JSON payload bytes separately from private pipe framing and
+  records per-child RSS without implying concurrent or aggregate memory.
+- Added a deliberate accepted-assignment loss control. The first expert process
+  pauses after authenticating the assignment and is terminated; a replacement
+  reloads the same head, trainable state, routes, and selected inputs. Its result
+  must be byte-identical to the stable result and is the result used by the
+  canonical reconstruction. Recovery traffic remains separate from the matched
+  full-versus-expert totals.
+- The first T1 preparation run exposed a cross-platform artifact bug rather
+  than a model/data change. The frozen TinyStories tokenizer, notice, and
+  manifest were originally written with Windows CRLF text bytes, while the
+  generic builder used the host default and emitted LF under Linux. Packed
+  train and validation tensors already matched exactly. TinyStories text
+  serialization is now explicitly CRLF and its four file hashes plus manifest
+  revision are enforced; generic dataset builds remain explicitly LF so the
+  later frozen Record Patch revision is unchanged.
 
 ## Immediate next bounded target
 
-Run the frozen-head topology through authenticated T1 process workers. Retain
-and revalidate the same immutable head across assignments, refresh all trainable
-state, compare matched persistent full and expert processes, measure serialized
-bytes and isolated worker RSS, and deliberately exercise worker loss. Preserve
-exact centralized equivalence and the 7.34% cold penalty as guardrails. Model
-quality remains outside this systems slice and requires a separate
-owner-supplied practical campaign contract.
+Run and repeat the implemented control on the exact frozen T1 artifacts. Record
+exact equivalence, cold and warm serialized traffic, per-child RSS, cache reuse,
+and recovery overhead in machine-readable evidence and a findings report pinned
+to this implementation commit. Do not infer model quality or a practical
+campaign result from this systems slice.
 
 ## Remaining major work
 
@@ -414,6 +437,22 @@ owner-supplied practical campaign contract.
 
 ### 2026-07-27
 
+- Added the authenticated persistent-process P7 implementation and focused
+  process tests. The matched full and expert controls cache the same frozen
+  head across two assignments, refresh trainable state, bind every tensor frame
+  to the campaign and dataset, reconstruct coordinator-owned AdamW exactly, and
+  isolate a terminated accepted assignment from the normal traffic comparison.
+- Found and fixed host-dependent text serialization in the frozen TinyStories
+  builder. The Linux rebuild now reproduces tokenizer SHA-256
+  `7cb0fc243e7fa2bcfb9e1087ece80f3cbffc642d2c53f3213edaab218d0139bb`,
+  manifest SHA-256
+  `99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af`,
+  and both packed safetensors hashes exactly. Generic builds retain canonical LF
+  bytes, preserving the Record Patch dataset revision.
+- The version `0.1.5` implementation gate passed all `325` tests in 193.66
+  seconds with one compute thread. Source and test compilation, version
+  progression, the sparse-process command-line path, exact TinyStories artifact
+  reconstruction, and diff whitespace checks also passed.
 - Published the primary and repeat frozen cached-head records at SHA-256
   `c4c8b93f74e2adc43d7fb9127b8dabc5257e7e4a95b133a7233fb7c596d2bc12`
   and
