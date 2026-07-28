@@ -43,10 +43,15 @@ Every important report should answer, in plain language:
 Reports are self-contained HTML with no remote scripts. Supporting measured JSON may live under `evidence/`. Reports should link the exact implementation commit and reproduction command when available.
 
 The current P7 systems finding is
-[Report 013](p7-frozen-cached-head-t0.html). Its canonical report artifact,
-source SQL, primary and repeat evidence, and linked machine-readable study are
-committed beside the report. It is a frozen-head tensor-accounting result, not
-a practical model evaluation.
+[Report 014](p7-authenticated-process-t1.html). Its canonical report artifact,
+five source queries, primary and repeat process evidence, and linked
+machine-readable study are committed beside the report. It establishes exact
+trusted-local process reconstruction, warm serialized-traffic reduction, and
+one bounded replacement result. It does not establish peak-memory savings,
+remote worker authentication, or practical model quality.
+
+[Report 013](p7-frozen-cached-head-t0.html) is the preceding in-process
+frozen-head accounting result.
 
 ## Practical campaign review points
 

@@ -1,0 +1,113 @@
+{
+  "format": "orcacolony_experiment_v1",
+  "study_id": "p7-authenticated-process-t1-v1",
+  "experiment_id": "t1-four-expert-authenticated-process",
+  "title": "Exact T1 persistent expert processes with accepted-assignment recovery",
+  "status": "validated",
+  "subject": {
+    "kind": "sparse-expert-process-systems-control",
+    "id": "t1-four-expert-authenticated-process",
+    "revision": "56204c7dceba49a487c153948dbb6a1fa3d2e54e"
+  },
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "56204c7dceba49a487c153948dbb6a1fa3d2e54e",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/56204c7dceba49a487c153948dbb6a1fa3d2e54e"
+    },
+    {
+      "id": "t1-campaign",
+      "kind": "repo-json-sha256",
+      "revision": "87efb542e6b283202a0d47efd1e3b9acace986f34d1c4617c4a4090611c53890",
+      "uri": "repo:campaign/t1-tinystories-system-proof.json"
+    },
+    {
+      "id": "primary-evidence",
+      "kind": "repo-json-sha256",
+      "revision": "ed8bfe6676f922d5ddace31d3eed4b74faa75fb4da3282d5e32e2b07c2164c3b",
+      "uri": "repo:reports/evidence/p7-authenticated-process-t1.json"
+    },
+    {
+      "id": "repeat-evidence",
+      "kind": "repo-json-sha256",
+      "revision": "24e7f45b436cb011362061dc7deb336c87cf0f01a24b672a922670f35bcc08a9",
+      "uri": "repo:reports/evidence/p7-authenticated-process-t1-repeat.json"
+    }
+  ],
+  "method": {
+    "training_method": {
+      "id": "independent-frozen-head-sparse-steps",
+      "label": "Independent frozen-head sparse control steps",
+      "description": "Each assignment starts from the same deterministic initialization and produces one isolated coordinator AdamW control step. This is not a sequential training trajectory."
+    },
+    "execution_topology": {
+      "id": "sequential-persistent-local-expert-processes",
+      "label": "Sequential persistent local expert processes",
+      "description": "One matched full process and four expert-affine processes run one at a time. Stable children retain the frozen head across two assignments while trainable state is refreshed for each assignment."
+    },
+    "memory_profiles": [
+      {
+        "id": "per-child-linux-rss-observation",
+        "label": "Per-child current and high-water RSS",
+        "description": "Each child records Linux current RSS and process high-water RSS at entry, after head load, and shutdown. The high-water value already includes interpreter and import startup and is not aggregate colony memory."
+      }
+    ],
+    "numerical_profiles": [
+      {
+        "id": "python-cpu-fp32-exact",
+        "label": "Python CPU FP32 exact control",
+        "description": "One-thread PyTorch FP32 execution compares raw and clipped gradients, AdamW tensors, complete model tensors, loss, routing, and replacement result bytes exactly."
+      }
+    ]
+  },
+  "worker_profiles": [
+    {
+      "id": "trusted-local-spawned-process",
+      "label": "Trusted local spawned process",
+      "description": "The coordinator creates a local multiprocessing pipe and child. SHA-256 identities detect frame mismatch within that trusted scope; they do not authenticate an untrusted remote peer."
+    }
+  ],
+  "resource_budget": {
+    "limits": [
+      {
+        "id": "assignments-per-stable-worker",
+        "label": "Assignments per stable worker",
+        "value": 2,
+        "unit": "assignments"
+      },
+      {
+        "id": "expert-workers",
+        "label": "Expert-affine stable workers",
+        "value": 4,
+        "unit": "workers"
+      },
+      {
+        "id": "maximum-simultaneous-worker-processes",
+        "label": "Maximum simultaneous worker processes",
+        "value": 1,
+        "unit": "processes"
+      },
+      {
+        "id": "deterministic-runs",
+        "label": "Primary and repeat runs",
+        "value": 2,
+        "unit": "runs"
+      },
+      {
+        "id": "worker-timeout",
+        "label": "Maximum wait per worker operation",
+        "value": 120,
+        "unit": "seconds"
+      }
+    ]
+  },
+  "reproduction": {
+    "command": [
+      "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.artifacts --output .artifacts/p7-sparse-process-dataset",
+      "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.sparse_expert_process --config campaign/t1-tinystories-system-proof.json --dataset .artifacts/p7-sparse-process-dataset --expert-count 4 --router-aux-weight 0.01 --timeout-seconds 120 --output .artifacts/p7-sparse-process-primary.json",
+      "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.sparse_expert_process --config campaign/t1-tinystories-system-proof.json --dataset .artifacts/p7-sparse-process-dataset --expert-count 4 --router-aux-weight 0.01 --timeout-seconds 120 --output .artifacts/p7-sparse-process-repeat.json"
+    ],
+    "notes": "Run from implementation commit 56204c7dceba49a487c153948dbb6a1fa3d2e54e. The default data build must reproduce manifest SHA-256 99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af. Compare routing, tensor payload, loss, state, cache, and recovery-result fields exactly; treat elapsed time, RSS, and JSON byte lengths containing those observations as environmental."
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "format": "orcacolony_study_v1",
+  "study_id": "p7-authenticated-process-t1-v1",
+  "title": "P7 authenticated persistent sparse-process control",
+  "hypothesis": "Retaining the same frozen head in digest-bound persistent expert processes can reduce matched warm serialized tensor traffic while preserving an exact coordinator-owned sparse update and exact recomputation after one accepted expert assignment is lost.",
+  "status": "validated",
+  "use_case": {
+    "claim": "Decide whether the frozen-head P7 topology remains numerically and operationally credible in local T1 processes before attempting a refreshed multi-step or remote worker design.",
+    "baseline": {
+      "id": "matched-persistent-full-sparse-process",
+      "label": "Matched persistent full sparse process",
+      "description": "One spawned full sparse worker receives the same frozen head once, refreshes all trainable state for each assignment, consumes the same T1 batches, and returns complete trainable gradients through the same safetensors and JSON protocol."
+    },
+    "primary_metric": {
+      "id": "warm-serialized-tensor-reduction",
+      "label": "Warm serialized tensor reduction",
+      "description": "One minus the aggregate four-expert safetensors payload bytes divided by matched full-process safetensors payload bytes for the second assignment, after both paths retain the same frozen head.",
+      "direction": "maximize",
+      "success_threshold": 0.0,
+      "unit": "ratio"
+    },
+    "repeated_validation_suite": {
+      "id": "authenticated-process-primary-and-repeat",
+      "label": "Two independent one-thread T1 process runs",
+      "description": "Routing, tensor payload sizes, losses, gradient and state identities, cache counts, and recovery-result identity must repeat. Timings, RSS observations, and JSON control lengths containing those observations remain environmental.",
+      "revision": "git:56204c7dceba49a487c153948dbb6a1fa3d2e54e:tests/test_sparse_expert_process.py"
+    },
+    "final_holdout_suite": {
+      "id": "centralized-full-expert-and-replacement-control",
+      "label": "Exact centralized, full-process, expert-process, and replacement comparison",
+      "description": "For both assignments, compare raw gradients, clipped gradients, AdamW tensors, complete model tensors, loss, routing, and frozen-head identity. For the loss control, compare stable and replacement expert result bytes.",
+      "revision": "git:56204c7dceba49a487c153948dbb6a1fa3d2e54e:orcacolony.sparse_expert_process"
+    },
+    "guardrails": [
+      {
+        "id": "exact-canonical-update",
+        "label": "Exact canonical update",
+        "description": "Centralized, full-process, and expert-process raw gradients, clipped gradients, AdamW state, model state, and loss must match exactly on both assignments."
+      },
+      {
+        "id": "persistent-head-identity",
+        "label": "Persistent frozen-head identity",
+        "description": "Every stable worker must receive the immutable head once, reuse it for two assignments, and stop with the original semantic digest."
+      },
+      {
+        "id": "exact-loss-recovery",
+        "label": "Exact accepted-assignment recovery",
+        "description": "After the first expert process authenticates an assignment and is terminated, a replacement must reproduce the stable safetensors result byte-for-byte, and that replacement result must be used in canonical reconstruction."
+      },
+      {
+        "id": "matched-wire-accounting",
+        "label": "Matched serialized-byte accounting",
+        "description": "Cold totals include each head initialization, warm totals exclude the retained head for both paths, and safetensors payload bytes remain separate from JSON payload bytes and recovery overhead."
+      },
+      {
+        "id": "bounded-host-load",
+        "label": "Bounded host load",
+        "description": "At most one worker child may execute at a time; the evidence may not imply concurrent throughput or aggregate colony RSS."
+      }
+    ]
+  },
+  "independent_variables": [
+    {
+      "id": "process-decomposition",
+      "label": "Full process versus expert processes",
+      "description": "The candidate moves each routed expert computation into a separate persistent process while the coordinator retains shared-trunk, routing, clipping, and AdamW authority."
+    },
+    {
+      "id": "accepted-worker-loss",
+      "label": "Accepted expert assignment loss",
+      "description": "A separate recovery control terminates expert zero after it authenticates assignment zero and before it computes a result."
+    }
+  ],
+  "controlled_variables": [
+    {
+      "id": "t1-data-model-dimensions-and-routing",
+      "label": "T1 data, model dimensions, initialization, and routing",
+      "description": "Both paths use the frozen T1 manifest, campaign dimensions and seed, four experts, capacity-bounded top-1 routing, the same two cursors, and router auxiliary weight 0.01."
+    },
+    {
+      "id": "optimizer-and-head-contract",
+      "label": "Coordinator optimizer and frozen-head contract",
+      "description": "Both paths use the same immutable final norm/output head, token-loss scaling, fixed reduction order, one global clip, and coordinator-owned AdamW."
+    },
+    {
+      "id": "local-process-protocol",
+      "label": "Local process launcher and payload protocol",
+      "description": "Both controls use spawned local children, safetensors tensor frames, canonical JSON controls, SHA-256 byte identities, and one compute thread."
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "t1-four-expert-authenticated-process",
+      "role": "candidate",
+      "manifest": "experiments/t1-four-expert-authenticated-process.json"
+    }
+  ]
+}
