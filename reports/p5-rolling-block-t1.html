@@ -234,7 +234,7 @@
             <h2>Make a global step from a complete set of block workers.</h2>
             <p>The next P5 slice should assign one fixed block to each of six persistent workers against the same checkpoint and batch, collect all six mapped gradients, and apply one coordinator AdamW step. That gives every block one update per global step while preserving the low individual-worker residency measured here.</p>
             <p>Worker-to-block affinity also changes the unique-transfer result: one worker can cache shared state plus one block instead of rotating through the entire model. The report must show individual, aggregate, cold, warm, download, and upload bytes separately. If quality still lags after schedule normalization, the following control should test exact boundary activations or gradient targets to isolate the shallow-objective error.</p>
-            <p class="muted">This P5 work proceeds independently of the slower, manually reviewed bug-report → triage JSON campaign and does not block P6/P7 pre-building.</p>
+            <p class="muted">This P5 systems work proceeds independently of owner-directed practical campaigns. No practical task or campaign was selected by this study.</p>
 
             <details>
               <summary>Reproduce and inspect both evidence files</summary>

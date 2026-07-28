@@ -5,7 +5,11 @@ import math
 from pathlib import Path
 
 from orcacolony.reference import load_campaign
-from orcacolony.sparse_expert import main, run_sparse_expert_experiment
+from orcacolony.sparse_expert import (
+    main,
+    run_cached_head_sparse_expert_experiment,
+    run_sparse_expert_experiment,
+)
 
 
 CONFIG = Path(__file__).parent.parent / "campaign" / "t0-smoke.json"
@@ -112,3 +116,122 @@ def test_sparse_expert_cli_writes_evidence(tmp_path: Path) -> None:
     assert payload["format"] == "orcacolony_sparse_expert_evidence_v1"
     assert payload["expert_count"] == 4
     assert payload["centralized_model_sha256"] == payload["distributed_model_sha256"]
+
+
+def test_frozen_cached_head_control_is_exact_and_counts_fair_full_upload() -> None:
+    campaign = load_campaign(CONFIG)
+    evidence = run_cached_head_sparse_expert_experiment(
+        campaign,
+        expert_count=4,
+        router_aux_weight=0.01,
+    )
+
+    assert evidence.format == "orcacolony_sparse_expert_cached_head_evidence_v1"
+    assert evidence.head_training_mode == "frozen_cached_per_worker"
+    assert evidence.expert_count == 4
+    assert evidence.active_expert_count == 4
+    assert evidence.worker_forward_calls == (1, 1, 1, 1)
+    assert evidence.router_optimizer_step == 1
+    assert evidence.shared_optimizer_step == 1
+    assert evidence.expert_optimizer_steps == (1, 1, 1, 1)
+
+    assert evidence.frozen_head_gradient_tensor_bytes == 0
+    assert evidence.frozen_head_optimizer_state_parameter_count == 0
+    assert evidence.frozen_head_parameter_count > 0
+    assert evidence.trainable_parameter_count == (
+        evidence.full_parameter_count - evidence.frozen_head_parameter_count
+    )
+    assert evidence.worker_trainable_parameter_count == (
+        evidence.expert_parameter_count
+    )
+    assert evidence.worker_parameter_count == (
+        evidence.expert_parameter_count + evidence.frozen_head_parameter_count
+    )
+    assert evidence.initial_frozen_head_sha256 == (
+        evidence.centralized_frozen_head_sha256
+    )
+    assert evidence.initial_frozen_head_sha256 == (
+        evidence.distributed_frozen_head_sha256
+    )
+
+    assert evidence.max_abs_raw_gradient_difference == 0.0
+    assert evidence.max_abs_clipped_gradient_difference == 0.0
+    assert evidence.max_abs_model_difference == 0.0
+    assert evidence.centralized_loss == evidence.distributed_loss
+    assert evidence.centralized_raw_gradient_sha256 == (
+        evidence.distributed_raw_gradient_sha256
+    )
+    assert evidence.centralized_clipped_gradient_sha256 == (
+        evidence.distributed_clipped_gradient_sha256
+    )
+    assert evidence.centralized_optimizer_sha256 == (
+        evidence.distributed_optimizer_sha256
+    )
+    assert evidence.centralized_model_sha256 == evidence.distributed_model_sha256
+
+    assert evidence.frozen_head_cache_payload_tensor_bytes == (
+        evidence.frozen_head_parameter_count * 4
+    )
+    assert evidence.full_gradient_upload_tensor_bytes == (
+        evidence.full_payload_tensor_bytes
+        - evidence.frozen_head_cache_payload_tensor_bytes
+    )
+    assert evidence.full_warm_payload_tensor_bytes == (
+        evidence.full_payload_tensor_bytes
+        - evidence.frozen_head_cache_payload_tensor_bytes
+    )
+    assert evidence.full_cold_round_trip_tensor_bytes == (
+        evidence.full_payload_tensor_bytes
+        + evidence.full_gradient_upload_tensor_bytes
+        + evidence.full_input_tensor_bytes
+    )
+    assert evidence.full_warm_round_trip_tensor_bytes == (
+        evidence.full_warm_payload_tensor_bytes
+        + evidence.full_gradient_upload_tensor_bytes
+        + evidence.full_input_tensor_bytes
+    )
+    assert evidence.worker_gradient_upload_tensor_bytes == (
+        evidence.expert_payload_tensor_bytes
+    )
+    assert evidence.aggregate_gradient_upload_tensor_bytes == (
+        evidence.worker_gradient_upload_tensor_bytes * evidence.active_expert_count
+    )
+    assert evidence.cold_aggregate_round_trip_tensor_bytes == (
+        evidence.cold_aggregate_payload_tensor_bytes
+        + evidence.aggregate_gradient_upload_tensor_bytes
+        + evidence.aggregate_input_tensor_bytes
+        + evidence.aggregate_input_adjoint_tensor_bytes
+    )
+    assert evidence.warm_aggregate_round_trip_tensor_bytes == (
+        evidence.warm_aggregate_payload_tensor_bytes
+        + evidence.aggregate_gradient_upload_tensor_bytes
+        + evidence.aggregate_input_tensor_bytes
+        + evidence.aggregate_input_adjoint_tensor_bytes
+    )
+    assert evidence.cold_aggregate_round_trip_relative_change > 0.0
+    assert evidence.warm_aggregate_round_trip_relative_change < 0.0
+
+
+def test_sparse_expert_cli_writes_frozen_cached_head_evidence(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "sparse-expert-cached-head.json"
+    main(
+        [
+            "--config",
+            str(CONFIG),
+            "--expert-count",
+            "4",
+            "--router-aux-weight",
+            "0.01",
+            "--frozen-cached-head",
+            "--output",
+            str(output),
+        ]
+    )
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["format"] == "orcacolony_sparse_expert_cached_head_evidence_v1"
+    assert payload["frozen_head_gradient_tensor_bytes"] == 0
+    assert payload["initial_frozen_head_sha256"] == (
+        payload["distributed_frozen_head_sha256"]
+    )

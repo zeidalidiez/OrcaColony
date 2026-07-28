@@ -97,6 +97,24 @@ class SparseExpertWorker(nn.Module):
         return self.output_head(self.final_norm(output))
 
 
+class FrozenCachedHeadSparseExpertWorker(nn.Module):
+    def __init__(self, model: SparseExpertDecoder, expert_index: int) -> None:
+        super().__init__()
+        self.expert_index = expert_index
+        self.objective = model.objective
+        self.expert = copy.deepcopy(model.experts[expert_index])
+        self.final_norm = copy.deepcopy(model.final_norm)
+        self.output_head = copy.deepcopy(model.output_head)
+        for module in (self.final_norm, self.output_head):
+            module.requires_grad_(False)
+        self.forward_calls = 0
+
+    def forward(self, hidden: Tensor) -> Tensor:
+        self.forward_calls += 1
+        output = self.expert(hidden)
+        return self.output_head(self.final_norm(output))
+
+
 @dataclass(frozen=True)
 class SparseExpertEvidence:
     format: str
@@ -152,6 +170,74 @@ class SparseExpertEvidence:
     combined_process_peak_rss_bytes: int | None
 
 
+@dataclass(frozen=True)
+class CachedHeadSparseExpertEvidence:
+    format: str
+    campaign_id: str
+    head_training_mode: str
+    expert_count: int
+    active_expert_count: int
+    routing_capacity: int
+    routing_counts: tuple[int, ...]
+    unconstrained_routing_counts: tuple[int, ...]
+    capacity_rerouted_tokens: int
+    total_routed_tokens: int
+    routing_load_coefficient_of_variation: float
+    worker_forward_calls: tuple[int, ...]
+    router_optimizer_step: int
+    shared_optimizer_step: int
+    expert_optimizer_steps: tuple[int, ...]
+    frozen_head_optimizer_state_parameter_count: int
+    frozen_head_gradient_tensor_bytes: int
+    full_parameter_count: int
+    trainable_parameter_count: int
+    shared_trainable_parameter_count: int
+    router_parameter_count: int
+    expert_parameter_count: int
+    frozen_head_parameter_count: int
+    worker_parameter_count: int
+    worker_trainable_parameter_count: int
+    full_payload_tensor_bytes: int
+    full_warm_payload_tensor_bytes: int
+    full_gradient_upload_tensor_bytes: int
+    full_input_tensor_bytes: int
+    full_cold_round_trip_tensor_bytes: int
+    full_warm_round_trip_tensor_bytes: int
+    frozen_head_cache_payload_tensor_bytes: int
+    expert_payload_tensor_bytes: int
+    cold_worker_payload_tensor_bytes: int
+    warm_worker_payload_tensor_bytes: int
+    cold_aggregate_payload_tensor_bytes: int
+    warm_aggregate_payload_tensor_bytes: int
+    worker_gradient_upload_tensor_bytes: int
+    aggregate_gradient_upload_tensor_bytes: int
+    aggregate_input_tensor_bytes: int
+    aggregate_input_adjoint_tensor_bytes: int
+    cold_aggregate_round_trip_tensor_bytes: int
+    warm_aggregate_round_trip_tensor_bytes: int
+    cold_aggregate_round_trip_relative_change: float
+    warm_aggregate_round_trip_relative_change: float
+    centralized_loss: float
+    distributed_loss: float
+    max_abs_raw_gradient_difference: float
+    max_abs_clipped_gradient_difference: float
+    max_abs_model_difference: float
+    initial_frozen_head_sha256: str
+    centralized_frozen_head_sha256: str
+    distributed_frozen_head_sha256: str
+    centralized_raw_gradient_sha256: str
+    distributed_raw_gradient_sha256: str
+    centralized_clipped_gradient_sha256: str
+    distributed_clipped_gradient_sha256: str
+    centralized_optimizer_sha256: str
+    distributed_optimizer_sha256: str
+    centralized_model_sha256: str
+    distributed_model_sha256: str
+    centralized_step_seconds: float
+    distributed_step_seconds: float
+    combined_process_peak_rss_bytes: int | None
+
+
 def _build_sparse_model(
     campaign: CampaignConfig,
     expert_count: int,
@@ -179,6 +265,92 @@ def _gradient_tensor_bytes(module: nn.Module) -> int:
 
 def _parameter_count(module: nn.Module) -> int:
     return sum(parameter.numel() for parameter in module.parameters())
+
+
+def _trainable_parameter_count(module: nn.Module) -> int:
+    return sum(
+        parameter.numel()
+        for parameter in module.parameters()
+        if parameter.requires_grad
+    )
+
+
+def _trainable_gradient_tensor_bytes(module: nn.Module) -> int:
+    total = 0
+    for name, parameter in module.named_parameters():
+        if parameter.requires_grad:
+            if parameter.grad is None:
+                raise AssertionError(f"trainable parameter lacks gradient: {name}")
+            total += _tensor_bytes(parameter.grad)
+        elif parameter.grad is not None:
+            raise AssertionError(f"frozen parameter acquired a gradient: {name}")
+    return total
+
+
+def _trainable_gradient_snapshot(module: nn.Module) -> dict[str, Tensor]:
+    gradients: dict[str, Tensor] = {}
+    for name, parameter in module.named_parameters():
+        if parameter.requires_grad:
+            if parameter.grad is None:
+                raise AssertionError(f"trainable parameter lacks gradient: {name}")
+            gradients[name] = parameter.grad.detach().clone()
+        elif parameter.grad is not None:
+            raise AssertionError(f"frozen parameter acquired a gradient: {name}")
+    return gradients
+
+
+def _trainable_optimizer_tensor_snapshot(
+    module: nn.Module,
+    optimizer: torch.optim.Optimizer,
+) -> dict[str, Tensor]:
+    tensors: dict[str, Tensor] = {}
+    for name, parameter in module.named_parameters():
+        state = optimizer.state.get(parameter)
+        if not parameter.requires_grad:
+            if state:
+                raise AssertionError(
+                    f"frozen parameter acquired optimizer state: {name}"
+                )
+            continue
+        if state is None:
+            raise AssertionError(f"trainable parameter lacks optimizer state: {name}")
+        for state_name in ("step", "exp_avg", "exp_avg_sq"):
+            value = state.get(state_name)
+            if not isinstance(value, Tensor):
+                raise AssertionError(
+                    f"optimizer state is not a tensor: {state_name}.{name}"
+                )
+            tensors[f"{state_name}.{name}"] = value.detach().clone()
+    return tensors
+
+
+def _head_tensor_snapshot(model: SparseExpertDecoder) -> dict[str, Tensor]:
+    return {
+        **{
+            f"final_norm.{name}": tensor.detach().clone()
+            for name, tensor in model.final_norm.state_dict().items()
+        },
+        **{
+            f"output_head.{name}": tensor.detach().clone()
+            for name, tensor in model.output_head.state_dict().items()
+        },
+    }
+
+
+def _freeze_head(model: SparseExpertDecoder) -> None:
+    for module in (model.final_norm, model.output_head):
+        module.requires_grad_(False)
+
+
+def _optimizer_state_parameter_count(
+    optimizer: torch.optim.Optimizer,
+    module: nn.Module,
+) -> int:
+    return sum(
+        1
+        for parameter in module.parameters()
+        if bool(optimizer.state.get(parameter))
+    )
 
 
 def _balanced_top1_routes(
@@ -297,6 +469,31 @@ def _map_worker_gradients(
                 parameter.grad = contribution.clone()
             else:
                 parameter.grad.add_(contribution)
+
+
+def _map_frozen_head_worker_gradients(
+    coordinator: SparseExpertDecoder,
+    worker: FrozenCachedHeadSparseExpertWorker,
+    expert_index: int,
+) -> None:
+    coordinator_expert = coordinator.experts[expert_index]
+    for (expected_name, parameter), (actual_name, worker_parameter) in zip(
+        coordinator_expert.named_parameters(),
+        worker.expert.named_parameters(),
+        strict=True,
+    ):
+        if expected_name != actual_name or worker_parameter.grad is None:
+            raise AssertionError("expert gradient mapping is incomplete")
+        parameter.grad = worker_parameter.grad.detach().clone()
+    for module, label in (
+        (worker.final_norm, "final norm"),
+        (worker.output_head, "output head"),
+    ):
+        for name, parameter in module.named_parameters():
+            if parameter.requires_grad or parameter.grad is not None:
+                raise AssertionError(
+                    f"frozen cached {label} acquired a gradient: {name}"
+                )
 
 
 def run_sparse_expert_experiment(
@@ -571,6 +768,356 @@ def run_sparse_expert_experiment(
     )
 
 
+def run_cached_head_sparse_expert_experiment(
+    campaign: CampaignConfig,
+    *,
+    expert_count: int = 4,
+    router_aux_weight: float = 0.01,
+) -> CachedHeadSparseExpertEvidence:
+    if campaign.dataset is not None:
+        raise ValueError(
+            "the cached-head sparse-expert control requires the synthetic fixture"
+        )
+    if type(expert_count) is not int or not 2 <= expert_count <= 16:
+        raise ValueError("expert count must be an integer between two and sixteen")
+    if (
+        isinstance(router_aux_weight, bool)
+        or not isinstance(router_aux_weight, (int, float))
+        or not math.isfinite(float(router_aux_weight))
+        or not 0.0 < float(router_aux_weight) <= 1.0
+    ):
+        raise ValueError("router auxiliary weight must be finite in (0, 1]")
+    router_aux_weight = float(router_aux_weight)
+
+    centralized = _build_sparse_model(campaign, expert_count)
+    distributed = _build_sparse_model(campaign, expert_count)
+    _freeze_head(centralized)
+    _freeze_head(distributed)
+    centralized_initial_head = _head_tensor_snapshot(centralized)
+    distributed_initial_head = _head_tensor_snapshot(distributed)
+    initial_head_sha256 = tensor_sha256(centralized_initial_head)
+    if initial_head_sha256 != tensor_sha256(distributed_initial_head):
+        raise AssertionError("centralized and distributed frozen heads disagree")
+
+    centralized_optimizer = _create_optimizer(centralized, campaign.training)
+    distributed_optimizer = _create_optimizer(distributed, campaign.training)
+    inputs, targets = fixture_batch(campaign, 0)
+    targets_flat = targets.reshape(-1)
+    total_tokens = targets.numel()
+
+    centralized.train()
+    centralized_optimizer.zero_grad(set_to_none=True)
+    centralized_started = time.perf_counter()
+    centralized_hidden = centralized.shared_hidden(inputs)
+    centralized_flat = centralized_hidden.reshape(-1, campaign.model.width)
+    centralized_router_logits = centralized.router(centralized_flat)
+    routes, routing_counts, unconstrained_counts, rerouted, capacity = (
+        _balanced_top1_routes(centralized_router_logits, expert_count)
+    )
+    centralized_aux = _router_auxiliary_loss(
+        centralized_router_logits,
+        routes,
+        expert_count,
+        router_aux_weight,
+    )
+    centralized_losses = [
+        _expert_loss(
+            centralized,
+            centralized_flat,
+            targets_flat,
+            routes,
+            expert_index,
+            total_tokens,
+        )
+        for expert_index in range(expert_count)
+    ]
+    centralized_aux.backward(retain_graph=True)
+    for expert_index, loss in enumerate(centralized_losses):
+        loss.backward(retain_graph=expert_index < expert_count - 1)
+    centralized_loss = centralized_aux + sum(centralized_losses)
+    centralized_raw = _trainable_gradient_snapshot(centralized)
+    torch.nn.utils.clip_grad_norm_(
+        centralized.parameters(),
+        campaign.training.max_gradient_norm,
+    )
+    centralized_clipped = _trainable_gradient_snapshot(centralized)
+    centralized_optimizer.step()
+    centralized_step_seconds = time.perf_counter() - centralized_started
+
+    distributed.train()
+    distributed_optimizer.zero_grad(set_to_none=True)
+    distributed_started = time.perf_counter()
+    distributed_hidden = distributed.shared_hidden(inputs)
+    distributed_flat = distributed_hidden.reshape(-1, campaign.model.width)
+    distributed_router_logits = distributed.router(distributed_flat)
+    distributed_routes, distributed_counts, _, distributed_rerouted, _ = (
+        _balanced_top1_routes(distributed_router_logits, expert_count)
+    )
+    if (
+        not torch.equal(routes, distributed_routes)
+        or routing_counts != distributed_counts
+        or rerouted != distributed_rerouted
+    ):
+        raise AssertionError("centralized and distributed routing disagree")
+    distributed_aux = _router_auxiliary_loss(
+        distributed_router_logits,
+        distributed_routes,
+        expert_count,
+        router_aux_weight,
+    )
+    distributed_aux.backward(retain_graph=True)
+    workers: list[FrozenCachedHeadSparseExpertWorker] = []
+    distributed_losses: list[Tensor] = []
+    aggregate_input_tensor_bytes = 0
+    aggregate_input_adjoint_tensor_bytes = 0
+    for expert_index in range(expert_count):
+        mask = distributed_routes == expert_index
+        selected_hidden = (
+            distributed_flat[mask].detach().clone().requires_grad_(True)
+        )
+        selected_targets = targets_flat[mask].detach().clone()
+        worker = FrozenCachedHeadSparseExpertWorker(distributed, expert_index)
+        worker.train()
+        worker.zero_grad(set_to_none=True)
+        logits = worker(selected_hidden)
+        worker_loss_sum, _ = objective_loss_sum(
+            worker.objective,
+            logits,
+            selected_targets,
+        )
+        worker_loss = worker_loss_sum / total_tokens
+        worker_loss.backward()
+        if selected_hidden.grad is None:
+            raise AssertionError("expert worker lacks shared-trunk input adjoint")
+        _map_frozen_head_worker_gradients(distributed, worker, expert_index)
+        scattered = torch.zeros_like(distributed_flat)
+        scattered[mask] = selected_hidden.grad.detach()
+        distributed_flat.backward(
+            scattered,
+            retain_graph=expert_index < expert_count - 1,
+        )
+        aggregate_input_tensor_bytes += _tensor_bytes(selected_hidden)
+        aggregate_input_tensor_bytes += _tensor_bytes(selected_targets)
+        aggregate_input_adjoint_tensor_bytes += _tensor_bytes(selected_hidden.grad)
+        distributed_losses.append(worker_loss.detach())
+        workers.append(worker)
+    distributed_loss_tensor = distributed_aux.detach() + sum(distributed_losses)
+    distributed_raw = _trainable_gradient_snapshot(distributed)
+    torch.nn.utils.clip_grad_norm_(
+        distributed.parameters(),
+        campaign.training.max_gradient_norm,
+    )
+    distributed_clipped = _trainable_gradient_snapshot(distributed)
+    distributed_optimizer.step()
+    distributed_step_seconds = time.perf_counter() - distributed_started
+
+    centralized_head = _head_tensor_snapshot(centralized)
+    distributed_head = _head_tensor_snapshot(distributed)
+    centralized_head_sha256 = tensor_sha256(centralized_head)
+    distributed_head_sha256 = tensor_sha256(distributed_head)
+    if (
+        centralized_head_sha256 != initial_head_sha256
+        or distributed_head_sha256 != initial_head_sha256
+    ):
+        raise AssertionError("frozen cached head changed during the control")
+
+    centralized_model = _model_snapshot(centralized)
+    distributed_model = _model_snapshot(distributed)
+    centralized_optimizer_snapshot = _trainable_optimizer_tensor_snapshot(
+        centralized,
+        centralized_optimizer,
+    )
+    distributed_optimizer_snapshot = _trainable_optimizer_tensor_snapshot(
+        distributed,
+        distributed_optimizer,
+    )
+
+    centralized_head_optimizer_state = (
+        _optimizer_state_parameter_count(
+            centralized_optimizer,
+            centralized.final_norm,
+        )
+        + _optimizer_state_parameter_count(
+            centralized_optimizer,
+            centralized.output_head,
+        )
+    )
+    distributed_head_optimizer_state = (
+        _optimizer_state_parameter_count(
+            distributed_optimizer,
+            distributed.final_norm,
+        )
+        + _optimizer_state_parameter_count(
+            distributed_optimizer,
+            distributed.output_head,
+        )
+    )
+    if centralized_head_optimizer_state or distributed_head_optimizer_state:
+        raise AssertionError("frozen cached head acquired optimizer state")
+
+    mean_count = total_tokens / expert_count
+    routing_cv = math.sqrt(
+        sum((count - mean_count) ** 2 for count in routing_counts) / expert_count
+    ) / mean_count
+    first_worker = workers[0]
+    frozen_head_payload = (
+        _state_tensor_bytes(first_worker.final_norm)
+        + _state_tensor_bytes(first_worker.output_head)
+    )
+    expert_payload = _state_tensor_bytes(first_worker.expert)
+    cold_worker_payload = _state_tensor_bytes(first_worker)
+    worker_gradient_upload = _trainable_gradient_tensor_bytes(first_worker)
+    active_expert_count = sum(count > 0 for count in routing_counts)
+    full_payload = _state_tensor_bytes(distributed)
+    full_gradient_upload = _trainable_gradient_tensor_bytes(distributed)
+    full_input_tensor_bytes = _tensor_bytes(inputs) + _tensor_bytes(targets)
+    full_warm_payload = full_payload - frozen_head_payload
+    full_cold_round_trip = (
+        full_payload + full_gradient_upload + full_input_tensor_bytes
+    )
+    full_warm_round_trip = (
+        full_warm_payload
+        + full_gradient_upload
+        + full_input_tensor_bytes
+    )
+    cold_aggregate_payload = cold_worker_payload * active_expert_count
+    warm_aggregate_payload = expert_payload * active_expert_count
+    aggregate_gradient_upload = worker_gradient_upload * active_expert_count
+    cold_aggregate_round_trip = (
+        cold_aggregate_payload
+        + aggregate_gradient_upload
+        + aggregate_input_tensor_bytes
+        + aggregate_input_adjoint_tensor_bytes
+    )
+    warm_aggregate_round_trip = (
+        warm_aggregate_payload
+        + aggregate_gradient_upload
+        + aggregate_input_tensor_bytes
+        + aggregate_input_adjoint_tensor_bytes
+    )
+    frozen_head_gradient_bytes = sum(
+        _tensor_bytes(parameter.grad)
+        for module in (distributed.final_norm, distributed.output_head)
+        for parameter in module.parameters()
+        if parameter.grad is not None
+    )
+    if frozen_head_gradient_bytes:
+        raise AssertionError("frozen cached head produced gradient bytes")
+    shared_trainable_parameters = (
+        _trainable_parameter_count(distributed.token_embedding)
+        + _trainable_parameter_count(distributed.position_embedding)
+        + _trainable_parameter_count(distributed.shared_block)
+        + _trainable_parameter_count(distributed.router)
+    )
+    router_step = _optimizer_step_for_module(
+        distributed_optimizer,
+        distributed.router,
+        label="router",
+    )
+    shared_step = _optimizer_step_for_module(
+        distributed_optimizer,
+        distributed.shared_block,
+        label="shared block",
+    )
+    expert_steps = tuple(
+        _optimizer_step_for_module(
+            distributed_optimizer,
+            expert,
+            label=f"expert {index}",
+        )
+        for index, expert in enumerate(distributed.experts)
+    )
+
+    return CachedHeadSparseExpertEvidence(
+        format="orcacolony_sparse_expert_cached_head_evidence_v1",
+        campaign_id=str(campaign.campaign["id"]),
+        head_training_mode="frozen_cached_per_worker",
+        expert_count=expert_count,
+        active_expert_count=active_expert_count,
+        routing_capacity=capacity,
+        routing_counts=routing_counts,
+        unconstrained_routing_counts=unconstrained_counts,
+        capacity_rerouted_tokens=rerouted,
+        total_routed_tokens=total_tokens,
+        routing_load_coefficient_of_variation=routing_cv,
+        worker_forward_calls=tuple(worker.forward_calls for worker in workers),
+        router_optimizer_step=router_step,
+        shared_optimizer_step=shared_step,
+        expert_optimizer_steps=expert_steps,
+        frozen_head_optimizer_state_parameter_count=(
+            distributed_head_optimizer_state
+        ),
+        frozen_head_gradient_tensor_bytes=frozen_head_gradient_bytes,
+        full_parameter_count=_parameter_count(distributed),
+        trainable_parameter_count=_trainable_parameter_count(distributed),
+        shared_trainable_parameter_count=shared_trainable_parameters,
+        router_parameter_count=_parameter_count(distributed.router),
+        expert_parameter_count=_parameter_count(distributed.experts[0]),
+        frozen_head_parameter_count=(
+            _parameter_count(distributed.final_norm)
+            + _parameter_count(distributed.output_head)
+        ),
+        worker_parameter_count=_parameter_count(first_worker),
+        worker_trainable_parameter_count=_trainable_parameter_count(first_worker),
+        full_payload_tensor_bytes=full_payload,
+        full_warm_payload_tensor_bytes=full_warm_payload,
+        full_gradient_upload_tensor_bytes=full_gradient_upload,
+        full_input_tensor_bytes=full_input_tensor_bytes,
+        full_cold_round_trip_tensor_bytes=full_cold_round_trip,
+        full_warm_round_trip_tensor_bytes=full_warm_round_trip,
+        frozen_head_cache_payload_tensor_bytes=frozen_head_payload,
+        expert_payload_tensor_bytes=expert_payload,
+        cold_worker_payload_tensor_bytes=cold_worker_payload,
+        warm_worker_payload_tensor_bytes=expert_payload,
+        cold_aggregate_payload_tensor_bytes=cold_aggregate_payload,
+        warm_aggregate_payload_tensor_bytes=warm_aggregate_payload,
+        worker_gradient_upload_tensor_bytes=worker_gradient_upload,
+        aggregate_gradient_upload_tensor_bytes=aggregate_gradient_upload,
+        aggregate_input_tensor_bytes=aggregate_input_tensor_bytes,
+        aggregate_input_adjoint_tensor_bytes=aggregate_input_adjoint_tensor_bytes,
+        cold_aggregate_round_trip_tensor_bytes=cold_aggregate_round_trip,
+        warm_aggregate_round_trip_tensor_bytes=warm_aggregate_round_trip,
+        cold_aggregate_round_trip_relative_change=(
+            cold_aggregate_round_trip / full_cold_round_trip - 1.0
+        ),
+        warm_aggregate_round_trip_relative_change=(
+            warm_aggregate_round_trip / full_warm_round_trip - 1.0
+        ),
+        centralized_loss=float(centralized_loss.detach()),
+        distributed_loss=float(distributed_loss_tensor),
+        max_abs_raw_gradient_difference=_max_abs_difference(
+            centralized_raw,
+            distributed_raw,
+        ),
+        max_abs_clipped_gradient_difference=_max_abs_difference(
+            centralized_clipped,
+            distributed_clipped,
+        ),
+        max_abs_model_difference=_max_abs_difference(
+            centralized_model,
+            distributed_model,
+        ),
+        initial_frozen_head_sha256=initial_head_sha256,
+        centralized_frozen_head_sha256=centralized_head_sha256,
+        distributed_frozen_head_sha256=distributed_head_sha256,
+        centralized_raw_gradient_sha256=tensor_sha256(centralized_raw),
+        distributed_raw_gradient_sha256=tensor_sha256(distributed_raw),
+        centralized_clipped_gradient_sha256=tensor_sha256(centralized_clipped),
+        distributed_clipped_gradient_sha256=tensor_sha256(distributed_clipped),
+        centralized_optimizer_sha256=tensor_sha256(
+            centralized_optimizer_snapshot
+        ),
+        distributed_optimizer_sha256=tensor_sha256(
+            distributed_optimizer_snapshot
+        ),
+        centralized_model_sha256=tensor_sha256(centralized_model),
+        distributed_model_sha256=tensor_sha256(distributed_model),
+        centralized_step_seconds=centralized_step_seconds,
+        distributed_step_seconds=distributed_step_seconds,
+        combined_process_peak_rss_bytes=_process_memory_bytes()[1],
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Measure one exact coordinator-routed sparse-expert step"
@@ -578,6 +1125,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--expert-count", type=int, default=4)
     parser.add_argument("--router-aux-weight", type=float, default=0.01)
+    parser.add_argument(
+        "--frozen-cached-head",
+        action="store_true",
+        help=(
+            "freeze the final norm/output head in both controls and cache it "
+            "at each expert worker"
+        ),
+    )
     parser.add_argument("--output", type=Path)
     return parser
 
@@ -585,11 +1140,18 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     args = _build_parser().parse_args(argv)
     campaign = load_campaign(args.config)
-    evidence = run_sparse_expert_experiment(
-        campaign,
-        expert_count=args.expert_count,
-        router_aux_weight=args.router_aux_weight,
-    )
+    if args.frozen_cached_head:
+        evidence = run_cached_head_sparse_expert_experiment(
+            campaign,
+            expert_count=args.expert_count,
+            router_aux_weight=args.router_aux_weight,
+        )
+    else:
+        evidence = run_sparse_expert_experiment(
+            campaign,
+            expert_count=args.expert_count,
+            router_aux_weight=args.router_aux_weight,
+        )
     payload = json.dumps(asdict(evidence), indent=2, sort_keys=True) + "\n"
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)

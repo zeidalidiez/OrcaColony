@@ -42,6 +42,12 @@ Every important report should answer, in plain language:
 
 Reports are self-contained HTML with no remote scripts. Supporting measured JSON may live under `evidence/`. Reports should link the exact implementation commit and reproduction command when available.
 
+The current P7 systems finding is
+[Report 013](p7-frozen-cached-head-t0.html). Its canonical report artifact,
+source SQL, primary and repeat evidence, and linked machine-readable study are
+committed beside the report. It is a frozen-head tensor-accounting result, not
+a practical model evaluation.
+
 ## Practical campaign review points
 
 Human-directed campaigns add reports for:

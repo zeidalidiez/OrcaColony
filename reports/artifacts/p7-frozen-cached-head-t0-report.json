@@ -1,0 +1,380 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Frozen cached heads make warm sparse experts cheaper",
+    "description": "Technical findings from the exact P7 T0 frozen cached-head control.",
+    "generatedAt": "2026-07-28T04:47:12Z",
+    "cards": [
+      {
+        "id": "warm_reduction_card",
+        "description": "Four experts versus the matched full control after both retain the same immutable head.",
+        "dataset": "headline",
+        "sourceId": "headline_query",
+        "metrics": [
+          {
+            "label": "Warm aggregate reduction",
+            "field": "warm_reduction",
+            "format": "percent"
+          },
+          {
+            "label": "Cold aggregate change",
+            "field": "cold_change",
+            "format": "percent",
+            "signed": true
+          }
+        ]
+      },
+      {
+        "id": "exact_difference_card",
+        "description": "Largest centralized-to-distributed difference across raw gradients, clipped gradients, and complete model tensors.",
+        "dataset": "headline",
+        "sourceId": "headline_query",
+        "metrics": [
+          {
+            "label": "Maximum state difference",
+            "field": "max_state_difference",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "head_gradient_card",
+        "description": "The immutable final norm and output head are excluded from gradient and optimizer state.",
+        "dataset": "headline",
+        "sourceId": "headline_query",
+        "metrics": [
+          {
+            "label": "Frozen-head gradient bytes",
+            "field": "head_gradient_bytes",
+            "format": "number"
+          },
+          {
+            "label": "Head optimizer-state parameters",
+            "field": "head_optimizer_parameters",
+            "format": "number"
+          }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "matched_round_trip_chart",
+        "title": "Matched cold and warm round-trip tensor bytes",
+        "subtitle": "Cold experts use 7.34% more; warm experts use 53.17% less.",
+        "type": "bar",
+        "dataset": "traffic_comparison",
+        "sourceId": "traffic_query",
+        "valueFormat": "compact",
+        "unit": "bytes",
+        "xAxisTitle": "Cache state",
+        "yAxisTitle": "Tensor bytes per optimizer assignment",
+        "encodings": {
+          "x": {
+            "field": "cache_state",
+            "type": "nominal",
+            "label": "Cache state"
+          },
+          "y": {
+            "field": "round_trip_bytes",
+            "type": "quantitative",
+            "label": "Round-trip tensor bytes",
+            "format": "compact",
+            "unit": "bytes"
+          },
+          "color": {
+            "field": "topology",
+            "type": "nominal",
+            "label": "Topology"
+          },
+          "tooltip": [
+            {
+              "field": "model_download_bytes",
+              "type": "quantitative",
+              "label": "Model download",
+              "format": "compact",
+              "unit": "bytes"
+            },
+            {
+              "field": "gradient_upload_bytes",
+              "type": "quantitative",
+              "label": "Gradient upload",
+              "format": "compact",
+              "unit": "bytes"
+            },
+            {
+              "field": "input_boundary_bytes",
+              "type": "quantitative",
+              "label": "Input and boundary traffic",
+              "format": "compact",
+              "unit": "bytes"
+            }
+          ]
+        }
+      }
+    ],
+    "tables": [
+      {
+        "id": "traffic_audit_table",
+        "title": "Round-trip byte accounting",
+        "subtitle": "Exact FP32 tensor bytes for the matched T0 control.",
+        "dataset": "traffic_comparison",
+        "sourceId": "traffic_query",
+        "density": "spacious",
+        "defaultSort": {
+          "field": "round_trip_bytes",
+          "direction": "desc"
+        },
+        "columns": [
+          {
+            "field": "cache_state",
+            "label": "Cache state",
+            "type": "text"
+          },
+          {
+            "field": "topology",
+            "label": "Topology",
+            "type": "text"
+          },
+          {
+            "field": "model_download_bytes",
+            "label": "Model download",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "gradient_upload_bytes",
+            "label": "Gradient upload",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "input_boundary_bytes",
+            "label": "Input and boundary",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "round_trip_bytes",
+            "label": "Round trip",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "relative_change",
+            "label": "Expert change vs matched full",
+            "format": "percent",
+            "movement": true,
+            "align": "right"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "headline_query",
+        "label": "Cached-head headline metric query",
+        "path": "reports/queries/p7-frozen-cached-head-headline.sql",
+        "query": {
+          "description": "Read the primary JSON evidence and calculate the matched warm reduction, cold change, exactness maximum, and frozen-head closure values.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-28T04:47:12Z",
+          "language": "sql",
+          "sql": "WITH evidence AS (\n  SELECT json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path = 'reports/evidence/p7-sparse-expert-cached-head-t0.json'\n)\nSELECT\n  1.0\n    - 1.0 * json_extract(doc, '$.warm_aggregate_round_trip_tensor_bytes')\n      / json_extract(doc, '$.full_warm_round_trip_tensor_bytes')\n    AS warm_reduction,\n  1.0 * json_extract(doc, '$.cold_aggregate_round_trip_tensor_bytes')\n      / json_extract(doc, '$.full_cold_round_trip_tensor_bytes')\n    - 1.0\n    AS cold_change,\n  max(\n    json_extract(doc, '$.max_abs_raw_gradient_difference'),\n    json_extract(doc, '$.max_abs_clipped_gradient_difference'),\n    json_extract(doc, '$.max_abs_model_difference')\n  ) AS max_state_difference,\n  json_extract(doc, '$.frozen_head_gradient_tensor_bytes')\n    AS head_gradient_bytes,\n  json_extract(doc, '$.frozen_head_optimizer_state_parameter_count')\n    AS head_optimizer_parameters\nFROM evidence;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path = reports/evidence/p7-sparse-expert-cached-head-t0.json"
+          ],
+          "metric_definitions": [
+            "Warm reduction = 1 - expert warm round-trip bytes / matched full warm round-trip bytes.",
+            "Cold change = expert cold round-trip bytes / matched full cold round-trip bytes - 1.",
+            "Maximum state difference is the maximum of raw-gradient, clipped-gradient, and complete-model maximum absolute differences."
+          ]
+        }
+      },
+      {
+        "id": "traffic_query",
+        "label": "Cached-head traffic comparison query",
+        "path": "reports/queries/p7-frozen-cached-head-traffic.sql",
+        "query": {
+          "description": "Read the primary JSON evidence and produce matched cold and warm byte components for the full and four-expert paths.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-28T04:47:12Z",
+          "language": "sql",
+          "sql": "WITH evidence AS (\n  SELECT json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path = 'reports/evidence/p7-sparse-expert-cached-head-t0.json'\n),\ntraffic AS (\n  SELECT\n    'Cold' AS cache_state,\n    'Matched full' AS topology,\n    json_extract(doc, '$.full_payload_tensor_bytes')\n      AS model_download_bytes,\n    json_extract(doc, '$.full_gradient_upload_tensor_bytes')\n      AS gradient_upload_bytes,\n    json_extract(doc, '$.full_input_tensor_bytes')\n      AS input_boundary_bytes,\n    json_extract(doc, '$.full_cold_round_trip_tensor_bytes')\n      AS round_trip_bytes,\n    0.0 AS relative_change\n  FROM evidence\n\n  UNION ALL\n\n  SELECT\n    'Cold',\n    'Four experts',\n    json_extract(doc, '$.cold_aggregate_payload_tensor_bytes'),\n    json_extract(doc, '$.aggregate_gradient_upload_tensor_bytes'),\n    json_extract(doc, '$.aggregate_input_tensor_bytes')\n      + json_extract(doc, '$.aggregate_input_adjoint_tensor_bytes'),\n    json_extract(doc, '$.cold_aggregate_round_trip_tensor_bytes'),\n    json_extract(doc, '$.cold_aggregate_round_trip_relative_change')\n  FROM evidence\n\n  UNION ALL\n\n  SELECT\n    'Warm',\n    'Matched full',\n    json_extract(doc, '$.full_warm_payload_tensor_bytes'),\n    json_extract(doc, '$.full_gradient_upload_tensor_bytes'),\n    json_extract(doc, '$.full_input_tensor_bytes'),\n    json_extract(doc, '$.full_warm_round_trip_tensor_bytes'),\n    0.0\n  FROM evidence\n\n  UNION ALL\n\n  SELECT\n    'Warm',\n    'Four experts',\n    json_extract(doc, '$.warm_aggregate_payload_tensor_bytes'),\n    json_extract(doc, '$.aggregate_gradient_upload_tensor_bytes'),\n    json_extract(doc, '$.aggregate_input_tensor_bytes')\n      + json_extract(doc, '$.aggregate_input_adjoint_tensor_bytes'),\n    json_extract(doc, '$.warm_aggregate_round_trip_tensor_bytes'),\n    json_extract(doc, '$.warm_aggregate_round_trip_relative_change')\n  FROM evidence\n)\nSELECT\n  cache_state,\n  topology,\n  model_download_bytes,\n  gradient_upload_bytes,\n  input_boundary_bytes,\n  round_trip_bytes,\n  relative_change\nFROM traffic\nORDER BY\n  CASE cache_state WHEN 'Cold' THEN 0 ELSE 1 END,\n  CASE topology WHEN 'Matched full' THEN 0 ELSE 1 END;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path = reports/evidence/p7-sparse-expert-cached-head-t0.json"
+          ],
+          "metric_definitions": [
+            "Round trip = model download + gradient upload + input and boundary tensor bytes.",
+            "Cold includes the frozen head in model download for both paths.",
+            "Warm excludes the same retained immutable head from both paths and refreshes all trainable state.",
+            "Relative change = expert round-trip bytes / matched full round-trip bytes - 1 within the same cache state."
+          ]
+        }
+      },
+      {
+        "id": "primary_evidence",
+        "label": "Primary frozen cached-head evidence",
+        "path": "reports/evidence/p7-sparse-expert-cached-head-t0.json"
+      },
+      {
+        "id": "repeat_evidence",
+        "label": "Repeat frozen cached-head evidence",
+        "path": "reports/evidence/p7-sparse-expert-cached-head-t0-repeat.json"
+      },
+      {
+        "id": "study_evidence",
+        "label": "P7 frozen cached-head study evidence",
+        "path": "research/studies/p7-frozen-cached-head-t0-v1/evidence/t0-four-expert-frozen-cached-head.json"
+      },
+      {
+        "id": "implementation",
+        "label": "Frozen cached-head implementation commit",
+        "href": "https://github.com/zeidalidiez/OrcaColony/commit/14dd341b57cc1ab79518037e7c3d1e5cde712332"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Frozen cached heads make warm sparse experts cheaper"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## Technical summary\n\nTwo one-thread T0 runs produced the same routing, loss, trainable gradients, clipped gradients, AdamW tensors, complete model tensors, and frozen-head digest. With a matched cache rule, four warm expert workers used **4,751,360 bytes**, 53.17% below the full control's **10,146,816 bytes**. Cold fan-out still used **13,144,064 bytes**, 7.34% above full. This supports an authenticated T1 process experiment, not promotion or a model-quality claim."
+      },
+      {
+        "id": "headline_metrics",
+        "type": "metric-strip",
+        "cardIds": [
+          "warm_reduction_card",
+          "exact_difference_card",
+          "head_gradient_card"
+        ]
+      },
+      {
+        "id": "traffic_finding",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## Persistence changes the aggregate result\n\nReport 009 showed that trainable shared-head gradients erased most of the sparse topology's warm transfer benefit. Freezing the head removes those duplicated uploads. The matched comparison also lets the full control retain the same immutable head, so the reported 53.17% reduction does not come from giving only the expert path a cache."
+      },
+      {
+        "id": "traffic_chart",
+        "type": "chart",
+        "chartId": "matched_round_trip_chart"
+      },
+      {
+        "id": "definitions",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## What the byte comparison includes\n\nA round trip is model download plus gradient upload plus input traffic. The full worker receives token IDs and targets. Expert workers receive selected hidden rows and targets, then return input adjoints. **Cold** means no head cache. **Warm** means both paths retain the same 2,098,176-byte immutable head while all trainable tensors are refreshed after coordinator AdamW. The figures count FP32 tensor payload only; they are not packet measurements."
+      },
+      {
+        "id": "traffic_table",
+        "type": "table",
+        "tableId": "traffic_audit_table"
+      },
+      {
+        "id": "exactness",
+        "type": "markdown",
+        "sourceId": "primary_evidence",
+        "body": "## The distributed update remains exact\n\nThe centralized and distributed paths had maximum raw-gradient, clipped-gradient, and complete-model differences of **0.0**. Their paired gradient, optimizer, and model SHA-256 values matched. The initial and final frozen-head digest remained `d559917a...`, with zero head-gradient bytes and zero head optimizer-state parameters."
+      },
+      {
+        "id": "method",
+        "type": "markdown",
+        "sourceId": "implementation",
+        "body": "## One variable changed from Report 009\n\nThe model, initialization, 512-token fixture, four experts, capacity-128 top-1 routing, loss scaling, expert reduction order, global clipping, and coordinator AdamW remained fixed. The final norm and untied output head were frozen before optimizer construction in both controls. Each distributed worker returned only one expert gradient and its selected-row input adjoints."
+      },
+      {
+        "id": "reproduction",
+        "type": "markdown",
+        "body": "## Reproduce the two evidence runs\n\nUse implementation commit `14dd341b57cc1ab79518037e7c3d1e5cde712332` and run:\n\n```bash\nOMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 uv run python -m orcacolony.sparse_expert --config campaign/t0-smoke.json --expert-count 4 --router-aux-weight 0.01 --frozen-cached-head --output .artifacts/p7-cached-head-primary.json\nOMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 uv run python -m orcacolony.sparse_expert --config campaign/t0-smoke.json --expert-count 4 --router-aux-weight 0.01 --frozen-cached-head --output .artifacts/p7-cached-head-repeat.json\n```\n\nCompare the JSON records after excluding `centralized_step_seconds`, `distributed_step_seconds`, and `combined_process_peak_rss_bytes`. The committed primary and repeat evidence SHA-256 values are `c4c8b93f74e2adc43d7fb9127b8dabc5257e7e4a95b133a7233fb7c596d2bc12` and `a4dbf9994d7cd4da552be3ddb4f44851a80a9cc0915d8eda17e8650a33528f9d`."
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## The warm advantage is still an accounting result\n\nThe workers are local objects in one process. No authenticated transport, process-isolated cache reuse, serialization overhead, network latency, restart, retry, or worker RSS comparison was run. The model is randomly initialized T0, the data is synthetic, and there is one optimizer step. Capacity routing forced equal expert counts by rerouting 44 of 512 tokens, so balance is policy intervention rather than learned specialization."
+      },
+      {
+        "id": "next_step",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## Next: test the cache in authenticated T1 processes\n\nThe next bounded P7 slice should retain the same frozen-head contract while running authenticated process workers on the existing T1 systems fixture. It should compare matched persistent full and expert workers, measure actual serialized bytes and isolated RSS, verify cache identity across assignments, and deliberately exercise worker loss. Model-quality claims remain out of scope until a campaign owner supplies a practical campaign contract."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Questions the next slice must answer\n\n- Does the 53.17% accounted warm reduction survive framing, authentication, and process transport?\n- How often must workers remain available before the warm saving repays the 7.34% cold penalty?\n- Does the per-worker memory reduction remain material after runtime and autograd overhead?\n- Can expert retry preserve exact routing and one canonical optimizer update without a permanent peer pipeline?"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-28T04:47:12Z",
+    "status": "ready",
+    "datasets": {
+      "headline": [
+        {
+          "warm_reduction": 0.5317388232919569,
+          "cold_change": 0.07342364943970558,
+          "max_state_difference": 0.0,
+          "head_gradient_bytes": 0,
+          "head_optimizer_parameters": 0
+        }
+      ],
+      "traffic_comparison": [
+        {
+          "cache_state": "Cold",
+          "topology": "Matched full",
+          "model_download_bytes": 7167488,
+          "gradient_upload_bytes": 5069312,
+          "input_boundary_bytes": 8192,
+          "round_trip_bytes": 12244992,
+          "relative_change": 0.0
+        },
+        {
+          "cache_state": "Cold",
+          "topology": "Four experts",
+          "model_download_bytes": 10504192,
+          "gradient_upload_bytes": 2111488,
+          "input_boundary_bytes": 528384,
+          "round_trip_bytes": 13144064,
+          "relative_change": 0.07342364943970558
+        },
+        {
+          "cache_state": "Warm",
+          "topology": "Matched full",
+          "model_download_bytes": 5069312,
+          "gradient_upload_bytes": 5069312,
+          "input_boundary_bytes": 8192,
+          "round_trip_bytes": 10146816,
+          "relative_change": 0.0
+        },
+        {
+          "cache_state": "Warm",
+          "topology": "Four experts",
+          "model_download_bytes": 2111488,
+          "gradient_upload_bytes": 2111488,
+          "input_boundary_bytes": 528384,
+          "round_trip_bytes": 4751360,
+          "relative_change": -0.5317388232919569
+        }
+      ]
+    }
+  }
+}

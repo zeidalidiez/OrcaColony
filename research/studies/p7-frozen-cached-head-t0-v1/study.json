@@ -1,0 +1,83 @@
+{
+  "format": "orcacolony_study_v1",
+  "study_id": "p7-frozen-cached-head-t0-v1",
+  "title": "P7 frozen cached-head sparse-expert control",
+  "hypothesis": "Freezing and retaining the shared final norm and untied output head at each expert worker can remove duplicated head-gradient uploads and reduce matched warm aggregate tensor traffic while preserving an exact coordinator-owned sparse update.",
+  "status": "validated",
+  "use_case": {
+    "claim": "Decide whether the P7 sparse topology has enough aggregate warm-transfer value to justify an authenticated T1 process experiment without treating a per-worker saving as a colony-wide result.",
+    "baseline": {
+      "id": "matched-frozen-head-full-control",
+      "label": "Matched frozen-head full sparse control",
+      "description": "The full control freezes the same final norm and output head, retains that immutable head after the cold assignment, refreshes all trainable state, and returns only trainable gradients."
+    },
+    "primary_metric": {
+      "id": "warm-aggregate-round-trip-reduction",
+      "label": "Warm aggregate round-trip reduction",
+      "description": "One minus the four-expert warm tensor round trip divided by the matched frozen-head full-control warm tensor round trip.",
+      "direction": "maximize",
+      "success_threshold": 0.0,
+      "unit": "ratio"
+    },
+    "repeated_validation_suite": {
+      "id": "cached-head-primary-and-repeat",
+      "label": "Two independent one-thread cached-head runs",
+      "description": "The primary and repeat records must match in every field except measured step time and combined-process peak RSS.",
+      "revision": "git:14dd341b57cc1ab79518037e7c3d1e5cde712332:tests/test_sparse_expert.py"
+    },
+    "final_holdout_suite": {
+      "id": "exact-centralized-distributed-control",
+      "label": "Exact centralized and distributed state comparison",
+      "description": "Compare trainable raw gradients, clipped gradients, AdamW state, complete model state, loss, routing, and the frozen-head identity.",
+      "revision": "git:14dd341b57cc1ab79518037e7c3d1e5cde712332:orcacolony.sparse_expert"
+    },
+    "guardrails": [
+      {
+        "id": "exact-canonical-update",
+        "label": "Exact canonical update",
+        "description": "Centralized and distributed raw gradients, clipped gradients, AdamW state, model state, and loss must match exactly."
+      },
+      {
+        "id": "frozen-head-closure",
+        "label": "Frozen head remains closed",
+        "description": "The final norm and output head must retain their initial digest and acquire neither gradients nor optimizer state."
+      },
+      {
+        "id": "matched-cache-accounting",
+        "label": "Matched cache accounting",
+        "description": "Cold comparisons include the head for both paths; warm comparisons exclude the same retained immutable head from both paths and refresh all trainable state."
+      },
+      {
+        "id": "deterministic-repeat",
+        "label": "Deterministic repeat",
+        "description": "Both evidence runs must match in all routing, state, loss, hash, parameter, and byte fields."
+      }
+    ]
+  },
+  "independent_variables": [
+    {
+      "id": "shared-head-contract",
+      "label": "Shared head contract",
+      "description": "The earlier P7 tracer trained and duplicated head gradients; this control freezes the same head and retains its bytes as an immutable per-worker cache."
+    }
+  ],
+  "controlled_variables": [
+    {
+      "id": "t0-model-batch-and-routing",
+      "label": "T0 model, fixture, and routing",
+      "description": "The T0 architecture, initialization seed, synthetic batch, four experts, top-1 capacity 128 routing, and auxiliary routing weight remain fixed."
+    },
+    {
+      "id": "optimizer-and-reduction",
+      "label": "Canonical reduction and optimizer",
+      "description": "Token-loss scaling, input-adjoint scattering, fixed expert order, one global clip, and coordinator-owned AdamW remain fixed."
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "t0-four-expert-frozen-cached-head",
+      "role": "candidate",
+      "manifest": "experiments/t0-four-expert-frozen-cached-head.json"
+    }
+  ]
+}

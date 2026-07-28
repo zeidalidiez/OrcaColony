@@ -66,6 +66,51 @@ The exact model and data revisions, declared evaluator, score files, bundled
 evidence, campaign contribution record, and limitations are the public research
 record.
 
+### P7 frozen cached-head control
+
+The P7 T0 control freezes the final norm and untied output head before optimizer
+construction, retains that immutable head in both the full and expert cache
+models, and trains only the router, shared trunk, and four experts. To reproduce
+the two raw evidence records at implementation commit
+`14dd341b57cc1ab79518037e7c3d1e5cde712332`, run:
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 \
+  uv run python -m orcacolony.sparse_expert \
+  --config campaign/t0-smoke.json \
+  --expert-count 4 \
+  --router-aux-weight 0.01 \
+  --frozen-cached-head \
+  --output .artifacts/p7-cached-head-primary.json
+
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 \
+  uv run python -m orcacolony.sparse_expert \
+  --config campaign/t0-smoke.json \
+  --expert-count 4 \
+  --router-aux-weight 0.01 \
+  --frozen-cached-head \
+  --output .artifacts/p7-cached-head-repeat.json
+```
+
+The deterministic fields must match after excluding the two measured step-time
+fields and combined-process peak RSS. Validate and bundle the committed study
+with:
+
+```bash
+uv run python -m orcacolony.research record \
+  --study research/studies/p7-frozen-cached-head-t0-v1/study.json \
+  --experiment research/studies/p7-frozen-cached-head-t0-v1/experiments/t0-four-expert-frozen-cached-head.json \
+  --evidence research/studies/p7-frozen-cached-head-t0-v1/evidence/t0-four-expert-frozen-cached-head.json \
+  --output .artifacts/p7-frozen-cached-head-result
+```
+
+The study and exact evidence support
+[Report 013](reports/p7-frozen-cached-head-t0.html): warm aggregate tensor
+traffic fell 53.17% against the matched cached full control, while cold traffic
+remained 7.34% higher. The workers are local objects in one process, so the
+next P7 boundary is authenticated T1 process execution, not a model-quality
+claim.
+
 ## Historical Record Patch prototype
 
 [`capability/record-patch-v1/TASK.md`](capability/record-patch-v1/TASK.md)
