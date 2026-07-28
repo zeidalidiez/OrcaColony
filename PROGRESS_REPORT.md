@@ -2,9 +2,9 @@
 
 **Last updated:** 2026-07-28
 
-**Repository version:** [`0.1.7`](VERSION)
+**Repository version:** [`0.1.8`](VERSION)
 
-**Current phase:** P7 persisted multi-step local control awaiting T1 measurement
+**Current phase:** P7 persisted multi-step local control qualified at T1; durable-state cost is the next systems boundary
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -327,7 +327,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P7 — Explore sparse experts and other advanced topologies
 
-**Status:** Active research - persisted multi-step local control implemented
+**Status:** Active research - persisted multi-step local control qualified at T1
 
 - Expert-sharded or sparse models.
 - Router and shared-trunk training.
@@ -429,24 +429,47 @@ Completed within the first P3 measurement and native-baseline slice:
   model initialization, assignment execution, and shutdown. Complete
   centralized, full-process, and expert-process lifecycle timers include
   coordinator preparation, IPC, persistence, apply, recovery, and shutdown.
-  These fields make a later resource comparison possible; the implementation
-  alone establishes no speed or memory result.
+  These fields support a scoped resource comparison without implying
+  coordinator or concurrent-colony memory.
+- Two independent one-thread T1 runs reproduced every semantic trajectory,
+  tensor, route, transaction, worker-replacement, and coordinator-recovery
+  field. All six run-step comparisons matched the centralized raw gradient,
+  clipped gradient, AdamW state, complete model state, and loss exactly.
+  Timings, RSS observations, sample counts, and JSON lengths containing timing
+  text remained environmental.
+- At step one, expert result zero survived worker exit code `-15` and was not
+  recomputed by the replacement. At step two, a newly spawned coordinator
+  loaded only persisted state, revalidated the published checkpoint, committed
+  the lagging manifest, rejected duplicate application, and exited cleanly.
+  Fresh coordinator recovery took 5.92-6.27 seconds.
+- The pooled expert path moved 70,522,032 serialized tensor bytes, 45.68% below
+  the matched full process. Its maximum observed child VmHWM was 32.89%-34.32%
+  lower. Those positive signals did not produce an overall efficiency win:
+  complete elapsed time was 67.40%-69.07% higher, and 441,492,728 persisted
+  bytes were only 7.12% below the full path.
+- Report 015, its validated machine-readable study, six independently executed
+  SQLite queries, canonical report artifact, and primary/repeat JSON records
+  preserve both sides of the finding. This remains a trusted-local,
+  child-memory-only, three-step systems control. It does not establish model
+  quality, concurrent throughput, aggregate memory, remote trust, or donated
+  computation.
 
 ## Immediate next bounded target
 
-Run and repeat the persisted trajectory on the exact frozen T1 artifacts with
-one compute thread. Verify every sequential model, optimizer, route, result,
-transaction, worker-replacement, coordinator-recovery, timing, and external RSS
-field that should be deterministic. Publish the positive and negative findings
-without treating this systems tracer as a practical model campaign.
+Retain the exact transaction and recovery gates while testing one bounded
+durable-state reduction. Content-address or deduplicate immutable checkpoint
+tensors, then repeat the T1 trajectory and measure persisted bytes, complete
+elapsed time, and recovery time against Report 015. Do not add remote or
+concurrent workers until the local transaction retains exact at-most-once
+semantics under the reduced state representation.
 
 ## Remaining major work
 
-- Qualify the implemented P7 persisted multi-step trajectory at T1, then use
-  the measured result to decide whether the next systems slice should address
-  remote transport, concurrent expert residency, or a different topology.
-  Quality qualification belongs to a separately defined owner-directed
-  campaign.
+- Reduce duplicated durable state in the qualified P7 trajectory without
+  weakening exact recovery or at-most-once apply. Use the measured result to
+  decide whether a later systems slice should address remote transport,
+  concurrent expert residency, or a different topology. Quality qualification
+  belongs to a separately defined owner-directed campaign.
 - Run the first practical campaign after its owner supplies the model, data,
   training recipe, usage scenario, evaluator, metrics, comparisons, publication
   settings, and participants. No default task or model size is selected by the
@@ -493,6 +516,32 @@ without treating this systems tracer as a practical model campaign.
 
 ### 2026-07-28
 
+- Published primary and repeat persisted-trajectory records at SHA-256
+  `17292d431208f5d9078c6bacc3ffad0ce6db000355a2ce8047c60ab88756c123`
+  and
+  `d3220db012020b17cd8e4cc72cd413b608bc3b1355d145f6a0b732e9689e912c`.
+  Both pin implementation commit
+  `390b66bf2c5d67c726be4ad9ee77e0d3611f56c4` and frozen dataset revision
+  `99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af`.
+- Added the validated `p7-persisted-trajectory-t1-v1` study and Report 015.
+  Six committed SQLite queries reproduce exactness, timing, traffic,
+  persistence, child-memory, and recovery datasets from the two raw evidence
+  records. The report artifact passed Data Analytics validation and portable
+  structural packaging. Chromium is not installed, so enhanced-reader visual
+  and source-interaction QA remains explicitly unverified.
+- The measured result is exact and mixed. Every sequential update and both
+  failure recoveries passed. Expert tensor traffic fell 45.68% and maximum
+  child VmHWM fell 32.89%-34.32%, while complete elapsed time rose
+  67.40%-69.07% and persisted bytes fell only 7.12%. Report 015 does not
+  convert these systems observations or the per-batch losses into a training
+  or model-quality claim.
+- The version `0.1.8` publication gate passed all `327` tests in 198.42
+  seconds with one compute thread. Version and lock synchronization, source,
+  test, and script compilation, report rebuild determinism, artifact
+  validation, portable structural packaging, study reconstruction, SQLite
+  result shapes, local links, source and wheel builds, diff whitespace, and
+  changed-file credential-pattern checks also passed. Chromium is absent, so
+  enhanced-reader visual and source-interaction QA remains unverified.
 - Added the persisted multi-step sparse trajectory implementation and focused
   tests. The two-step T0 control advanced real AdamW state exactly through
   centralized, persistent full-process, and pooled expert-process paths,
@@ -503,7 +552,8 @@ without treating this systems tracer as a practical model campaign.
   worker replacement after durable acceptance, a new-process coordinator
   recovery after checkpoint publication, duplicate-apply rejection, result and
   checkpoint tamper tests, complete topology timers, and external lifecycle RSS
-  sampling. T1 resource and traffic findings remain unmeasured.
+  sampling. That implementation commit made no resource claim; the separate T1
+  evidence and findings are recorded above.
 - The version `0.1.7` implementation gate passed all `327` tests in 191.67
   seconds with one compute thread. Version and lock synchronization, source,
   test, and script compilation, the trajectory command-line path, source and
