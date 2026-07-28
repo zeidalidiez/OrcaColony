@@ -1,0 +1,108 @@
+{
+  "format": "orcacolony_study_v1",
+  "study_id": "p7-persisted-trajectory-t1-v1",
+  "title": "P7 persisted multi-step sparse trajectory control",
+  "hypothesis": "A coordinator-owned, digest-bound, persisted three-step sparse trajectory can preserve the exact centralized gradient and AdamW update while reusing an accepted expert result after worker loss and recovering a published checkpoint in a fresh coordinator process.",
+  "status": "validated",
+  "use_case": {
+    "claim": "Decide whether the persisted local sparse trajectory is exact and recoverable enough to serve as a systems research control before adding concurrent or remote workers.",
+    "baseline": {
+      "id": "centralized-and-matched-full-trajectory",
+      "label": "Centralized and matched persistent full-process trajectory",
+      "description": "The same three batches advance one centralized AdamW trajectory and one persistent full-process trajectory with identical initialization, routing, clipping, optimizer settings, and frozen head."
+    },
+    "primary_metric": {
+      "id": "exact-sequential-update-rate",
+      "label": "Exact sequential update rate",
+      "description": "The fraction of the six run-step comparisons where centralized, full-process, and pooled-expert raw gradients, clipped gradients, AdamW state, and complete model state match exactly.",
+      "direction": "maximize",
+      "success_threshold": 1.0,
+      "unit": "ratio"
+    },
+    "repeated_validation_suite": {
+      "id": "persisted-trajectory-primary-and-repeat",
+      "label": "Two independent one-thread T1 trajectory runs",
+      "description": "Every semantic field must repeat, including routing, losses, tensor payloads, state hashes, transaction identities, worker replacement, and coordinator recovery. Timings, RSS observations, sample counts, and JSON lengths containing timing text remain environmental.",
+      "revision": "git:390b66bf2c5d67c726be4ad9ee77e0d3611f56c4:tests/test_sparse_expert_trajectory.py"
+    },
+    "final_holdout_suite": {
+      "id": "centralized-full-expert-persistence-and-recovery-control",
+      "label": "Exact trajectory, persistence, and recovery comparison",
+      "description": "For three sequential steps, compare raw and clipped gradients, AdamW tensors, complete model tensors, losses, routes, persisted transactions, worker replacement, and fresh-process coordinator recovery.",
+      "revision": "git:390b66bf2c5d67c726be4ad9ee77e0d3611f56c4:orcacolony.sparse_expert_trajectory"
+    },
+    "guardrails": [
+      {
+        "id": "semantic-repeat-identity",
+        "label": "Semantic repeat identity",
+        "description": "The independent repeat must reproduce every non-environmental evidence field exactly."
+      },
+      {
+        "id": "refreshed-trajectory-state",
+        "label": "Refreshed trajectory state",
+        "description": "Every step must consume the prior applied model and optimizer state, refresh trainable-state identities, and recompute current routes."
+      },
+      {
+        "id": "persisted-result-survives-worker-loss",
+        "label": "Persisted result survives worker loss",
+        "description": "After expert result zero is durable, terminating its worker must not cause that result to be recomputed."
+      },
+      {
+        "id": "fresh-coordinator-recovery",
+        "label": "Fresh coordinator recovery",
+        "description": "A newly spawned coordinator process must load only persisted state, validate the published applied checkpoint, and complete the lagging manifest transition."
+      },
+      {
+        "id": "at-most-once-apply",
+        "label": "At-most-once apply",
+        "description": "Duplicate result acceptance and duplicate checkpoint application must be rejected."
+      },
+      {
+        "id": "bounded-host-load",
+        "label": "Bounded host load",
+        "description": "At most one child process may execute at a time and all numerical libraries must remain on one compute thread."
+      }
+    ]
+  },
+  "independent_variables": [
+    {
+      "id": "trajectory-topology",
+      "label": "Centralized, full-process, and pooled-expert topology",
+      "description": "The control compares local centralized execution, one persistent full worker, and one persistent pooled expert executor that handles four expert assignments sequentially."
+    },
+    {
+      "id": "failure-boundary",
+      "label": "Worker and coordinator loss boundaries",
+      "description": "The run terminates one expert worker after an accepted result is durable and later terminates coordinator progress after an applied checkpoint is published but before its manifest phase is committed."
+    }
+  ],
+  "controlled_variables": [
+    {
+      "id": "t1-data-model-and-routing",
+      "label": "T1 data, model dimensions, initialization, and routing",
+      "description": "All paths use the frozen T1 manifest, campaign dimensions and seed, four experts, capacity-bounded top-1 routing, the same three cursors, and router auxiliary weight 0.01."
+    },
+    {
+      "id": "optimizer-and-frozen-head",
+      "label": "Coordinator optimizer and frozen-head contract",
+      "description": "All paths use the same immutable final norm and output head, token-loss scaling, fixed reduction order, one global clip, and coordinator-owned AdamW."
+    },
+    {
+      "id": "local-transport-and-persistence",
+      "label": "Local transport and persistence protocol",
+      "description": "Process paths use spawned local children, safetensors tensor frames, canonical JSON controls, SHA-256 identities, atomic directory publication, fsync, and exact manifest transitions."
+    },
+    {
+      "id": "bounded-runtime",
+      "label": "Bounded one-thread runtime",
+      "description": "Both independent runs use one numerical compute thread, one child process at a time, a 120-second operation timeout, and a 0.01-second external RSS sampling interval."
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "t1-persisted-sparse-trajectory",
+      "role": "candidate",
+      "manifest": "experiments/t1-persisted-sparse-trajectory.json"
+    }
+  ]
+}

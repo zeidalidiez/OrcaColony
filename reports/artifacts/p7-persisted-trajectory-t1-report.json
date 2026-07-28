@@ -1,0 +1,934 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Exact persisted sparse trajectories with measured recovery costs",
+    "description": "Technical findings from the exact P7 T1 persisted multi-step sparse-trajectory control.",
+    "generatedAt": "2026-07-28T08:05:51Z",
+    "cards": [
+      {
+        "id": "exact_update_card",
+        "description": "Centralized, full-process, and pooled-expert agreement across three steps in each of two independent runs.",
+        "dataset": "headline",
+        "sourceId": "headline_query",
+        "metrics": [
+          {
+            "label": "Exact run-step comparisons",
+            "field": "exact_update_rate",
+            "format": "percent"
+          },
+          {
+            "label": "Compared run-steps",
+            "field": "compared_run_steps",
+            "format": "number"
+          },
+          {
+            "label": "Independent runs",
+            "field": "independent_runs",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "tensor_traffic_card",
+        "description": "Three-step pooled-expert serialized tensor traffic versus the matched full-process path.",
+        "dataset": "headline",
+        "sourceId": "headline_query",
+        "metrics": [
+          {
+            "label": "Expert tensor traffic reduction",
+            "field": "tensor_traffic_reduction",
+            "format": "percent"
+          },
+          {
+            "label": "Persisted-byte reduction",
+            "field": "persisted_byte_reduction",
+            "format": "percent"
+          }
+        ]
+      },
+      {
+        "id": "elapsed_card",
+        "description": "Primary-run complete elapsed time for the pooled-expert path relative to the matched full-process path.",
+        "dataset": "headline",
+        "sourceId": "headline_query",
+        "metrics": [
+          {
+            "label": "Expert elapsed change",
+            "field": "expert_elapsed_change",
+            "format": "percent",
+            "signed": true
+          },
+          {
+            "label": "Matched full",
+            "field": "full_complete_seconds",
+            "format": "number",
+            "unit": "seconds"
+          },
+          {
+            "label": "Pooled expert",
+            "field": "expert_complete_seconds",
+            "format": "number",
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "id": "child_hwm_card",
+        "description": "Primary-run maximum child VmHWM only; coordinator memory and concurrent colony memory are outside scope.",
+        "dataset": "headline",
+        "sourceId": "headline_query",
+        "metrics": [
+          {
+            "label": "Expert child HWM reduction",
+            "field": "child_hwm_reduction",
+            "format": "percent"
+          },
+          {
+            "label": "Matched full child",
+            "field": "full_child_hwm_bytes",
+            "format": "compact",
+            "unit": "bytes"
+          },
+          {
+            "label": "Maximum expert child",
+            "field": "expert_child_hwm_bytes",
+            "format": "compact",
+            "unit": "bytes"
+          }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "complete_timing_chart",
+        "title": "Complete topology elapsed time",
+        "subtitle": "Two independent three-step runs; the pooled expert executor is slower in both.",
+        "type": "bar",
+        "dataset": "timing",
+        "sourceId": "timing_query",
+        "valueFormat": "number",
+        "unit": "seconds",
+        "xAxisTitle": "Execution topology",
+        "yAxisTitle": "Elapsed seconds",
+        "encodings": {
+          "x": {
+            "field": "topology",
+            "type": "nominal",
+            "label": "Execution topology"
+          },
+          "y": {
+            "field": "complete_seconds",
+            "type": "quantitative",
+            "label": "Elapsed seconds",
+            "format": "number",
+            "unit": "seconds"
+          },
+          "color": {
+            "field": "run_label",
+            "type": "nominal",
+            "label": "Run"
+          },
+          "tooltip": [
+            {
+              "field": "change_vs_full",
+              "type": "quantitative",
+              "label": "Change versus matched full",
+              "format": "percent"
+            }
+          ]
+        }
+      }
+    ],
+    "tables": [
+      {
+        "id": "exactness_table",
+        "title": "Sequential exactness and routing audit",
+        "subtitle": "Three steps in each run; loss is a per-batch diagnostic, not a capability metric.",
+        "dataset": "exactness",
+        "sourceId": "exactness_query",
+        "density": "dense",
+        "defaultSort": {
+          "field": "step",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "run_label",
+            "label": "Run",
+            "type": "text"
+          },
+          {
+            "field": "step",
+            "label": "Step",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "cursor",
+            "label": "Cursor",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "routing_counts",
+            "label": "Routing counts",
+            "type": "text"
+          },
+          {
+            "field": "rerouted_tokens",
+            "label": "Rerouted",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "routes_changed",
+            "label": "Routes changed",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "training_batch_loss",
+            "label": "Batch loss",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "max_raw_gradient_difference",
+            "label": "Raw grad max diff",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "max_clipped_gradient_difference",
+            "label": "Clipped grad max diff",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "max_model_difference",
+            "label": "Model max diff",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "state_hashes_match",
+            "label": "State hashes match",
+            "format": "number",
+            "align": "right"
+          }
+        ]
+      },
+      {
+        "id": "recovery_table",
+        "title": "Worker and coordinator recovery audit",
+        "subtitle": "Worker loss follows durable result acceptance; coordinator loss follows checkpoint publication but precedes manifest apply.",
+        "dataset": "recovery",
+        "sourceId": "recovery_query",
+        "density": "dense",
+        "defaultSort": {
+          "field": "recovery_seconds",
+          "direction": "desc"
+        },
+        "columns": [
+          {
+            "field": "run_label",
+            "label": "Run",
+            "type": "text"
+          },
+          {
+            "field": "worker_loss_step",
+            "label": "Worker-loss step",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "first_worker_exit_code",
+            "label": "Lost-worker exit",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "persisted_result_survived_loss",
+            "label": "Result survived",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "recomputed_persisted_result",
+            "label": "Result recomputed",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "replacement_worker_exit_code",
+            "label": "Replacement exit",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "coordinator_loss_step",
+            "label": "Coordinator-loss step",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "fresh_process_only_persisted_state",
+            "label": "Fresh process",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "recomputed_for_validation",
+            "label": "Apply revalidated",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "recovered_from_checkpoint",
+            "label": "Recovered",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "duplicate_apply_rejected",
+            "label": "Duplicate rejected",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "recovery_process_exit_code",
+            "label": "Recovery exit",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "recovery_seconds",
+            "label": "Recovery time",
+            "format": "number",
+            "unit": "seconds",
+            "align": "right"
+          }
+        ]
+      },
+      {
+        "id": "traffic_table",
+        "title": "Three-step traffic and persistence accounting",
+        "subtitle": "Primary run; private pipe framing and long-run checkpoint compaction are outside scope.",
+        "dataset": "traffic",
+        "sourceId": "traffic_query",
+        "density": "spacious",
+        "defaultSort": {
+          "field": "tensor_wire_bytes",
+          "direction": "desc"
+        },
+        "columns": [
+          {
+            "field": "topology",
+            "label": "Topology",
+            "type": "text"
+          },
+          {
+            "field": "tensor_wire_bytes",
+            "label": "Tensor traffic",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "control_json_wire_bytes",
+            "label": "Control JSON",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "persisted_bytes",
+            "label": "Persisted",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "tensor_change_vs_full",
+            "label": "Tensor change vs full",
+            "format": "percent",
+            "align": "right"
+          },
+          {
+            "field": "persisted_change_vs_full",
+            "label": "Persisted change vs full",
+            "format": "percent",
+            "align": "right"
+          }
+        ]
+      },
+      {
+        "id": "memory_table",
+        "title": "Externally sampled child RSS",
+        "subtitle": "Linux child-process lifecycle maxima; coordinator and aggregate colony memory are excluded.",
+        "dataset": "memory",
+        "sourceId": "memory_query",
+        "density": "dense",
+        "defaultSort": {
+          "field": "max_hwm_rss_bytes",
+          "direction": "desc"
+        },
+        "columns": [
+          {
+            "field": "run_label",
+            "label": "Run",
+            "type": "text"
+          },
+          {
+            "field": "topology",
+            "label": "Topology",
+            "type": "text"
+          },
+          {
+            "field": "worker_generations",
+            "label": "Generations",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "rss_samples",
+            "label": "RSS samples",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "max_current_rss_bytes",
+            "label": "Max current RSS",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "max_hwm_rss_bytes",
+            "label": "Max VmHWM",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "hwm_reduction_vs_full",
+            "label": "HWM reduction vs full",
+            "format": "percent",
+            "align": "right"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "headline_query",
+        "label": "Persisted-trajectory headline query",
+        "path": "reports/queries/p7-persisted-trajectory-headline.sql",
+        "query": {
+          "description": "Calculate exact-update coverage and primary-run traffic, persistence, elapsed-time, child-RSS, and recovery headlines.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-28T08:05:51Z",
+          "language": "sql",
+          "sql": "WITH runs AS (\n  SELECT json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path IN (\n    'reports/evidence/p7-persisted-trajectory-t1.json',\n    'reports/evidence/p7-persisted-trajectory-t1-repeat.json'\n  )\n),\nevidence AS (\n  SELECT json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path = 'reports/evidence/p7-persisted-trajectory-t1.json'\n),\nstep_checks AS (\n  SELECT\n    CASE\n      WHEN json_extract(value, '$.centralized_raw_gradient_sha256')\n        = json_extract(value, '$.full_process_raw_gradient_sha256')\n      AND json_extract(value, '$.centralized_raw_gradient_sha256')\n        = json_extract(value, '$.expert_process_raw_gradient_sha256')\n      AND json_extract(value, '$.centralized_clipped_gradient_sha256')\n        = json_extract(value, '$.full_process_clipped_gradient_sha256')\n      AND json_extract(value, '$.centralized_clipped_gradient_sha256')\n        = json_extract(value, '$.expert_process_clipped_gradient_sha256')\n      AND json_extract(value, '$.centralized_optimizer_sha256')\n        = json_extract(value, '$.full_process_optimizer_sha256')\n      AND json_extract(value, '$.centralized_optimizer_sha256')\n        = json_extract(value, '$.expert_process_optimizer_sha256')\n      AND json_extract(value, '$.centralized_model_sha256')\n        = json_extract(value, '$.full_process_model_sha256')\n      AND json_extract(value, '$.centralized_model_sha256')\n        = json_extract(value, '$.expert_process_model_sha256')\n      THEN 1.0\n      ELSE 0.0\n    END AS exact_update\n  FROM runs, json_each(doc, '$.steps')\n),\nmemory AS (\n  SELECT\n    (\n      SELECT max(\n        json_extract(value, '$.external_rss.lifecycle_max_hwm_rss_bytes')\n      )\n      FROM json_each(doc, '$.full_workers')\n    ) AS full_child_hwm_bytes,\n    (\n      SELECT max(\n        json_extract(value, '$.external_rss.lifecycle_max_hwm_rss_bytes')\n      )\n      FROM json_each(doc, '$.expert_workers')\n    ) AS expert_child_hwm_bytes\n  FROM evidence\n)\nSELECT\n  (SELECT avg(exact_update) FROM step_checks) AS exact_update_rate,\n  (SELECT count(*) FROM step_checks) AS compared_run_steps,\n  2 AS independent_runs,\n  1.0\n    - 1.0 * json_extract(doc, '$.expert_tensor_wire_bytes')\n      / json_extract(doc, '$.full_tensor_wire_bytes')\n    AS tensor_traffic_reduction,\n  1.0\n    - 1.0 * json_extract(doc, '$.expert_persisted_bytes')\n      / json_extract(doc, '$.full_persisted_bytes')\n    AS persisted_byte_reduction,\n  1.0 * json_extract(doc, '$.expert_process_end_to_end_seconds')\n      / json_extract(doc, '$.full_process_end_to_end_seconds')\n    - 1.0\n    AS expert_elapsed_change,\n  json_extract(doc, '$.full_process_end_to_end_seconds')\n    AS full_complete_seconds,\n  json_extract(doc, '$.expert_process_end_to_end_seconds')\n    AS expert_complete_seconds,\n  1.0 - 1.0 * expert_child_hwm_bytes / full_child_hwm_bytes\n    AS child_hwm_reduction,\n  full_child_hwm_bytes,\n  expert_child_hwm_bytes,\n  json_extract(doc, '$.coordinator_recovery.recovery_seconds')\n    AS coordinator_recovery_seconds\nFROM evidence, memory;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path IN (reports/evidence/p7-persisted-trajectory-t1.json, reports/evidence/p7-persisted-trajectory-t1-repeat.json)"
+          ],
+          "metric_definitions": [
+            "Exact update rate is the fraction of all six run-steps where centralized, full-process, and pooled-expert raw gradients, clipped gradients, AdamW state, and model state all match.",
+            "Tensor traffic reduction = 1 - pooled-expert serialized tensor bytes / matched full-process serialized tensor bytes.",
+            "Persisted-byte reduction = 1 - pooled-expert transaction bytes / matched full-process transaction bytes.",
+            "Child high-water RSS reduction = 1 - maximum pooled-expert child VmHWM / matched full child VmHWM."
+          ]
+        }
+      },
+      {
+        "id": "timing_query",
+        "label": "Persisted-trajectory timing query",
+        "path": "reports/queries/p7-persisted-trajectory-timing.sql",
+        "query": {
+          "description": "Return complete elapsed time for centralized, matched full-process, and pooled-expert execution in both independent runs.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-28T08:05:51Z",
+          "language": "sql",
+          "sql": "WITH runs AS (\n  SELECT\n    CASE source_path\n      WHEN 'reports/evidence/p7-persisted-trajectory-t1.json' THEN 0\n      ELSE 1\n    END AS run_order,\n    CASE source_path\n      WHEN 'reports/evidence/p7-persisted-trajectory-t1.json' THEN 'Primary'\n      ELSE 'Repeat'\n    END AS run_label,\n    json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path IN (\n    'reports/evidence/p7-persisted-trajectory-t1.json',\n    'reports/evidence/p7-persisted-trajectory-t1-repeat.json'\n  )\n),\ntiming AS (\n  SELECT\n    run_order,\n    run_label,\n    0 AS topology_order,\n    'Centralized' AS topology,\n    json_extract(doc, '$.centralized_end_to_end_seconds') AS complete_seconds,\n    1.0 * json_extract(doc, '$.centralized_end_to_end_seconds')\n      / json_extract(doc, '$.full_process_end_to_end_seconds') - 1.0\n      AS change_vs_full\n  FROM runs\n\n  UNION ALL\n\n  SELECT\n    run_order,\n    run_label,\n    1,\n    'Matched full process',\n    json_extract(doc, '$.full_process_end_to_end_seconds'),\n    0.0\n  FROM runs\n\n  UNION ALL\n\n  SELECT\n    run_order,\n    run_label,\n    2,\n    'Pooled expert executor',\n    json_extract(doc, '$.expert_process_end_to_end_seconds'),\n    1.0 * json_extract(doc, '$.expert_process_end_to_end_seconds')\n      / json_extract(doc, '$.full_process_end_to_end_seconds') - 1.0\n  FROM runs\n)\nSELECT\n  run_label,\n  topology,\n  complete_seconds,\n  change_vs_full\nFROM timing\nORDER BY topology_order, run_order;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path IN (reports/evidence/p7-persisted-trajectory-t1.json, reports/evidence/p7-persisted-trajectory-t1-repeat.json)"
+          ],
+          "metric_definitions": [
+            "Complete process-path elapsed time includes coordinator preparation, IPC, durable transaction writes, apply, recovery, and shutdown. Centralized time has no process or persistence work.",
+            "Change versus full = topology elapsed seconds / matched full-process elapsed seconds - 1 within the same run."
+          ]
+        }
+      },
+      {
+        "id": "exactness_query",
+        "label": "Persisted-trajectory exactness query",
+        "path": "reports/queries/p7-persisted-trajectory-exactness.sql",
+        "query": {
+          "description": "Compare all six run-step rows for routing, batch loss, tensor differences, and gradient, optimizer, and model identities.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-28T08:05:51Z",
+          "language": "sql",
+          "sql": "WITH runs AS (\n  SELECT\n    CASE source_path\n      WHEN 'reports/evidence/p7-persisted-trajectory-t1.json' THEN 0\n      ELSE 1\n    END AS run_order,\n    CASE source_path\n      WHEN 'reports/evidence/p7-persisted-trajectory-t1.json' THEN 'Primary'\n      ELSE 'Repeat'\n    END AS run_label,\n    json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path IN (\n    'reports/evidence/p7-persisted-trajectory-t1.json',\n    'reports/evidence/p7-persisted-trajectory-t1-repeat.json'\n  )\n),\nsteps AS (\n  SELECT\n    run_order,\n    run_label,\n    json_extract(value, '$.step') AS step,\n    json_extract(value, '$.cursor') AS cursor,\n    json_extract(value, '$.routing_counts') AS routing_counts,\n    json_extract(value, '$.capacity_rerouted_tokens') AS rerouted_tokens,\n    json_extract(value, '$.routes_changed_from_previous') AS routes_changed,\n    json_extract(value, '$.centralized_loss') AS training_batch_loss,\n    max(\n      json_extract(value, '$.full_max_abs_raw_gradient_difference'),\n      json_extract(value, '$.expert_max_abs_raw_gradient_difference')\n    ) AS max_raw_gradient_difference,\n    max(\n      json_extract(value, '$.full_max_abs_clipped_gradient_difference'),\n      json_extract(value, '$.expert_max_abs_clipped_gradient_difference')\n    ) AS max_clipped_gradient_difference,\n    max(\n      json_extract(value, '$.full_max_abs_model_difference'),\n      json_extract(value, '$.expert_max_abs_model_difference')\n    ) AS max_model_difference,\n    CASE\n      WHEN json_extract(value, '$.centralized_raw_gradient_sha256')\n        = json_extract(value, '$.full_process_raw_gradient_sha256')\n      AND json_extract(value, '$.centralized_raw_gradient_sha256')\n        = json_extract(value, '$.expert_process_raw_gradient_sha256')\n      AND json_extract(value, '$.centralized_clipped_gradient_sha256')\n        = json_extract(value, '$.full_process_clipped_gradient_sha256')\n      AND json_extract(value, '$.centralized_clipped_gradient_sha256')\n        = json_extract(value, '$.expert_process_clipped_gradient_sha256')\n      AND json_extract(value, '$.centralized_optimizer_sha256')\n        = json_extract(value, '$.full_process_optimizer_sha256')\n      AND json_extract(value, '$.centralized_optimizer_sha256')\n        = json_extract(value, '$.expert_process_optimizer_sha256')\n      AND json_extract(value, '$.centralized_model_sha256')\n        = json_extract(value, '$.full_process_model_sha256')\n      AND json_extract(value, '$.centralized_model_sha256')\n        = json_extract(value, '$.expert_process_model_sha256')\n      THEN 1\n      ELSE 0\n    END AS state_hashes_match\n  FROM runs, json_each(runs.doc, '$.steps')\n)\nSELECT\n  run_label,\n  step,\n  cursor,\n  routing_counts,\n  rerouted_tokens,\n  routes_changed,\n  training_batch_loss,\n  max_raw_gradient_difference,\n  max_clipped_gradient_difference,\n  max_model_difference,\n  state_hashes_match\nFROM steps\nORDER BY run_order, step;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path IN (reports/evidence/p7-persisted-trajectory-t1.json, reports/evidence/p7-persisted-trajectory-t1-repeat.json)"
+          ],
+          "metric_definitions": [
+            "State hashes match only when centralized, full-process, and pooled-expert raw gradient, clipped gradient, AdamW, and complete model SHA-256 values all agree.",
+            "Training-batch loss is recorded on a different batch at each step and is not a model-quality or generalization metric."
+          ]
+        }
+      },
+      {
+        "id": "traffic_query",
+        "label": "Persisted-trajectory traffic and storage query",
+        "path": "reports/queries/p7-persisted-trajectory-traffic.sql",
+        "query": {
+          "description": "Compare primary-run serialized tensor traffic, canonical JSON traffic, and durable transaction bytes by process topology.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-28T08:05:51Z",
+          "language": "sql",
+          "sql": "WITH evidence AS (\n  SELECT json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path = 'reports/evidence/p7-persisted-trajectory-t1.json'\n),\naccounting AS (\n  SELECT\n    0 AS topology_order,\n    'Matched full process' AS topology,\n    json_extract(doc, '$.full_tensor_wire_bytes') AS tensor_wire_bytes,\n    json_extract(doc, '$.full_control_json_wire_bytes')\n      AS control_json_wire_bytes,\n    json_extract(doc, '$.full_persisted_bytes') AS persisted_bytes,\n    0.0 AS tensor_change_vs_full,\n    0.0 AS persisted_change_vs_full\n  FROM evidence\n\n  UNION ALL\n\n  SELECT\n    1,\n    'Pooled expert executor',\n    json_extract(doc, '$.expert_tensor_wire_bytes'),\n    json_extract(doc, '$.expert_control_json_wire_bytes'),\n    json_extract(doc, '$.expert_persisted_bytes'),\n    1.0 * json_extract(doc, '$.expert_tensor_wire_bytes')\n      / json_extract(doc, '$.full_tensor_wire_bytes') - 1.0,\n    1.0 * json_extract(doc, '$.expert_persisted_bytes')\n      / json_extract(doc, '$.full_persisted_bytes') - 1.0\n  FROM evidence\n)\nSELECT\n  topology,\n  tensor_wire_bytes,\n  control_json_wire_bytes,\n  persisted_bytes,\n  tensor_change_vs_full,\n  persisted_change_vs_full\nFROM accounting\nORDER BY topology_order;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path = reports/evidence/p7-persisted-trajectory-t1.json"
+          ],
+          "metric_definitions": [
+            "Tensor wire bytes include safetensors payloads sent and received across the local process boundary for all three steps.",
+            "Control JSON wire bytes include canonical application controls and vary slightly when timing values have different text lengths.",
+            "Persisted bytes include pre-state, batch, accepted results, manifests, and applied checkpoints written for all three steps."
+          ]
+        }
+      },
+      {
+        "id": "memory_query",
+        "label": "Persisted-trajectory child-memory query",
+        "path": "reports/queries/p7-persisted-trajectory-memory.sql",
+        "query": {
+          "description": "Aggregate externally sampled current and high-water RSS across each child generation for both topologies and both runs.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-28T08:05:51Z",
+          "language": "sql",
+          "sql": "WITH runs AS (\n  SELECT\n    CASE source_path\n      WHEN 'reports/evidence/p7-persisted-trajectory-t1.json' THEN 0\n      ELSE 1\n    END AS run_order,\n    CASE source_path\n      WHEN 'reports/evidence/p7-persisted-trajectory-t1.json' THEN 'Primary'\n      ELSE 'Repeat'\n    END AS run_label,\n    json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path IN (\n    'reports/evidence/p7-persisted-trajectory-t1.json',\n    'reports/evidence/p7-persisted-trajectory-t1-repeat.json'\n  )\n),\nfull_memory AS (\n  SELECT\n    run_order,\n    run_label,\n    max(\n      json_extract(value, '$.external_rss.lifecycle_max_current_rss_bytes')\n    ) AS full_max_current_rss_bytes,\n    max(\n      json_extract(value, '$.external_rss.lifecycle_max_hwm_rss_bytes')\n    ) AS full_max_hwm_rss_bytes\n  FROM runs, json_each(runs.doc, '$.full_workers')\n  GROUP BY run_order, run_label\n),\nexpert_memory AS (\n  SELECT\n    run_order,\n    run_label,\n    count(*) AS expert_worker_generations,\n    sum(json_extract(value, '$.external_rss.sample_count'))\n      AS expert_rss_samples,\n    max(\n      json_extract(value, '$.external_rss.lifecycle_max_current_rss_bytes')\n    ) AS expert_max_current_rss_bytes,\n    max(\n      json_extract(value, '$.external_rss.lifecycle_max_hwm_rss_bytes')\n    ) AS expert_max_hwm_rss_bytes\n  FROM runs, json_each(runs.doc, '$.expert_workers')\n  GROUP BY run_order, run_label\n),\nmemory AS (\n  SELECT\n    runs.run_order,\n    runs.run_label,\n    0 AS topology_order,\n    'Matched full process' AS topology,\n    json_array_length(runs.doc, '$.full_workers') AS worker_generations,\n    (\n      SELECT sum(json_extract(value, '$.external_rss.sample_count'))\n      FROM json_each(runs.doc, '$.full_workers')\n    ) AS rss_samples,\n    full_memory.full_max_current_rss_bytes AS max_current_rss_bytes,\n    full_memory.full_max_hwm_rss_bytes AS max_hwm_rss_bytes,\n    0.0 AS hwm_reduction_vs_full\n  FROM runs\n  JOIN full_memory USING (run_order, run_label)\n\n  UNION ALL\n\n  SELECT\n    runs.run_order,\n    runs.run_label,\n    1,\n    'Pooled expert executor',\n    expert_memory.expert_worker_generations,\n    expert_memory.expert_rss_samples,\n    expert_memory.expert_max_current_rss_bytes,\n    expert_memory.expert_max_hwm_rss_bytes,\n    1.0 - 1.0 * expert_memory.expert_max_hwm_rss_bytes\n      / full_memory.full_max_hwm_rss_bytes\n  FROM runs\n  JOIN full_memory USING (run_order, run_label)\n  JOIN expert_memory USING (run_order, run_label)\n)\nSELECT\n  run_label,\n  topology,\n  worker_generations,\n  rss_samples,\n  max_current_rss_bytes,\n  max_hwm_rss_bytes,\n  hwm_reduction_vs_full\nFROM memory\nORDER BY run_order, topology_order;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path IN (reports/evidence/p7-persisted-trajectory-t1.json, reports/evidence/p7-persisted-trajectory-t1-repeat.json)"
+          ],
+          "metric_definitions": [
+            "Maximum current RSS and VmHWM are sampled externally from Linux /proc from child spawn through shutdown.",
+            "The values are per-child lifecycle maxima. They exclude the coordinator and cannot be summed across sequential children."
+          ]
+        }
+      },
+      {
+        "id": "recovery_query",
+        "label": "Persisted-trajectory recovery query",
+        "path": "reports/queries/p7-persisted-trajectory-recovery.sql",
+        "query": {
+          "description": "Report the durable worker-loss result and fresh-process coordinator recovery outcome for both independent runs.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-28T08:05:51Z",
+          "language": "sql",
+          "sql": "WITH runs AS (\n  SELECT\n    CASE source_path\n      WHEN 'reports/evidence/p7-persisted-trajectory-t1.json' THEN 0\n      ELSE 1\n    END AS run_order,\n    CASE source_path\n      WHEN 'reports/evidence/p7-persisted-trajectory-t1.json' THEN 'Primary'\n      ELSE 'Repeat'\n    END AS run_label,\n    json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path IN (\n    'reports/evidence/p7-persisted-trajectory-t1.json',\n    'reports/evidence/p7-persisted-trajectory-t1-repeat.json'\n  )\n)\nSELECT\n  run_label,\n  json_extract(doc, '$.worker_replacement.step') AS worker_loss_step,\n  json_extract(doc, '$.worker_replacement.first_worker_exit_code')\n    AS first_worker_exit_code,\n  json_extract(doc, '$.worker_replacement.persisted_result_index')\n    AS persisted_result_index,\n  json_extract(doc, '$.worker_replacement.persisted_result_survived_loss')\n    AS persisted_result_survived_loss,\n  json_extract(doc, '$.worker_replacement.recomputed_persisted_result')\n    AS recomputed_persisted_result,\n  json_extract(doc, '$.worker_replacement.replacement_worker_exit_code')\n    AS replacement_worker_exit_code,\n  json_extract(doc, '$.coordinator_recovery.step')\n    AS coordinator_loss_step,\n  json_extract(\n    doc,\n    '$.coordinator_recovery.applied_checkpoint_published_before_loss'\n  ) AS checkpoint_published_before_loss,\n  json_extract(doc, '$.coordinator_recovery.manifest_applied_before_loss')\n    AS manifest_applied_before_loss,\n  json_extract(\n    doc,\n    '$.coordinator_recovery.new_process_loaded_only_persisted_state'\n  ) AS fresh_process_only_persisted_state,\n  json_extract(\n    doc,\n    '$.coordinator_recovery.recomputed_from_persisted_pre_state_for_validation'\n  ) AS recomputed_for_validation,\n  json_extract(\n    doc,\n    '$.coordinator_recovery.recovered_from_published_checkpoint'\n  ) AS recovered_from_checkpoint,\n  json_extract(doc, '$.coordinator_recovery.duplicate_apply_rejected')\n    AS duplicate_apply_rejected,\n  json_extract(doc, '$.coordinator_recovery.recovery_process_exit_code')\n    AS recovery_process_exit_code,\n  json_extract(doc, '$.coordinator_recovery.recovery_seconds')\n    AS recovery_seconds\nFROM runs\nORDER BY run_order;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path IN (reports/evidence/p7-persisted-trajectory-t1.json, reports/evidence/p7-persisted-trajectory-t1-repeat.json)"
+          ],
+          "metric_definitions": [
+            "Worker recovery passes when accepted result zero remains durable, is not recomputed, and the replacement exits cleanly.",
+            "Coordinator recovery begins after the applied checkpoint directory is published and includes fresh-process load, exact recomputation for validation, manifest commit, and exit."
+          ]
+        }
+      },
+      {
+        "id": "primary_evidence",
+        "label": "Primary persisted-trajectory evidence",
+        "path": "reports/evidence/p7-persisted-trajectory-t1.json"
+      },
+      {
+        "id": "repeat_evidence",
+        "label": "Repeat persisted-trajectory evidence",
+        "path": "reports/evidence/p7-persisted-trajectory-t1-repeat.json"
+      },
+      {
+        "id": "study_evidence",
+        "label": "P7 persisted-trajectory study evidence",
+        "path": "research/studies/p7-persisted-trajectory-t1-v1/evidence/t1-persisted-sparse-trajectory.json"
+      },
+      {
+        "id": "implementation",
+        "label": "Persisted sparse-trajectory implementation commit",
+        "href": "https://github.com/zeidalidiez/OrcaColony/commit/390b66bf2c5d67c726be4ad9ee77e0d3611f56c4"
+      },
+      {
+        "id": "t1_campaign",
+        "label": "Frozen T1 systems campaign configuration",
+        "path": "campaign/t1-tinystories-system-proof.json"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Exact persisted sparse trajectories with measured recovery costs"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## Technical summary\n\nTwo independent one-thread runs advanced the same three-step trajectory through centralized, matched full-process, and pooled-expert paths. All **six run-step comparisons** matched exactly through raw gradients, clipping, AdamW state, complete model state, and loss. A durable expert result survived worker loss without recomputation, and a fresh coordinator recovered a published checkpoint in **5.92 and 6.27 seconds**. The pooled path reduced tensor traffic by **45.68%** and maximum observed child VmHWM by **32.89% to 34.32%**, but persisted bytes fell only **7.12%** and complete elapsed time was **67.40% to 69.07% higher** than the matched full process. This is an exact local systems control, not an efficiency win or model-quality result."
+      },
+      {
+        "id": "headline_metrics",
+        "type": "metric-strip",
+        "cardIds": [
+          "exact_update_card",
+          "tensor_traffic_card",
+          "elapsed_card",
+          "child_hwm_card"
+        ]
+      },
+      {
+        "id": "timing_finding",
+        "type": "markdown",
+        "sourceId": "timing_query",
+        "body": "## The exact path is slower in both runs\n\nThe pooled expert executor took **21.68 seconds** in the primary run and **19.28 seconds** in the repeat. The matched full process took **12.83 and 11.52 seconds**. These complete times include coordinator preparation, local IPC, transaction writes, apply, recovery, and shutdown for each process path. The centralized path is shown as a lower-bound control because it performs no process transport or persistence."
+      },
+      {
+        "id": "timing_chart",
+        "type": "chart",
+        "chartId": "complete_timing_chart"
+      },
+      {
+        "id": "scope_definitions",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## What the control measures\n\n**Exact update** means identical raw gradients, clipped gradients, AdamW tensors, and complete model tensors for one run-step comparison. **Tensor traffic** counts serialized safetensors payloads crossing the local process boundary. **Persisted bytes** count pre-state, batch, accepted results, manifests, and applied checkpoints written for the three transactions. **Child VmHWM** is the largest externally sampled Linux process high-water mark for one child generation. This randomly initialized sparse tracer uses the frozen T1 tokens and dimensions but is not a practical campaign model. No campaign training or donated work occurred, so no contributor credit was created."
+      },
+      {
+        "id": "exactness_finding",
+        "type": "markdown",
+        "sourceId": "exactness_query",
+        "body": "## Sequential state and refreshed routing repeat exactly\n\nEvery maximum tensor difference is **0.0**, and every centralized, full-process, and pooled-expert state hash matches. Steps one and two start from the prior applied model and optimizer identities. Route identities change on both later batches, while capacity enforcement still assigns `[128,128,128,128]` tokens and reroutes 34, 44, and 42 of 512 tokens. The recorded losses decline across different batches, but that sequence is not a capability or generalization metric."
+      },
+      {
+        "id": "exactness_table_block",
+        "type": "table",
+        "tableId": "exactness_table"
+      },
+      {
+        "id": "recovery_finding",
+        "type": "markdown",
+        "sourceId": "recovery_query",
+        "body": "## Durable boundaries prevent recompute and double apply\n\nAt step one, expert result zero was already durable when worker generation zero exited with code **-15**. Its replacement completed the remaining assignments and did not recompute result zero. At step two, the applied checkpoint directory was published before the manifest recorded `applied`. A new spawned coordinator loaded only persisted state, recomputed the expected apply for validation, committed the manifest, rejected duplicate application, and exited with code **0** in both runs."
+      },
+      {
+        "id": "recovery_table_block",
+        "type": "table",
+        "tableId": "recovery_table"
+      },
+      {
+        "id": "traffic_finding",
+        "type": "markdown",
+        "sourceId": "traffic_query",
+        "body": "## Tensor savings do not translate into equal disk savings\n\nAcross three steps, the pooled expert executor moved **70,522,032 tensor bytes** versus **129,825,192** for the matched full process, a **45.68% reduction**. Durable transaction material was **441,492,728 bytes** versus **475,339,837**, only **7.12% lower**. Repeated pre-state and applied checkpoints dominate this short control, so sparse process traffic alone does not solve persistence cost."
+      },
+      {
+        "id": "traffic_table_block",
+        "type": "table",
+        "tableId": "traffic_table"
+      },
+      {
+        "id": "memory_finding",
+        "type": "markdown",
+        "sourceId": "memory_query",
+        "body": "## Per-child high-water RSS is lower, with a narrow scope\n\nThe matched full child reached **596,279,296 and 607,838,208 bytes** of VmHWM. Maximum pooled-expert child VmHWM was **400,171,008 and 399,204,352 bytes**, a **32.89% to 34.32% reduction**. The parent sampled from spawn through shutdown, which improves on lifecycle-boundary readings. These are still child-only Linux observations. They exclude coordinator memory and do not establish concurrent colony memory."
+      },
+      {
+        "id": "memory_table_block",
+        "type": "table",
+        "tableId": "memory_table"
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "sourceId": "implementation",
+        "body": "## Experimental design and transaction boundary\n\nImplementation commit `390b66bf2c5d67c726be4ad9ee77e0d3611f56c4` advances real coordinator-owned AdamW state for three batches. A matched persistent full worker and one persistent pooled expert executor each receive one frozen head per generation and refreshed trainable state per step. Every transaction binds the campaign, dataset, head, pre-state, batch, routes, results, and applied state through canonical JSON and safetensors SHA-256 identities. Results and applied checkpoints publish through fsynced atomic directories. This protects a trusted local protocol against corruption and partial publication; it does not authenticate a hostile peer."
+      },
+      {
+        "id": "reproduction",
+        "type": "markdown",
+        "body": "## Reproduce the evidence\n\nUse implementation commit `390b66bf2c5d67c726be4ad9ee77e0d3611f56c4` on Linux. Build the exact dataset, then run the trajectory twice with separate state directories:\n\n```bash\nOMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.artifacts --output .artifacts/p7-trajectory-dataset\nOMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.sparse_expert_trajectory --config campaign/t1-tinystories-system-proof.json --dataset .artifacts/p7-trajectory-dataset --state .artifacts/p7-trajectory-primary-state --steps 3 --expert-count 4 --router-aux-weight 0.01 --timeout-seconds 120 --sample-interval-seconds 0.01 --output .artifacts/p7-trajectory-primary.json\nOMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.sparse_expert_trajectory --config campaign/t1-tinystories-system-proof.json --dataset .artifacts/p7-trajectory-dataset --state .artifacts/p7-trajectory-repeat-state --steps 3 --expert-count 4 --router-aux-weight 0.01 --timeout-seconds 120 --sample-interval-seconds 0.01 --output .artifacts/p7-trajectory-repeat.json\n```\n\nThe dataset manifest must hash to `99e5642b...`. The committed evidence files hash to `17292d43...` and `d3220db0...`. The six committed SQLite queries reproduce every report dataset. Compare semantic fields exactly and treat timings, RSS, sample counts, and JSON lengths containing timing text as environmental."
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## Limitations and robustness boundary\n\nThis two-run, three-step CPU control does not evaluate model quality, long-run optimizer behavior, learned expert specialization, checkpoint compaction, aggregate memory, concurrent throughput, or network transport. The pooled executor is not the four-process expert-affine topology from Report 014. Recovery recomputes the expected update for validation, which adds cost. Linux `/proc` is required. The trusted local pipe and digest checks are not sandboxing, remote identity, or proof of volunteer computation."
+      },
+      {
+        "id": "next_step",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## Next: reduce durable state cost before remote execution\n\nThe next bounded method slice should keep these exact transaction and recovery gates while testing checkpoint deduplication or incremental state storage. It should measure whether the persisted-byte total and recovery time fall without weakening at-most-once apply. Concurrent or remote workers should remain a later step because this control still shows substantial local elapsed and persistence overhead."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Questions for the next method slice\n\n- Can immutable checkpoint tensors be content-addressed once without weakening exact recovery?\n- Can recovery validate a published checkpoint without recomputing the full expected update?\n- How does retained state grow over dozens of steps after safe transaction compaction?\n- Does the child-memory advantage survive concurrent expert workers when aggregate coordinator-plus-child RSS is measured?\n- Which integrity and identity boundary is required before any untrusted remote worker is admitted?"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-28T08:05:51Z",
+    "status": "ready",
+    "datasets": {
+      "headline": [
+        {
+          "exact_update_rate": 1.0,
+          "compared_run_steps": 6,
+          "independent_runs": 2,
+          "tensor_traffic_reduction": 0.4567923920343595,
+          "persisted_byte_reduction": 0.07120612741742494,
+          "expert_elapsed_change": 0.6907069984164862,
+          "full_complete_seconds": 12.825918926999293,
+          "expert_complete_seconds": 21.684870891000173,
+          "child_hwm_reduction": 0.3288866296642303,
+          "full_child_hwm_bytes": 596279296,
+          "expert_child_hwm_bytes": 400171008,
+          "coordinator_recovery_seconds": 5.922086712000237
+        }
+      ],
+      "timing": [
+        {
+          "run_label": "Primary",
+          "topology": "Centralized",
+          "complete_seconds": 2.751780698999937,
+          "change_vs_full": -0.785451575465109
+        },
+        {
+          "run_label": "Repeat",
+          "topology": "Centralized",
+          "complete_seconds": 2.388839708000887,
+          "change_vs_full": -0.7926270793407693
+        },
+        {
+          "run_label": "Primary",
+          "topology": "Matched full process",
+          "complete_seconds": 12.825918926999293,
+          "change_vs_full": 0.0
+        },
+        {
+          "run_label": "Repeat",
+          "topology": "Matched full process",
+          "complete_seconds": 11.519535436000297,
+          "change_vs_full": 0.0
+        },
+        {
+          "run_label": "Primary",
+          "topology": "Pooled expert executor",
+          "complete_seconds": 21.684870891000173,
+          "change_vs_full": 0.6907069984164862
+        },
+        {
+          "run_label": "Repeat",
+          "topology": "Pooled expert executor",
+          "complete_seconds": 19.283332201999656,
+          "change_vs_full": 0.6739678704174403
+        }
+      ],
+      "exactness": [
+        {
+          "run_label": "Primary",
+          "step": 0,
+          "cursor": 0,
+          "routing_counts": "[128,128,128,128]",
+          "rerouted_tokens": 34,
+          "routes_changed": 0,
+          "training_batch_loss": 9.202291488647461,
+          "max_raw_gradient_difference": 0.0,
+          "max_clipped_gradient_difference": 0.0,
+          "max_model_difference": 0.0,
+          "state_hashes_match": 1
+        },
+        {
+          "run_label": "Primary",
+          "step": 1,
+          "cursor": 2,
+          "routing_counts": "[128,128,128,128]",
+          "rerouted_tokens": 44,
+          "routes_changed": 1,
+          "training_batch_loss": 9.1494779586792,
+          "max_raw_gradient_difference": 0.0,
+          "max_clipped_gradient_difference": 0.0,
+          "max_model_difference": 0.0,
+          "state_hashes_match": 1
+        },
+        {
+          "run_label": "Primary",
+          "step": 2,
+          "cursor": 4,
+          "routing_counts": "[128,128,128,128]",
+          "rerouted_tokens": 42,
+          "routes_changed": 1,
+          "training_batch_loss": 9.121874809265137,
+          "max_raw_gradient_difference": 0.0,
+          "max_clipped_gradient_difference": 0.0,
+          "max_model_difference": 0.0,
+          "state_hashes_match": 1
+        },
+        {
+          "run_label": "Repeat",
+          "step": 0,
+          "cursor": 0,
+          "routing_counts": "[128,128,128,128]",
+          "rerouted_tokens": 34,
+          "routes_changed": 0,
+          "training_batch_loss": 9.202291488647461,
+          "max_raw_gradient_difference": 0.0,
+          "max_clipped_gradient_difference": 0.0,
+          "max_model_difference": 0.0,
+          "state_hashes_match": 1
+        },
+        {
+          "run_label": "Repeat",
+          "step": 1,
+          "cursor": 2,
+          "routing_counts": "[128,128,128,128]",
+          "rerouted_tokens": 44,
+          "routes_changed": 1,
+          "training_batch_loss": 9.1494779586792,
+          "max_raw_gradient_difference": 0.0,
+          "max_clipped_gradient_difference": 0.0,
+          "max_model_difference": 0.0,
+          "state_hashes_match": 1
+        },
+        {
+          "run_label": "Repeat",
+          "step": 2,
+          "cursor": 4,
+          "routing_counts": "[128,128,128,128]",
+          "rerouted_tokens": 42,
+          "routes_changed": 1,
+          "training_batch_loss": 9.121874809265137,
+          "max_raw_gradient_difference": 0.0,
+          "max_clipped_gradient_difference": 0.0,
+          "max_model_difference": 0.0,
+          "state_hashes_match": 1
+        }
+      ],
+      "traffic": [
+        {
+          "topology": "Matched full process",
+          "tensor_wire_bytes": 129825192,
+          "control_json_wire_bytes": 6516,
+          "persisted_bytes": 475339837,
+          "tensor_change_vs_full": 0.0,
+          "persisted_change_vs_full": 0.0
+        },
+        {
+          "topology": "Pooled expert executor",
+          "tensor_wire_bytes": 70522032,
+          "control_json_wire_bytes": 22852,
+          "persisted_bytes": 441492728,
+          "tensor_change_vs_full": -0.4567923920343595,
+          "persisted_change_vs_full": -0.07120612741742494
+        }
+      ],
+      "memory": [
+        {
+          "run_label": "Primary",
+          "topology": "Matched full process",
+          "worker_generations": 1,
+          "rss_samples": 408,
+          "max_current_rss_bytes": 596279296,
+          "max_hwm_rss_bytes": 596279296,
+          "hwm_reduction_vs_full": 0.0
+        },
+        {
+          "run_label": "Primary",
+          "topology": "Pooled expert executor",
+          "worker_generations": 2,
+          "rss_samples": 663,
+          "max_current_rss_bytes": 400171008,
+          "max_hwm_rss_bytes": 400171008,
+          "hwm_reduction_vs_full": 0.3288866296642303
+        },
+        {
+          "run_label": "Repeat",
+          "topology": "Matched full process",
+          "worker_generations": 1,
+          "rss_samples": 394,
+          "max_current_rss_bytes": 607838208,
+          "max_hwm_rss_bytes": 607838208,
+          "hwm_reduction_vs_full": 0.0
+        },
+        {
+          "run_label": "Repeat",
+          "topology": "Pooled expert executor",
+          "worker_generations": 2,
+          "rss_samples": 596,
+          "max_current_rss_bytes": 396095488,
+          "max_hwm_rss_bytes": 399204352,
+          "hwm_reduction_vs_full": 0.34323912721195704
+        }
+      ],
+      "recovery": [
+        {
+          "run_label": "Primary",
+          "worker_loss_step": 1,
+          "first_worker_exit_code": -15,
+          "persisted_result_index": 0,
+          "persisted_result_survived_loss": 1,
+          "recomputed_persisted_result": 0,
+          "replacement_worker_exit_code": 0,
+          "coordinator_loss_step": 2,
+          "checkpoint_published_before_loss": 1,
+          "manifest_applied_before_loss": 0,
+          "fresh_process_only_persisted_state": 1,
+          "recomputed_for_validation": 1,
+          "recovered_from_checkpoint": 1,
+          "duplicate_apply_rejected": 1,
+          "recovery_process_exit_code": 0,
+          "recovery_seconds": 5.922086712000237
+        },
+        {
+          "run_label": "Repeat",
+          "worker_loss_step": 1,
+          "first_worker_exit_code": -15,
+          "persisted_result_index": 0,
+          "persisted_result_survived_loss": 1,
+          "recomputed_persisted_result": 0,
+          "replacement_worker_exit_code": 0,
+          "coordinator_loss_step": 2,
+          "checkpoint_published_before_loss": 1,
+          "manifest_applied_before_loss": 0,
+          "fresh_process_only_persisted_state": 1,
+          "recomputed_for_validation": 1,
+          "recovered_from_checkpoint": 1,
+          "duplicate_apply_rejected": 1,
+          "recovery_process_exit_code": 0,
+          "recovery_seconds": 6.266667825000695
+        }
+      ]
+    }
+  }
+}

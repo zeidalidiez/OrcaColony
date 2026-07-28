@@ -1,0 +1,119 @@
+{
+  "format": "orcacolony_experiment_v1",
+  "study_id": "p7-persisted-trajectory-t1-v1",
+  "experiment_id": "t1-persisted-sparse-trajectory",
+  "title": "Exact persisted T1 sparse trajectory with worker and coordinator recovery",
+  "status": "validated",
+  "subject": {
+    "kind": "persisted-sparse-trajectory-systems-control",
+    "id": "t1-persisted-sparse-trajectory",
+    "revision": "390b66bf2c5d67c726be4ad9ee77e0d3611f56c4"
+  },
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "390b66bf2c5d67c726be4ad9ee77e0d3611f56c4",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/390b66bf2c5d67c726be4ad9ee77e0d3611f56c4"
+    },
+    {
+      "id": "t1-campaign",
+      "kind": "repo-json-sha256",
+      "revision": "87efb542e6b283202a0d47efd1e3b9acace986f34d1c4617c4a4090611c53890",
+      "uri": "repo:campaign/t1-tinystories-system-proof.json"
+    },
+    {
+      "id": "primary-evidence",
+      "kind": "repo-json-sha256",
+      "revision": "17292d431208f5d9078c6bacc3ffad0ce6db000355a2ce8047c60ab88756c123",
+      "uri": "repo:reports/evidence/p7-persisted-trajectory-t1.json"
+    },
+    {
+      "id": "repeat-evidence",
+      "kind": "repo-json-sha256",
+      "revision": "d3220db012020b17cd8e4cc72cd413b608bc3b1355d145f6a0b732e9689e912c",
+      "uri": "repo:reports/evidence/p7-persisted-trajectory-t1-repeat.json"
+    }
+  ],
+  "method": {
+    "training_method": {
+      "id": "three-step-persisted-sparse-adamw-control",
+      "label": "Three-step persisted sparse AdamW control",
+      "description": "Three sequential batches advance real model and AdamW state. Each step refreshes shared hidden rows, routes, and expert trainable state from the prior applied checkpoint."
+    },
+    "execution_topology": {
+      "id": "matched-full-and-pooled-expert-processes",
+      "label": "Matched full process and pooled expert executor",
+      "description": "One persistent full worker and one persistent pooled expert executor run separately. The pooled executor processes four expert assignments sequentially so the host never has more than one child process."
+    },
+    "memory_profiles": [
+      {
+        "id": "external-linux-child-rss-lifecycle",
+        "label": "External Linux child RSS lifecycle",
+        "description": "The parent samples each child through /proc from spawn through startup, assignment, and shutdown and records current RSS and process high-water RSS by lifecycle phase."
+      }
+    ],
+    "numerical_profiles": [
+      {
+        "id": "python-cpu-fp32-exact",
+        "label": "Python CPU FP32 exact control",
+        "description": "One-thread PyTorch FP32 execution compares raw and clipped gradients, AdamW tensors, complete model tensors, loss, routing, and persisted state identities exactly."
+      }
+    ]
+  },
+  "worker_profiles": [
+    {
+      "id": "trusted-local-spawned-process",
+      "label": "Trusted local spawned process",
+      "description": "The coordinator creates a local multiprocessing pipe and child. SHA-256 identities and durable manifests bind frames and checkpoints within that trusted scope; they do not authenticate an untrusted remote peer."
+    }
+  ],
+  "resource_budget": {
+    "limits": [
+      {
+        "id": "trajectory-steps",
+        "label": "Sequential optimizer steps",
+        "value": 3,
+        "unit": "steps"
+      },
+      {
+        "id": "expert-count",
+        "label": "Sparse experts",
+        "value": 4,
+        "unit": "experts"
+      },
+      {
+        "id": "maximum-simultaneous-worker-processes",
+        "label": "Maximum simultaneous worker processes",
+        "value": 1,
+        "unit": "processes"
+      },
+      {
+        "id": "deterministic-runs",
+        "label": "Primary and repeat runs",
+        "value": 2,
+        "unit": "runs"
+      },
+      {
+        "id": "worker-timeout",
+        "label": "Maximum wait per worker operation",
+        "value": 120,
+        "unit": "seconds"
+      },
+      {
+        "id": "rss-sample-interval",
+        "label": "External RSS sample interval",
+        "value": 0.01,
+        "unit": "seconds"
+      }
+    ]
+  },
+  "reproduction": {
+    "command": [
+      "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.artifacts --output .artifacts/p7-trajectory-dataset",
+      "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.sparse_expert_trajectory --config campaign/t1-tinystories-system-proof.json --dataset .artifacts/p7-trajectory-dataset --state .artifacts/p7-trajectory-primary-state --steps 3 --expert-count 4 --router-aux-weight 0.01 --timeout-seconds 120 --sample-interval-seconds 0.01 --output .artifacts/p7-trajectory-primary.json",
+      "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.sparse_expert_trajectory --config campaign/t1-tinystories-system-proof.json --dataset .artifacts/p7-trajectory-dataset --state .artifacts/p7-trajectory-repeat-state --steps 3 --expert-count 4 --router-aux-weight 0.01 --timeout-seconds 120 --sample-interval-seconds 0.01 --output .artifacts/p7-trajectory-repeat.json"
+    ],
+    "notes": "Run from implementation commit 390b66bf2c5d67c726be4ad9ee77e0d3611f56c4 on Linux with /proc. The data build must reproduce manifest SHA-256 99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af. Compare all semantic fields exactly. Treat elapsed times, RSS observations, sample counts, and JSON lengths containing timing text as environmental. Each state directory is about 875 MB and may be removed after its evidence JSON is secured."
+  }
+}

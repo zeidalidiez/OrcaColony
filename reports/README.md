@@ -43,15 +43,17 @@ Every important report should answer, in plain language:
 Reports are self-contained HTML with no remote scripts. Supporting measured JSON may live under `evidence/`. Reports should link the exact implementation commit and reproduction command when available.
 
 The current P7 systems finding is
-[Report 014](p7-authenticated-process-t1.html). Its canonical report artifact,
-five source queries, primary and repeat process evidence, and linked
+[Report 015](p7-persisted-trajectory-t1.html). Its canonical report artifact,
+six source queries, primary and repeat trajectory evidence, and linked
 machine-readable study are committed beside the report. It establishes exact
-trusted-local process reconstruction, warm serialized-traffic reduction, and
-one bounded replacement result. It does not establish peak-memory savings,
-remote worker authentication, or practical model quality.
+three-step state advancement, durable worker-result reuse, and fresh-process
+coordinator recovery. Pooled expert tensor traffic and maximum child VmHWM are
+lower, but complete elapsed time is 67.40%-69.07% higher and persisted bytes
+fall only 7.12%. It does not establish practical model quality, aggregate
+memory, concurrent throughput, or remote trust.
 
-[Report 013](p7-frozen-cached-head-t0.html) is the preceding in-process
-frozen-head accounting result.
+[Report 014](p7-authenticated-process-t1.html) is the preceding persistent
+process and accepted-assignment replacement control.
 
 ## Practical campaign review points
 

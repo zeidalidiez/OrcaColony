@@ -1,0 +1,186 @@
+{
+  "format": "orcacolony_experiment_evidence_v1",
+  "study_id": "p7-persisted-trajectory-t1-v1",
+  "experiment_id": "t1-persisted-sparse-trajectory",
+  "outcome": "validated",
+  "completed_at": "2026-07-28T08:05:51Z",
+  "summary": "Two independent one-thread runs reproduced all semantic trajectory, transaction, worker-loss, and fresh-coordinator recovery fields. All six run-step comparisons were exact. The pooled expert path reduced serialized tensor traffic by 45.68% and its maximum child high-water RSS by 32.89% to 34.32%, but reduced persisted bytes by only 7.12% and took 67.40% to 69.07% longer than the matched full-process path. Fresh coordinator recovery took 5.92 and 6.27 seconds. This validates a bounded local systems control, not model quality or a practical training benefit.",
+  "measurements": [
+    {
+      "id": "exact-sequential-update-rate",
+      "label": "Exact sequential update rate",
+      "value": 1.0,
+      "unit": "ratio"
+    },
+    {
+      "id": "semantic-repeat-identity-rate",
+      "label": "Semantic repeat identity rate",
+      "value": 1.0,
+      "unit": "ratio"
+    },
+    {
+      "id": "expert-tensor-traffic-reduction",
+      "label": "Pooled expert tensor traffic reduction",
+      "value": 0.4567923920343595,
+      "unit": "ratio"
+    },
+    {
+      "id": "expert-persisted-byte-reduction",
+      "label": "Pooled expert persisted-byte reduction",
+      "value": 0.07120612741742494,
+      "unit": "ratio"
+    },
+    {
+      "id": "primary-expert-elapsed-change",
+      "label": "Primary pooled expert complete elapsed change",
+      "value": 0.6907069984164862,
+      "unit": "ratio"
+    },
+    {
+      "id": "repeat-expert-elapsed-change",
+      "label": "Repeat pooled expert complete elapsed change",
+      "value": 0.6739678704174403,
+      "unit": "ratio"
+    },
+    {
+      "id": "primary-expert-child-hwm-reduction",
+      "label": "Primary pooled expert child high-water RSS reduction",
+      "value": 0.3288866296642303,
+      "unit": "ratio"
+    },
+    {
+      "id": "repeat-expert-child-hwm-reduction",
+      "label": "Repeat pooled expert child high-water RSS reduction",
+      "value": 0.34323912721195704,
+      "unit": "ratio"
+    },
+    {
+      "id": "primary-fresh-coordinator-recovery",
+      "label": "Primary fresh coordinator recovery time",
+      "value": 5.922086712000237,
+      "unit": "seconds"
+    },
+    {
+      "id": "repeat-fresh-coordinator-recovery",
+      "label": "Repeat fresh coordinator recovery time",
+      "value": 6.266667825000695,
+      "unit": "seconds"
+    }
+  ],
+  "evaluation": {
+    "primary_metric": {
+      "id": "exact-sequential-update-rate",
+      "value": 1.0
+    },
+    "guardrails": [
+      {
+        "id": "semantic-repeat-identity",
+        "passed": true,
+        "detail": "The repeat reproduced every evidence field except elapsed times, RSS observations, RSS sample counts, and canonical JSON byte counts containing timing text."
+      },
+      {
+        "id": "refreshed-trajectory-state",
+        "passed": true,
+        "detail": "Steps one and two consumed the preceding applied model and optimizer identities. Trainable-state and route identities were refreshed, and routes changed from the previous step on both later batches."
+      },
+      {
+        "id": "persisted-result-survives-worker-loss",
+        "passed": true,
+        "detail": "Expert result zero was durable before generation zero exited with code -15. Generation one finished the remaining assignments, and result zero was not recomputed."
+      },
+      {
+        "id": "fresh-coordinator-recovery",
+        "passed": true,
+        "detail": "At step two, the applied checkpoint directory was published before the manifest transition. A newly spawned coordinator loaded only persisted state, recomputed the expected apply for validation, committed the manifest, and exited with code 0."
+      },
+      {
+        "id": "at-most-once-apply",
+        "passed": true,
+        "detail": "The transaction checks rejected duplicate result acceptance and duplicate apply. Both runs reported duplicate_apply_rejected for the fresh-coordinator recovery."
+      },
+      {
+        "id": "bounded-host-load",
+        "passed": true,
+        "detail": "Both runs declare a maximum of one simultaneous child process and sequential scheduling. The commands bound OpenMP, MKL, OpenBLAS, NumExpr, and VecLib to one thread."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "exact-three-step-trajectory",
+      "label": "All three sequential updates are exact",
+      "description": "Centralized, full-process, and pooled-expert raw gradients, clipped gradients, AdamW state, complete model state, and loss matched at every step in both independent runs.",
+      "kind": "positive"
+    },
+    {
+      "id": "durable-worker-loss",
+      "label": "A durable expert result survives worker loss",
+      "description": "After expert result zero was accepted and published, terminating its worker did not cause recomputation. The replacement process completed only the remaining expert assignments.",
+      "kind": "positive"
+    },
+    {
+      "id": "fresh-coordinator-recovery",
+      "label": "A fresh coordinator completes an interrupted apply",
+      "description": "A separate spawned coordinator loaded the persisted pre-state, results, and published checkpoint, recomputed the expected update for validation, and committed the lagging manifest in both runs.",
+      "kind": "positive"
+    },
+    {
+      "id": "tensor-and-child-memory-signal",
+      "label": "Tensor traffic and per-child high-water RSS are lower",
+      "description": "The pooled expert path moved 70,522,032 tensor bytes versus 129,825,192 for the full path. Maximum observed child high-water RSS was 32.89% to 34.32% lower across the two runs.",
+      "kind": "positive"
+    },
+    {
+      "id": "time-and-persistence-cost",
+      "label": "The exact pooled path remains slower and disk-heavy",
+      "description": "The pooled expert path took 67.40% to 69.07% longer than the matched full-process path. Its 441,492,728 persisted bytes were only 7.12% below the full path's 475,339,837 bytes.",
+      "kind": "negative"
+    },
+    {
+      "id": "routing-refreshed-not-specialized",
+      "label": "Routes refresh without establishing specialization",
+      "description": "Route identities changed on both later batches, but capacity enforcement produced 128 tokens per expert at every step. This verifies refreshed routing mechanics, not learned expert specialization.",
+      "kind": "neutral"
+    }
+  ],
+  "limitations": [
+    "This is a systems control, not a practical model campaign. It advances a randomly initialized experimental sparse tracer for three batches and does not evaluate a useful model.",
+    "The observed training-batch losses are batch diagnostics. Different batches were used at each step, so their decline is not evidence of capability, generalization, or training benefit.",
+    "The pooled executor differs from the four expert-affine processes in the preceding process control. It was chosen to retain the one-child host limit and does not measure concurrent expert throughput.",
+    "The sparse tracer has one shared decoder block and four token-wise MLP experts. It is not the historical six-layer volunteer decoder and does not represent a frontier architecture.",
+    "The trusted-local spawned-pipe scope is not untrusted remote authentication, sandboxing, hostile-payload safety, or proof that public donated computation occurred.",
+    "Worker processes ran one at a time. No aggregate coordinator-plus-child RSS, concurrent throughput, network latency, packet framing, congestion, compression, or remote retry was measured.",
+    "External RSS uses Linux /proc current and high-water observations. It is child-only, includes interpreter and import costs, and remains environmentally variable.",
+    "Complete topology timing includes coordinator preparation, IPC, persistence, apply, recovery, and shutdown, but it is a two-run local observation rather than a stable performance estimate.",
+    "Persisted-byte totals count transaction material written by each topology for three steps. They do not represent long-run retention after compaction, deduplication, or checkpoint garbage collection.",
+    "Recovery validates the already published checkpoint by recomputing the expected update from persisted pre-state and results. A design that avoids that recovery compute was not tested.",
+    "Capacity routing forced 128 tokens to every expert by rerouting 34, 44, and 42 of 512 tokens. Equal counts are policy intervention, not evidence of learned specialization.",
+    "No campaign training work or volunteer hardware donation was accepted in this local control, so it creates no contributor-credit entries."
+  ],
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "390b66bf2c5d67c726be4ad9ee77e0d3611f56c4",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/390b66bf2c5d67c726be4ad9ee77e0d3611f56c4"
+    },
+    {
+      "id": "primary-evidence",
+      "kind": "repo-json-sha256",
+      "revision": "17292d431208f5d9078c6bacc3ffad0ce6db000355a2ce8047c60ab88756c123",
+      "uri": "repo:reports/evidence/p7-persisted-trajectory-t1.json"
+    },
+    {
+      "id": "repeat-evidence",
+      "kind": "repo-json-sha256",
+      "revision": "d3220db012020b17cd8e4cc72cd413b608bc3b1355d145f6a0b732e9689e912c",
+      "uri": "repo:reports/evidence/p7-persisted-trajectory-t1-repeat.json"
+    },
+    {
+      "id": "t1-campaign",
+      "kind": "repo-json-sha256",
+      "revision": "87efb542e6b283202a0d47efd1e3b9acace986f34d1c4617c4a4090611c53890",
+      "uri": "repo:campaign/t1-tinystories-system-proof.json"
+    }
+  ]
+}

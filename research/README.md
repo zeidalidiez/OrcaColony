@@ -73,6 +73,19 @@ pretending that their bytes were verified.
   tensor bytes than the full control, while cold fan-out remained 7.34% more
   expensive. It does not claim process cache reuse, measured transport,
   reliability, memory savings, training quality, or production readiness.
+- `p7-authenticated-process-t1-v1` validates exact trusted-local persistent
+  full and expert processes across two independent assignments, including one
+  replacement after an accepted assignment is lost. Warm expert tensor traffic
+  falls 55.75%, while cold fan-out and process high-water RSS remain negative
+  findings. It does not claim a sequential training trajectory, persisted
+  coordinator recovery, remote authentication, or model quality.
+- `p7-persisted-trajectory-t1-v1` validates two exact three-step trajectories
+  with durable accepted results, worker replacement without recomputation, and
+  fresh-process coordinator recovery after checkpoint publication. Pooled
+  expert tensor traffic and child VmHWM are lower, but elapsed time is
+  67.40%-69.07% higher and persisted bytes fall only 7.12%. It does not claim
+  practical training benefit, aggregate memory, concurrent throughput, remote
+  trust, or donated computation.
 
 Reproduce the persistent release study's source evidence with:
 
@@ -134,6 +147,20 @@ uv run python -m orcacolony.research record \
 
 Its raw primary and repeat commands are pinned to implementation commit
 `14dd341b57cc1ab79518037e7c3d1e5cde712332` in the experiment manifest.
+
+Validate and bundle the committed persisted-trajectory evidence with:
+
+```bash
+uv run python -m orcacolony.research record \
+  --study research/studies/p7-persisted-trajectory-t1-v1/study.json \
+  --experiment research/studies/p7-persisted-trajectory-t1-v1/experiments/t1-persisted-sparse-trajectory.json \
+  --evidence research/studies/p7-persisted-trajectory-t1-v1/evidence/t1-persisted-sparse-trajectory.json \
+  --output .artifacts/p7-persisted-trajectory-result
+```
+
+The experiment manifest pins the one-thread primary and repeat commands,
+implementation commit, evidence hashes, frozen dataset revision, 875 MB
+temporary-state expectation, and Linux `/proc` requirement.
 
 Every committed study, linked experiment, and conventionally named evidence file is rebuilt by the repository test suite. To render any result directly, substitute that study's three manifest paths in the command above and choose a fresh ignored output directory.
 

@@ -107,9 +107,52 @@ uv run python -m orcacolony.research record \
 The study and exact evidence support
 [Report 013](reports/p7-frozen-cached-head-t0.html): warm aggregate tensor
 traffic fell 53.17% against the matched cached full control, while cold traffic
-remained 7.34% higher. The workers are local objects in one process, so the
-next P7 boundary is authenticated T1 process execution, not a model-quality
-claim.
+remained 7.34% higher. The workers are local objects in one process. Report 014
+later measures authenticated T1 processes, and the persisted trajectory below
+advances that process work through sequential state and coordinator recovery.
+
+### P7 persisted trajectory control
+
+The persisted T1 control advances centralized, matched full-process, and pooled
+expert paths through three real AdamW steps. It binds every pre-state, batch,
+route, result, and applied checkpoint, reuses one accepted result after worker
+loss, and completes an interrupted apply in a fresh coordinator process. Run it
+twice with separate state directories:
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+  uv run python -m orcacolony.sparse_expert_trajectory \
+  --config campaign/t1-tinystories-system-proof.json \
+  --dataset .artifacts/p7-trajectory-dataset \
+  --state .artifacts/p7-trajectory-primary-state \
+  --steps 3 --expert-count 4 --router-aux-weight 0.01 \
+  --timeout-seconds 120 --sample-interval-seconds 0.01 \
+  --output .artifacts/p7-trajectory-primary.json
+
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+  uv run python -m orcacolony.sparse_expert_trajectory \
+  --config campaign/t1-tinystories-system-proof.json \
+  --dataset .artifacts/p7-trajectory-dataset \
+  --state .artifacts/p7-trajectory-repeat-state \
+  --steps 3 --expert-count 4 --router-aux-weight 0.01 \
+  --timeout-seconds 120 --sample-interval-seconds 0.01 \
+  --output .artifacts/p7-trajectory-repeat.json
+```
+
+Build `.artifacts/p7-trajectory-dataset` first with
+`python -m orcacolony.artifacts`; its manifest must hash to
+`99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af`.
+Each temporary state directory is about 875 MB and can be removed after its
+evidence JSON is secured.
+
+[Report 015](reports/p7-persisted-trajectory-t1.html) preserves the measured
+result. All six run-step comparisons and both recovery paths are exact. Pooled
+expert tensor traffic falls 45.68% and maximum child VmHWM falls
+32.89%-34.32%, while complete elapsed time rises 67.40%-69.07% and persisted
+bytes fall only 7.12%. These are local systems measurements, not model-quality
+evidence.
 
 ## Historical Record Patch prototype
 
