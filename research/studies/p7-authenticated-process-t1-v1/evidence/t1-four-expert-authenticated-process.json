@@ -1,0 +1,229 @@
+{
+  "format": "orcacolony_experiment_evidence_v1",
+  "study_id": "p7-authenticated-process-t1-v1",
+  "experiment_id": "t1-four-expert-authenticated-process",
+  "outcome": "validated",
+  "completed_at": "2026-07-28T06:30:41Z",
+  "summary": "Two one-thread runs on the frozen T1 manifest reproduced every deterministic routing, tensor-payload, loss, gradient, optimizer, model, cache, and recovery-result field. The four warm expert processes used 17,913,408 safetensors bytes, 55.75% below the matched full process. Cold expert fan-out used 51,477,024 bytes, 5.34% above full. Stable and replacement expert result bytes matched after an accepted assignment was terminated. Expert final current RSS was lower, but pre-entry high-water RSS was higher, so no peak-memory saving is established.",
+  "measurements": [
+    {
+      "id": "warm-serialized-tensor-reduction",
+      "label": "Warm serialized tensor reduction",
+      "value": 0.5574542834228171,
+      "unit": "ratio"
+    },
+    {
+      "id": "warm-application-payload-reduction-primary",
+      "label": "Warm application payload reduction, primary",
+      "value": 0.5573060372225173,
+      "unit": "ratio"
+    },
+    {
+      "id": "warm-application-payload-reduction-repeat",
+      "label": "Warm application payload reduction, repeat",
+      "value": 0.5573060262863759,
+      "unit": "ratio"
+    },
+    {
+      "id": "cold-serialized-tensor-increase",
+      "label": "Cold serialized tensor increase",
+      "value": 0.053367656387484974,
+      "unit": "ratio"
+    },
+    {
+      "id": "cold-application-payload-increase-primary",
+      "label": "Cold application payload increase, primary",
+      "value": 0.05355120088721188,
+      "unit": "ratio"
+    },
+    {
+      "id": "matched-full-warm-tensor-payload",
+      "label": "Matched full warm safetensors payload",
+      "value": 40478096,
+      "unit": "bytes"
+    },
+    {
+      "id": "expert-warm-tensor-payload",
+      "label": "Four-expert warm safetensors payload",
+      "value": 17913408,
+      "unit": "bytes"
+    },
+    {
+      "id": "matched-full-cold-tensor-payload",
+      "label": "Matched full cold safetensors payload",
+      "value": 48869000,
+      "unit": "bytes"
+    },
+    {
+      "id": "expert-cold-tensor-payload",
+      "label": "Four-expert cold safetensors payload",
+      "value": 51477024,
+      "unit": "bytes"
+    },
+    {
+      "id": "recovery-total-application-payload",
+      "label": "Loss-control total application payload",
+      "value": 23508639,
+      "unit": "bytes"
+    },
+    {
+      "id": "recovery-seconds-min",
+      "label": "Post-loss recovery time, minimum",
+      "value": 3.3741886100006013,
+      "unit": "seconds"
+    },
+    {
+      "id": "recovery-seconds-max",
+      "label": "Post-loss recovery time, maximum",
+      "value": 3.8396371670005465,
+      "unit": "seconds"
+    },
+    {
+      "id": "expert-final-current-rss-reduction-min",
+      "label": "Expert final current RSS reduction, minimum",
+      "value": 0.34049095180281463,
+      "unit": "ratio"
+    },
+    {
+      "id": "expert-final-current-rss-reduction-max",
+      "label": "Expert final current RSS reduction, maximum",
+      "value": 0.345395020246403,
+      "unit": "ratio"
+    },
+    {
+      "id": "expert-peak-rss-increase-min",
+      "label": "Expert high-water RSS increase, minimum",
+      "value": 0.03750745335814187,
+      "unit": "ratio"
+    },
+    {
+      "id": "expert-peak-rss-increase-max",
+      "label": "Expert high-water RSS increase, maximum",
+      "value": 0.04355848482237734,
+      "unit": "ratio"
+    },
+    {
+      "id": "deterministic-runs",
+      "label": "Completed evidence runs",
+      "value": 2,
+      "unit": "runs"
+    },
+    {
+      "id": "repository-tests",
+      "label": "Passing repository tests",
+      "value": 325,
+      "unit": "tests"
+    }
+  ],
+  "evaluation": {
+    "primary_metric": {
+      "id": "warm-serialized-tensor-reduction",
+      "value": 0.5574542834228171
+    },
+    "guardrails": [
+      {
+        "id": "exact-canonical-update",
+        "passed": true,
+        "detail": "Across both runs and both assignments, centralized-to-full-process and centralized-to-expert-process raw-gradient, clipped-gradient, and complete-model maximum differences were 0.0. Gradient, optimizer, and model SHA-256 values matched."
+      },
+      {
+        "id": "persistent-head-identity",
+        "passed": true,
+        "detail": "The full worker received the 8,390,904-byte frozen head once and each of four stable expert workers received it once. Every stable child completed two forward calls and stopped with semantic head SHA-256 855e5fce384d980d728e4534c8605ea0c4a24b1a44dcec111d69e37d7f7cc984."
+      },
+      {
+        "id": "exact-loss-recovery",
+        "passed": true,
+        "detail": "Expert zero authenticated assignment zero, exited -15 after deliberate termination, and was replaced. The replacement exited 0 and returned the same 2,236,032-byte safetensors result with SHA-256 413d4c517068592b544ff25000aab0b80d5aaa56536b2b7b1750731012fef320; the replacement result was used in canonical reconstruction."
+      },
+      {
+        "id": "matched-wire-accounting",
+        "passed": true,
+        "detail": "Cold and warm safetensors totals repeated exactly. JSON control bytes were recorded separately; environmental timing text changed one cold expert control and one warm full control by one byte between runs. Recovery payload remained outside the matched totals."
+      },
+      {
+        "id": "bounded-host-load",
+        "passed": true,
+        "detail": "The evidence declares sequential worker scheduling and a maximum of one simultaneous worker child. RSS is reported per child, never as concurrent or aggregate colony memory."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "exact-process-decomposition",
+      "label": "Process-separated expert reconstruction is exact",
+      "description": "The coordinator reconstructed both isolated one-step updates with byte-identical trainable state outcomes despite routing expert work through four persistent children.",
+      "kind": "positive"
+    },
+    {
+      "id": "warm-process-traffic-advantage",
+      "label": "The warm traffic advantage survives process transport",
+      "description": "After both paths retained the same immutable head, the four expert processes used 55.75% fewer safetensors bytes and 55.73% fewer total application payload bytes than the matched full process.",
+      "kind": "positive"
+    },
+    {
+      "id": "exact-recomputation-after-loss",
+      "label": "One accepted expert assignment recomputed exactly",
+      "description": "A replacement process loaded the same authenticated state and returned the stable result byte-for-byte. Post-loss recovery took 3.37 to 3.84 seconds and the separate loss control moved 23,508,639 application payload bytes.",
+      "kind": "positive"
+    },
+    {
+      "id": "cold-fanout-remains-negative",
+      "label": "Cold expert fan-out remains more expensive",
+      "description": "Sending the 8,390,904-byte head to four new expert children left the cold expert safetensors total 5.34% above full and total application payload 5.36% above full.",
+      "kind": "negative"
+    },
+    {
+      "id": "peak-memory-not-established",
+      "label": "The process high-water mark does not show a memory saving",
+      "description": "Expert final current RSS was 34.05% to 34.54% below the matched full child, but expert high-water RSS was already dominated by interpreter and import startup and ended 3.75% to 4.36% higher. The experiment therefore establishes no peak-memory reduction.",
+      "kind": "negative"
+    },
+    {
+      "id": "timing-not-end-to-end",
+      "label": "Worker timing is not an end-to-end speed result",
+      "description": "Expert round trips omit coordinator shared-trunk, routing, reduction, clipping, and optimizer work. Sequential scheduling also does not measure concurrent expert throughput.",
+      "kind": "neutral"
+    }
+  ],
+  "limitations": [
+    "This is a systems control, not a practical model campaign. It uses frozen T1 tokens and dimensions with a randomly initialized experimental sparse tracer; it does not train or evaluate a useful model.",
+    "The two assignments are independent one-step controls from identical initialization. They do not refresh routing and trainable state through a sequential optimizer trajectory.",
+    "The sparse tracer has one shared decoder block and four token-wise MLP experts. It is not the six-layer volunteer decoder trained in the historical T1 campaign.",
+    "The trusted-local spawned-pipe scope is not untrusted remote authentication, sandboxing, hostile-payload safety, or proof that public donated computation occurred.",
+    "SHA-256 identities detect local frame mismatch and bind evidence fields, but a malicious process that controls its own acknowledgements remains outside scope.",
+    "Worker processes ran one at a time. No concurrent throughput, aggregate RSS, network latency, packet framing, congestion, compression, or remote retry was measured.",
+    "Current RSS is sampled only at lifecycle boundaries. Linux high-water RSS includes pre-entry interpreter and import startup, differs between process runs, and cannot isolate model-compute peak in this harness.",
+    "The recovery control keeps the coordinator alive, pauses the first child cooperatively after assignment acceptance, and does not persist a boundary transaction or survive coordinator loss.",
+    "The frozen head is retained only for the life of each stable process. Replacement reloads it; no cross-process disk cache is established.",
+    "Capacity routing forced 128 tokens to every expert by rerouting 34 and 41 of 512 tokens. Equal counts are policy intervention, not evidence of learned specialization.",
+    "Application payload means serialized safetensors and canonical JSON payload bytes. Private multiprocessing frame headers and operating-system transport overhead are excluded.",
+    "No campaign training work or volunteer hardware donation was accepted in this local control, so it creates no contributor-credit entries."
+  ],
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "56204c7dceba49a487c153948dbb6a1fa3d2e54e",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/56204c7dceba49a487c153948dbb6a1fa3d2e54e"
+    },
+    {
+      "id": "primary-evidence",
+      "kind": "repo-json-sha256",
+      "revision": "ed8bfe6676f922d5ddace31d3eed4b74faa75fb4da3282d5e32e2b07c2164c3b",
+      "uri": "repo:reports/evidence/p7-authenticated-process-t1.json"
+    },
+    {
+      "id": "repeat-evidence",
+      "kind": "repo-json-sha256",
+      "revision": "24e7f45b436cb011362061dc7deb336c87cf0f01a24b672a922670f35bcc08a9",
+      "uri": "repo:reports/evidence/p7-authenticated-process-t1-repeat.json"
+    },
+    {
+      "id": "t1-campaign",
+      "kind": "repo-json-sha256",
+      "revision": "87efb542e6b283202a0d47efd1e3b9acace986f34d1c4617c4a4090611c53890",
+      "uri": "repo:campaign/t1-tinystories-system-proof.json"
+    }
+  ]
+}

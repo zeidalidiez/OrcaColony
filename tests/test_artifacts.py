@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 import torch
@@ -44,6 +45,13 @@ def test_dataset_artifacts_are_deterministic_and_pack_shifted_targets(
     assert first["files"]["validation.safetensors"] == second["files"][
         "validation.safetensors"
     ]
+    for name in ("tokenizer.json", "DATASET-NOTICE.md", "manifest.json"):
+        payload = (tmp_path / "first" / name).read_bytes()
+        assert b"\n" in payload
+        assert b"\r" not in payload
+    assert first["tokenizer"]["sha256"] == hashlib.sha256(
+        (tmp_path / "first" / "tokenizer.json").read_bytes()
+    ).hexdigest()
     assert first["packing"]["train_sequences"] > 0
     assert first["packing"]["validation_sequences"] > 0
 

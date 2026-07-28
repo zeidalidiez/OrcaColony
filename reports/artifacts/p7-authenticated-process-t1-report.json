@@ -1,0 +1,848 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Persistent sparse experts preserve exact updates but not peak memory",
+    "description": "Technical findings from the exact P7 T1 persistent sparse-process control.",
+    "generatedAt": "2026-07-28T06:30:41Z",
+    "cards": [
+      {
+        "id": "warm_reduction_card",
+        "description": "Four expert processes versus the matched full process after both retain the same immutable head.",
+        "dataset": "headline",
+        "sourceId": "headline_query",
+        "metrics": [
+          {
+            "label": "Warm safetensors reduction",
+            "field": "warm_tensor_reduction",
+            "format": "percent"
+          },
+          {
+            "label": "Warm application reduction",
+            "field": "warm_application_reduction",
+            "format": "percent"
+          },
+          {
+            "label": "Cold application change",
+            "field": "cold_application_change",
+            "format": "percent",
+            "signed": true
+          }
+        ]
+      },
+      {
+        "id": "exact_difference_card",
+        "description": "Largest centralized-to-process difference across raw gradients, clipped gradients, and complete model tensors.",
+        "dataset": "headline",
+        "sourceId": "headline_query",
+        "metrics": [
+          {
+            "label": "Maximum state difference",
+            "field": "max_state_difference",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "recovery_payload_card",
+        "description": "Separate payload moved by the deliberate lost-assignment and replacement control, excluded from matched traffic totals.",
+        "dataset": "headline",
+        "sourceId": "headline_query",
+        "metrics": [
+          {
+            "label": "Loss-control application payload",
+            "field": "recovery_total_application_wire_bytes",
+            "format": "compact",
+            "unit": "bytes"
+          },
+          {
+            "label": "Replacement result exact",
+            "field": "recovery_result_exact",
+            "format": "number"
+          }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "application_payload_chart",
+        "title": "Matched cold and warm application payload bytes",
+        "subtitle": "Primary run; the repeat changed only one JSON byte in two matched totals.",
+        "type": "bar",
+        "dataset": "traffic_comparison",
+        "sourceId": "traffic_query",
+        "valueFormat": "compact",
+        "unit": "bytes",
+        "xAxisTitle": "Cache state",
+        "yAxisTitle": "Application payload bytes per assignment",
+        "encodings": {
+          "x": {
+            "field": "cache_state",
+            "type": "nominal",
+            "label": "Cache state"
+          },
+          "y": {
+            "field": "application_wire_bytes",
+            "type": "quantitative",
+            "label": "Application payload bytes",
+            "format": "compact",
+            "unit": "bytes"
+          },
+          "color": {
+            "field": "topology",
+            "type": "nominal",
+            "label": "Topology"
+          },
+          "tooltip": [
+            {
+              "field": "tensor_wire_bytes",
+              "type": "quantitative",
+              "label": "Safetensors payload",
+              "format": "number",
+              "unit": "bytes"
+            },
+            {
+              "field": "control_json_wire_bytes",
+              "type": "quantitative",
+              "label": "JSON control payload",
+              "format": "number",
+              "unit": "bytes"
+            },
+            {
+              "field": "relative_change",
+              "type": "quantitative",
+              "label": "Expert change versus full",
+              "format": "percent"
+            }
+          ]
+        }
+      }
+    ],
+    "tables": [
+      {
+        "id": "traffic_audit_table",
+        "title": "Application payload accounting",
+        "subtitle": "Primary-run safetensors and canonical JSON payload bytes; private pipe framing excluded.",
+        "dataset": "traffic_comparison",
+        "sourceId": "traffic_query",
+        "density": "spacious",
+        "defaultSort": {
+          "field": "application_wire_bytes",
+          "direction": "desc"
+        },
+        "columns": [
+          {
+            "field": "cache_state",
+            "label": "Cache state",
+            "type": "text"
+          },
+          {
+            "field": "topology",
+            "label": "Topology",
+            "type": "text"
+          },
+          {
+            "field": "tensor_wire_bytes",
+            "label": "Safetensors",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "control_json_wire_bytes",
+            "label": "JSON control",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "application_wire_bytes",
+            "label": "Application total",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "relative_change",
+            "label": "Expert change versus full",
+            "format": "percent",
+            "movement": true,
+            "align": "right"
+          }
+        ]
+      },
+      {
+        "id": "exactness_audit_table",
+        "title": "Exactness and routing audit",
+        "subtitle": "Two assignments in each independent one-thread run.",
+        "dataset": "exactness",
+        "sourceId": "exactness_query",
+        "density": "dense",
+        "defaultSort": {
+          "field": "assignment_id",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "run_label",
+            "label": "Run",
+            "type": "text"
+          },
+          {
+            "field": "assignment_id",
+            "label": "Assignment",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "cursor",
+            "label": "Cursor",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "routing_counts",
+            "label": "Routing counts",
+            "type": "text"
+          },
+          {
+            "field": "rerouted_tokens",
+            "label": "Rerouted",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "centralized_loss",
+            "label": "Loss",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "max_raw_gradient_difference",
+            "label": "Raw grad max diff",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "max_clipped_gradient_difference",
+            "label": "Clipped grad max diff",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "max_model_difference",
+            "label": "Model max diff",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "state_hashes_match",
+            "label": "State hashes match",
+            "format": "number",
+            "align": "right"
+          }
+        ]
+      },
+      {
+        "id": "memory_audit_table",
+        "title": "Per-child RSS observations",
+        "subtitle": "Current RSS lifecycle samples and Linux process high-water marks; expert rows are ranges across four sequential children.",
+        "dataset": "memory",
+        "sourceId": "memory_query",
+        "density": "dense",
+        "defaultSort": {
+          "field": "peak_rss_max",
+          "direction": "desc"
+        },
+        "columns": [
+          {
+            "field": "run_label",
+            "label": "Run",
+            "type": "text"
+          },
+          {
+            "field": "topology",
+            "label": "Topology",
+            "type": "text"
+          },
+          {
+            "field": "worker_count",
+            "label": "Workers",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "startup_current_rss_min",
+            "label": "Startup current min",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "startup_current_rss_max",
+            "label": "Startup current max",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "after_head_current_rss_min",
+            "label": "After head min",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "after_head_current_rss_max",
+            "label": "After head max",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "final_current_rss_min",
+            "label": "Final current min",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "final_current_rss_max",
+            "label": "Final current max",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "peak_rss_min",
+            "label": "High-water min",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "peak_rss_max",
+            "label": "High-water max",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          }
+        ]
+      },
+      {
+        "id": "recovery_audit_table",
+        "title": "Accepted-assignment recovery audit",
+        "subtitle": "The first child is deliberately terminated after acceptance; replacement timing begins after termination.",
+        "dataset": "recovery",
+        "sourceId": "recovery_query",
+        "density": "dense",
+        "defaultSort": {
+          "field": "recovery_seconds",
+          "direction": "desc"
+        },
+        "columns": [
+          {
+            "field": "run_label",
+            "label": "Run",
+            "type": "text"
+          },
+          {
+            "field": "first_worker_exit_code",
+            "label": "First exit",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "replacement_worker_exit_code",
+            "label": "Replacement exit",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "replacement_result_matches_stable",
+            "label": "Result exact",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "lost_worker_tensor_wire_bytes",
+            "label": "Lost-worker tensors",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "retransmitted_tensor_wire_bytes",
+            "label": "Retransmitted tensors",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "replacement_result_wire_bytes",
+            "label": "Replacement result",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "recovery_control_json_wire_bytes",
+            "label": "Recovery JSON",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "recovery_total_application_wire_bytes",
+            "label": "Recovery total",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "replacement_initialization_seconds",
+            "label": "Replacement init",
+            "format": "number",
+            "unit": "seconds",
+            "align": "right"
+          },
+          {
+            "field": "recovery_seconds",
+            "label": "Post-loss recovery",
+            "format": "number",
+            "unit": "seconds",
+            "align": "right"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "headline_query",
+        "label": "Authenticated-process headline query",
+        "path": "reports/queries/p7-authenticated-process-headline.sql",
+        "query": {
+          "description": "Calculate the warm and cold payload changes, maximum state difference, and recovery headline from primary process evidence.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-28T06:30:41Z",
+          "language": "sql",
+          "sql": "WITH evidence AS (\n  SELECT json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path = 'reports/evidence/p7-authenticated-process-t1.json'\n)\nSELECT\n  1.0\n    - 1.0 * json_extract(doc, '$.expert_warm_tensor_wire_bytes')\n      / json_extract(doc, '$.full_warm_tensor_wire_bytes')\n    AS warm_tensor_reduction,\n  1.0\n    - 1.0 * json_extract(doc, '$.expert_warm_application_wire_bytes')\n      / json_extract(doc, '$.full_warm_application_wire_bytes')\n    AS warm_application_reduction,\n  1.0 * json_extract(doc, '$.expert_cold_tensor_wire_bytes')\n      / json_extract(doc, '$.full_cold_tensor_wire_bytes')\n    - 1.0\n    AS cold_tensor_change,\n  1.0 * json_extract(doc, '$.expert_cold_application_wire_bytes')\n      / json_extract(doc, '$.full_cold_application_wire_bytes')\n    - 1.0\n    AS cold_application_change,\n  (\n    SELECT max(\n      max(\n        json_extract(value, '$.full_max_abs_raw_gradient_difference'),\n        json_extract(value, '$.full_max_abs_clipped_gradient_difference'),\n        json_extract(value, '$.full_max_abs_model_difference'),\n        json_extract(value, '$.expert_max_abs_raw_gradient_difference'),\n        json_extract(value, '$.expert_max_abs_clipped_gradient_difference'),\n        json_extract(value, '$.expert_max_abs_model_difference')\n      )\n    )\n    FROM json_each(doc, '$.assignments')\n  ) AS max_state_difference,\n  json_extract(\n    doc,\n    '$.recovery.replacement_result_matches_stable'\n  ) AS recovery_result_exact,\n  json_extract(\n    doc,\n    '$.recovery.recovery_total_application_wire_bytes'\n  ) AS recovery_total_application_wire_bytes\nFROM evidence;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path = reports/evidence/p7-authenticated-process-t1.json"
+          ],
+          "metric_definitions": [
+            "Warm tensor reduction = 1 - four-expert warm safetensors bytes / matched full warm safetensors bytes.",
+            "Application payload = serialized safetensors payload bytes + canonical JSON payload bytes; private pipe framing is excluded.",
+            "Maximum state difference is the largest full-process or expert-process raw-gradient, clipped-gradient, or complete-model maximum absolute difference across both assignments."
+          ]
+        }
+      },
+      {
+        "id": "traffic_query",
+        "label": "Authenticated-process traffic query",
+        "path": "reports/queries/p7-authenticated-process-traffic.sql",
+        "query": {
+          "description": "Produce matched cold and warm safetensors, JSON control, and total application payload bytes for full and expert processes.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-28T06:30:41Z",
+          "language": "sql",
+          "sql": "WITH evidence AS (\n  SELECT json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path = 'reports/evidence/p7-authenticated-process-t1.json'\n),\ntraffic AS (\n  SELECT\n    0 AS cache_order,\n    'Cold' AS cache_state,\n    0 AS topology_order,\n    'Matched full process' AS topology,\n    json_extract(doc, '$.full_cold_tensor_wire_bytes')\n      AS tensor_wire_bytes,\n    json_extract(doc, '$.full_cold_application_wire_bytes')\n      - json_extract(doc, '$.full_cold_tensor_wire_bytes')\n      AS control_json_wire_bytes,\n    json_extract(doc, '$.full_cold_application_wire_bytes')\n      AS application_wire_bytes,\n    0.0 AS relative_change\n  FROM evidence\n\n  UNION ALL\n\n  SELECT\n    0,\n    'Cold',\n    1,\n    'Four expert processes',\n    json_extract(doc, '$.expert_cold_tensor_wire_bytes'),\n    json_extract(doc, '$.expert_cold_application_wire_bytes')\n      - json_extract(doc, '$.expert_cold_tensor_wire_bytes'),\n    json_extract(doc, '$.expert_cold_application_wire_bytes'),\n    json_extract(doc, '$.cold_application_wire_relative_change')\n  FROM evidence\n\n  UNION ALL\n\n  SELECT\n    1,\n    'Warm',\n    0,\n    'Matched full process',\n    json_extract(doc, '$.full_warm_tensor_wire_bytes'),\n    json_extract(doc, '$.full_warm_application_wire_bytes')\n      - json_extract(doc, '$.full_warm_tensor_wire_bytes'),\n    json_extract(doc, '$.full_warm_application_wire_bytes'),\n    0.0\n  FROM evidence\n\n  UNION ALL\n\n  SELECT\n    1,\n    'Warm',\n    1,\n    'Four expert processes',\n    json_extract(doc, '$.expert_warm_tensor_wire_bytes'),\n    json_extract(doc, '$.expert_warm_application_wire_bytes')\n      - json_extract(doc, '$.expert_warm_tensor_wire_bytes'),\n    json_extract(doc, '$.expert_warm_application_wire_bytes'),\n    json_extract(doc, '$.warm_application_wire_relative_change')\n  FROM evidence\n)\nSELECT\n  cache_state,\n  topology,\n  tensor_wire_bytes,\n  control_json_wire_bytes,\n  application_wire_bytes,\n  relative_change\nFROM traffic\nORDER BY cache_order, topology_order;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path = reports/evidence/p7-authenticated-process-t1.json"
+          ],
+          "metric_definitions": [
+            "Cold includes one frozen-head transmission to the full worker and one to each of four expert workers.",
+            "Warm is the second assignment after each stable process retains the same immutable head.",
+            "Relative change = expert application bytes / matched full application bytes - 1 within the same cache state."
+          ]
+        }
+      },
+      {
+        "id": "exactness_query",
+        "label": "Authenticated-process exactness query",
+        "path": "reports/queries/p7-authenticated-process-exactness.sql",
+        "query": {
+          "description": "Compare both assignments and both runs for routing, loss, maximum differences, and gradient, optimizer, and model hashes.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-28T06:30:41Z",
+          "language": "sql",
+          "sql": "WITH runs AS (\n  SELECT\n    CASE source_path\n      WHEN 'reports/evidence/p7-authenticated-process-t1.json'\n        THEN 0\n      ELSE 1\n    END AS run_order,\n    CASE source_path\n      WHEN 'reports/evidence/p7-authenticated-process-t1.json'\n        THEN 'Primary'\n      ELSE 'Repeat'\n    END AS run_label,\n    json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path IN (\n    'reports/evidence/p7-authenticated-process-t1.json',\n    'reports/evidence/p7-authenticated-process-t1-repeat.json'\n  )\n),\nassignments AS (\n  SELECT\n    run_order,\n    run_label,\n    json_extract(value, '$.assignment_id') AS assignment_id,\n    json_extract(value, '$.cursor') AS cursor,\n    json_extract(value, '$.routing_counts') AS routing_counts,\n    json_extract(value, '$.capacity_rerouted_tokens') AS rerouted_tokens,\n    json_extract(value, '$.centralized_loss') AS centralized_loss,\n    max(\n      json_extract(value, '$.full_max_abs_raw_gradient_difference'),\n      json_extract(value, '$.expert_max_abs_raw_gradient_difference')\n    ) AS max_raw_gradient_difference,\n    max(\n      json_extract(value, '$.full_max_abs_clipped_gradient_difference'),\n      json_extract(value, '$.expert_max_abs_clipped_gradient_difference')\n    ) AS max_clipped_gradient_difference,\n    max(\n      json_extract(value, '$.full_max_abs_model_difference'),\n      json_extract(value, '$.expert_max_abs_model_difference')\n    ) AS max_model_difference,\n    CASE\n      WHEN json_extract(\n        value,\n        '$.centralized_raw_gradient_sha256'\n      ) = json_extract(value, '$.full_process_raw_gradient_sha256')\n      AND json_extract(\n        value,\n        '$.centralized_raw_gradient_sha256'\n      ) = json_extract(value, '$.expert_process_raw_gradient_sha256')\n      AND json_extract(\n        value,\n        '$.centralized_clipped_gradient_sha256'\n      ) = json_extract(value, '$.full_process_clipped_gradient_sha256')\n      AND json_extract(\n        value,\n        '$.centralized_clipped_gradient_sha256'\n      ) = json_extract(value, '$.expert_process_clipped_gradient_sha256')\n      AND json_extract(\n        value,\n        '$.centralized_optimizer_sha256'\n      ) = json_extract(value, '$.full_process_optimizer_sha256')\n      AND json_extract(\n        value,\n        '$.centralized_optimizer_sha256'\n      ) = json_extract(value, '$.expert_process_optimizer_sha256')\n      AND json_extract(\n        value,\n        '$.centralized_model_sha256'\n      ) = json_extract(value, '$.full_process_model_sha256')\n      AND json_extract(\n        value,\n        '$.centralized_model_sha256'\n      ) = json_extract(value, '$.expert_process_model_sha256')\n      THEN 1\n      ELSE 0\n    END AS state_hashes_match\n  FROM runs, json_each(runs.doc, '$.assignments')\n)\nSELECT\n  run_label,\n  assignment_id,\n  cursor,\n  routing_counts,\n  rerouted_tokens,\n  centralized_loss,\n  max_raw_gradient_difference,\n  max_clipped_gradient_difference,\n  max_model_difference,\n  state_hashes_match\nFROM assignments\nORDER BY run_order, assignment_id;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path IN (reports/evidence/p7-authenticated-process-t1.json, reports/evidence/p7-authenticated-process-t1-repeat.json)"
+          ],
+          "metric_definitions": [
+            "State hashes match only when centralized, full-process, and expert-process raw gradient, clipped gradient, AdamW, and complete model SHA-256 values all agree."
+          ]
+        }
+      },
+      {
+        "id": "memory_query",
+        "label": "Authenticated-process memory query",
+        "path": "reports/queries/p7-authenticated-process-memory.sql",
+        "query": {
+          "description": "Report per-child current RSS ranges and process high-water RSS for the matched full child and four sequential expert children.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-28T06:30:41Z",
+          "language": "sql",
+          "sql": "WITH runs AS (\n  SELECT\n    CASE source_path\n      WHEN 'reports/evidence/p7-authenticated-process-t1.json'\n        THEN 0\n      ELSE 1\n    END AS run_order,\n    CASE source_path\n      WHEN 'reports/evidence/p7-authenticated-process-t1.json'\n        THEN 'Primary'\n      ELSE 'Repeat'\n    END AS run_label,\n    json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path IN (\n    'reports/evidence/p7-authenticated-process-t1.json',\n    'reports/evidence/p7-authenticated-process-t1-repeat.json'\n  )\n),\nmemory AS (\n  SELECT\n    run_order,\n    run_label,\n    0 AS topology_order,\n    'Matched full process' AS topology,\n    1 AS worker_count,\n    json_extract(\n      doc,\n      '$.full_worker.worker_startup_current_rss_bytes'\n    ) AS startup_current_rss_min,\n    json_extract(\n      doc,\n      '$.full_worker.worker_startup_current_rss_bytes'\n    ) AS startup_current_rss_max,\n    json_extract(\n      doc,\n      '$.full_worker.worker_after_head_current_rss_bytes'\n    ) AS after_head_current_rss_min,\n    json_extract(\n      doc,\n      '$.full_worker.worker_after_head_current_rss_bytes'\n    ) AS after_head_current_rss_max,\n    json_extract(\n      doc,\n      '$.full_worker.worker_final_current_rss_bytes'\n    ) AS final_current_rss_min,\n    json_extract(\n      doc,\n      '$.full_worker.worker_final_current_rss_bytes'\n    ) AS final_current_rss_max,\n    json_extract(\n      doc,\n      '$.full_worker.worker_final_peak_rss_bytes'\n    ) AS peak_rss_min,\n    json_extract(\n      doc,\n      '$.full_worker.worker_final_peak_rss_bytes'\n    ) AS peak_rss_max\n  FROM runs\n\n  UNION ALL\n\n  SELECT\n    run_order,\n    run_label,\n    1,\n    'Expert process',\n    json_array_length(doc, '$.expert_workers'),\n    min(json_extract(value, '$.worker_startup_current_rss_bytes')),\n    max(json_extract(value, '$.worker_startup_current_rss_bytes')),\n    min(json_extract(value, '$.worker_after_head_current_rss_bytes')),\n    max(json_extract(value, '$.worker_after_head_current_rss_bytes')),\n    min(json_extract(value, '$.worker_final_current_rss_bytes')),\n    max(json_extract(value, '$.worker_final_current_rss_bytes')),\n    min(json_extract(value, '$.worker_final_peak_rss_bytes')),\n    max(json_extract(value, '$.worker_final_peak_rss_bytes'))\n  FROM runs, json_each(runs.doc, '$.expert_workers')\n  GROUP BY run_order, run_label, doc\n)\nSELECT\n  run_label,\n  topology,\n  worker_count,\n  startup_current_rss_min,\n  startup_current_rss_max,\n  after_head_current_rss_min,\n  after_head_current_rss_max,\n  final_current_rss_min,\n  final_current_rss_max,\n  peak_rss_min,\n  peak_rss_max\nFROM memory\nORDER BY run_order, topology_order;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path IN (reports/evidence/p7-authenticated-process-t1.json, reports/evidence/p7-authenticated-process-t1-repeat.json)"
+          ],
+          "metric_definitions": [
+            "Current RSS is sampled at worker entry, after the frozen head loads, and at shutdown.",
+            "Peak RSS is the Linux process high-water mark and already includes interpreter and import startup before worker entry."
+          ]
+        }
+      },
+      {
+        "id": "recovery_query",
+        "label": "Authenticated-process recovery query",
+        "path": "reports/queries/p7-authenticated-process-recovery.sql",
+        "query": {
+          "description": "Report the deliberate accepted-assignment loss, replacement result identity, separate recovery traffic, and post-loss timing.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-28T06:30:41Z",
+          "language": "sql",
+          "sql": "WITH runs AS (\n  SELECT\n    CASE source_path\n      WHEN 'reports/evidence/p7-authenticated-process-t1.json'\n        THEN 0\n      ELSE 1\n    END AS run_order,\n    CASE source_path\n      WHEN 'reports/evidence/p7-authenticated-process-t1.json'\n        THEN 'Primary'\n      ELSE 'Repeat'\n    END AS run_label,\n    json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path IN (\n    'reports/evidence/p7-authenticated-process-t1.json',\n    'reports/evidence/p7-authenticated-process-t1-repeat.json'\n  )\n)\nSELECT\n  run_label,\n  json_extract(\n    doc,\n    '$.recovery.first_worker_exit_code'\n  ) AS first_worker_exit_code,\n  json_extract(\n    doc,\n    '$.recovery.replacement_worker_exit_code'\n  ) AS replacement_worker_exit_code,\n  json_extract(\n    doc,\n    '$.recovery.replacement_result_matches_stable'\n  ) AS replacement_result_matches_stable,\n  json_extract(\n    doc,\n    '$.recovery.lost_worker_received_tensor_wire_bytes'\n  ) AS lost_worker_tensor_wire_bytes,\n  json_extract(\n    doc,\n    '$.recovery.recovery_retransmitted_tensor_wire_bytes'\n  ) AS retransmitted_tensor_wire_bytes,\n  json_extract(\n    doc,\n    '$.recovery.replacement_result_tensor_wire_bytes'\n  ) AS replacement_result_wire_bytes,\n  json_extract(\n    doc,\n    '$.recovery.recovery_control_json_wire_bytes'\n  ) AS recovery_control_json_wire_bytes,\n  json_extract(\n    doc,\n    '$.recovery.recovery_total_application_wire_bytes'\n  ) AS recovery_total_application_wire_bytes,\n  json_extract(\n    doc,\n    '$.recovery.replacement_worker_initialization_seconds'\n  ) AS replacement_initialization_seconds,\n  json_extract(\n    doc,\n    '$.recovery.recovery_seconds'\n  ) AS recovery_seconds\nFROM runs\nORDER BY run_order;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path IN (reports/evidence/p7-authenticated-process-t1.json, reports/evidence/p7-authenticated-process-t1-repeat.json)"
+          ],
+          "metric_definitions": [
+            "Recovery total application bytes = lost-worker tensor inputs + replacement tensor inputs + replacement result safetensors + all loss-control JSON payload bytes.",
+            "Recovery seconds begin after the first worker is terminated and include replacement initialization, compute, and shutdown."
+          ]
+        }
+      },
+      {
+        "id": "primary_evidence",
+        "label": "Primary authenticated-process evidence",
+        "path": "reports/evidence/p7-authenticated-process-t1.json"
+      },
+      {
+        "id": "repeat_evidence",
+        "label": "Repeat authenticated-process evidence",
+        "path": "reports/evidence/p7-authenticated-process-t1-repeat.json"
+      },
+      {
+        "id": "study_evidence",
+        "label": "P7 authenticated-process study evidence",
+        "path": "research/studies/p7-authenticated-process-t1-v1/evidence/t1-four-expert-authenticated-process.json"
+      },
+      {
+        "id": "implementation",
+        "label": "Authenticated sparse-process implementation commit",
+        "href": "https://github.com/zeidalidiez/OrcaColony/commit/56204c7dceba49a487c153948dbb6a1fa3d2e54e"
+      },
+      {
+        "id": "t1_campaign",
+        "label": "Frozen T1 systems campaign configuration",
+        "path": "campaign/t1-tinystories-system-proof.json"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Persistent sparse experts preserve exact updates but not peak memory"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## Technical summary\n\nTwo one-thread runs on the exact frozen T1 manifest produced the same routing, safetensors payload sizes, losses, gradients, AdamW tensors, model tensors, cache counts, and replacement result identity. Four warm expert processes moved **17,913,408 safetensors bytes**, 55.75% below the matched full process. Including canonical JSON payloads changed that reduction only to 55.73%. Cold expert fan-out remained 5.36% above full. The expert children ended with lower current RSS, but their process high-water mark was higher and already dominated by interpreter/import startup. The topology is exact and warm-transfer-efficient in trusted local processes, but it has not established peak-memory savings, end-to-end speed, remote authentication, or model quality."
+      },
+      {
+        "id": "headline_metrics",
+        "type": "metric-strip",
+        "cardIds": [
+          "warm_reduction_card",
+          "exact_difference_card",
+          "recovery_payload_card"
+        ]
+      },
+      {
+        "id": "scope_definitions",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## What these measurements cover\n\n**Cold** is the first assignment and includes one frozen-head transmission to the full child or one to each of four expert children. **Warm** is the second assignment after each stable process retains that head; every trainable tensor is still refreshed. **Application payload** is safetensors plus canonical JSON bytes and excludes private multiprocessing framing. The two assignments are isolated one-step controls from identical initialization, not a sequential training trajectory. This experimental sparse tracer consumes the frozen T1 data and model dimensions but is not the historical six-layer T1 model. No campaign training or donated volunteer work occurred, so this control creates no contributor-credit entry."
+      },
+      {
+        "id": "traffic_finding",
+        "type": "markdown",
+        "sourceId": "traffic_query",
+        "body": "## Warm process traffic keeps the advantage\n\nThe process boundary did not erase Report 013's warm result. The primary warm assignment moved **17,920,210 application bytes** through four expert children versus **40,479,906 bytes** through the full child. Cold expert setup moved **51,489,365 bytes** versus **48,872,200 bytes**. The repeat changed one cold expert JSON byte and one warm full JSON byte because timing values had different text lengths; all safetensors byte totals repeated exactly."
+      },
+      {
+        "id": "traffic_chart",
+        "type": "chart",
+        "chartId": "application_payload_chart"
+      },
+      {
+        "id": "traffic_table",
+        "type": "table",
+        "tableId": "traffic_audit_table"
+      },
+      {
+        "id": "exactness_finding",
+        "type": "markdown",
+        "sourceId": "exactness_query",
+        "body": "## Both process paths reconstruct the same update\n\nAll **four run-assignment pairs** had 0.0 maximum raw-gradient, clipped-gradient, and complete-model differences. Centralized, full-process, and expert-process gradient, AdamW, and model SHA-256 values matched. Capacity routing forced `[128,128,128,128]` counts and rerouted 34 and 41 of 512 tokens; the equal load is a routing policy result, not learned expert specialization."
+      },
+      {
+        "id": "exactness_table",
+        "type": "table",
+        "tableId": "exactness_audit_table"
+      },
+      {
+        "id": "recovery_finding",
+        "type": "markdown",
+        "sourceId": "recovery_query",
+        "body": "## A lost accepted assignment recomputes byte-for-byte\n\nExpert zero authenticated assignment zero and was deliberately terminated with exit code -15 before compute. Its replacement exited cleanly and returned the same **2,236,032-byte** result with SHA-256 `413d4c51...`; that replacement result was used in canonical reconstruction. Post-loss recovery took 3.37 to 3.84 seconds. The separate loss control moved **23,508,639 application bytes**, including the discarded first attempt, replacement inputs, replacement result, and JSON controls."
+      },
+      {
+        "id": "recovery_table",
+        "type": "table",
+        "tableId": "recovery_audit_table"
+      },
+      {
+        "id": "memory_finding",
+        "type": "markdown",
+        "sourceId": "memory_query",
+        "body": "## Current RSS falls, but peak memory remains unproven\n\nAt shutdown, expert current RSS was **373.4 to 376.0 MB** versus **570.2 to 570.5 MB** for the matched full child, a 34.05% to 34.54% reduction. That is a useful steady-state signal. It is not a peak result: the expert process high-water mark was already **591.5 to 595.4 MB** before model work and ended 3.75% to 4.36% above full. A later harness needs an external lifecycle sampler that separates interpreter/import startup from model execution."
+      },
+      {
+        "id": "memory_table",
+        "type": "table",
+        "tableId": "memory_audit_table"
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "sourceId": "implementation",
+        "body": "## Experimental design and trust boundary\n\nImplementation commit `56204c7dceba49a487c153948dbb6a1fa3d2e54e` builds one matched full child and four expert-affine children with the `spawn` start method. Stable children run sequentially and retain one immutable 8,390,904-byte final norm/output head across two assignments. Every assignment binds the campaign revision, frozen dataset manifest, head, trainable state, input, routes, and result frame with SHA-256 and exact byte counts. The coordinator owns shared-trunk and router work, gradient reduction, one global clip, and AdamW. This is corruption-resistant local framing inside a trusted spawned-pipe scope, not cryptographic authentication of a hostile remote peer."
+      },
+      {
+        "id": "reproduction",
+        "type": "markdown",
+        "body": "## Reproduce the evidence\n\nUse implementation commit `56204c7dceba49a487c153948dbb6a1fa3d2e54e`. Build the exact data artifact, then run the control twice:\n\n```bash\nOMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.artifacts --output .artifacts/p7-sparse-process-dataset\nOMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.sparse_expert_process --config campaign/t1-tinystories-system-proof.json --dataset .artifacts/p7-sparse-process-dataset --expert-count 4 --router-aux-weight 0.01 --timeout-seconds 120 --output .artifacts/p7-sparse-process-primary.json\nOMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.sparse_expert_process --config campaign/t1-tinystories-system-proof.json --dataset .artifacts/p7-sparse-process-dataset --expert-count 4 --router-aux-weight 0.01 --timeout-seconds 120 --output .artifacts/p7-sparse-process-repeat.json\n```\n\nThe data build must reproduce manifest SHA-256 `99e5642b...`. Committed evidence SHA-256 values are `ed8bfe66...` and `24e7f45b...`. The five committed SQLite queries reproduce the report datasets from those JSON files. Compare deterministic fields exactly and keep timing, RSS, and JSON lengths that contain timing text as observations."
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## What this result does not establish\n\nThis experiment does not train or evaluate a useful model. It does not execute a refreshed multi-step trajectory, persist a recovery transaction, survive coordinator loss, run workers concurrently, measure aggregate RSS, include network transport, sandbox a worker, or prove donated computation. Worker timers exclude coordinator shared-trunk, routing, reduction, clipping, and optimizer work, so they are not end-to-end speed results. The first loss child pauses cooperatively after acceptance; sudden remote failure and hostile acknowledgements remain outside scope."
+      },
+      {
+        "id": "next_step",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## Next: refresh state through a persisted multi-step control\n\nThe next bounded P7 slice should advance several sequential coordinator AdamW steps, refresh shared hidden rows, routes, and expert trainable state after each checkpoint, and persist accepted expert results so a replacement or coordinator restart cannot double-apply work. The same harness should sample child RSS externally across the full lifecycle and report complete coordinator-plus-worker elapsed time. Remote volunteer transport should wait until those local state and recovery semantics are exact."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Questions for the next slice\n\n- Does the 55.75% warm tensor reduction persist when routes and expert weights change after every optimizer step?\n- How many warm assignments repay the 5.34% cold tensor penalty under real worker availability?\n- What is the true model-compute peak after interpreter startup is separated from lifecycle sampling?\n- Can an accepted expert result survive coordinator restart and still be applied at most once?\n- Which integrity mechanism is sufficient before an untrusted public worker is allowed to contribute?"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-28T06:30:41Z",
+    "status": "ready",
+    "datasets": {
+      "headline": [
+        {
+          "warm_tensor_reduction": 0.5574542834228171,
+          "warm_application_reduction": 0.5573060372225173,
+          "cold_tensor_change": 0.053367656387484974,
+          "cold_application_change": 0.05355120088721188,
+          "max_state_difference": 0.0,
+          "recovery_result_exact": 1,
+          "recovery_total_application_wire_bytes": 23508639
+        }
+      ],
+      "traffic_comparison": [
+        {
+          "cache_state": "Cold",
+          "topology": "Matched full process",
+          "tensor_wire_bytes": 48869000,
+          "control_json_wire_bytes": 3200,
+          "application_wire_bytes": 48872200,
+          "relative_change": 0.0
+        },
+        {
+          "cache_state": "Cold",
+          "topology": "Four expert processes",
+          "tensor_wire_bytes": 51477024,
+          "control_json_wire_bytes": 12341,
+          "application_wire_bytes": 51489365,
+          "relative_change": 0.05355120088721188
+        },
+        {
+          "cache_state": "Warm",
+          "topology": "Matched full process",
+          "tensor_wire_bytes": 40478096,
+          "control_json_wire_bytes": 1810,
+          "application_wire_bytes": 40479906,
+          "relative_change": 0.0
+        },
+        {
+          "cache_state": "Warm",
+          "topology": "Four expert processes",
+          "tensor_wire_bytes": 17913408,
+          "control_json_wire_bytes": 6802,
+          "application_wire_bytes": 17920210,
+          "relative_change": -0.5573060372225173
+        }
+      ],
+      "exactness": [
+        {
+          "run_label": "Primary",
+          "assignment_id": 0,
+          "cursor": 0,
+          "routing_counts": "[128,128,128,128]",
+          "rerouted_tokens": 34,
+          "centralized_loss": 9.202291488647461,
+          "max_raw_gradient_difference": 0.0,
+          "max_clipped_gradient_difference": 0.0,
+          "max_model_difference": 0.0,
+          "state_hashes_match": 1
+        },
+        {
+          "run_label": "Primary",
+          "assignment_id": 1,
+          "cursor": 2,
+          "routing_counts": "[128,128,128,128]",
+          "rerouted_tokens": 41,
+          "centralized_loss": 9.18889045715332,
+          "max_raw_gradient_difference": 0.0,
+          "max_clipped_gradient_difference": 0.0,
+          "max_model_difference": 0.0,
+          "state_hashes_match": 1
+        },
+        {
+          "run_label": "Repeat",
+          "assignment_id": 0,
+          "cursor": 0,
+          "routing_counts": "[128,128,128,128]",
+          "rerouted_tokens": 34,
+          "centralized_loss": 9.202291488647461,
+          "max_raw_gradient_difference": 0.0,
+          "max_clipped_gradient_difference": 0.0,
+          "max_model_difference": 0.0,
+          "state_hashes_match": 1
+        },
+        {
+          "run_label": "Repeat",
+          "assignment_id": 1,
+          "cursor": 2,
+          "routing_counts": "[128,128,128,128]",
+          "rerouted_tokens": 41,
+          "centralized_loss": 9.18889045715332,
+          "max_raw_gradient_difference": 0.0,
+          "max_clipped_gradient_difference": 0.0,
+          "max_model_difference": 0.0,
+          "state_hashes_match": 1
+        }
+      ],
+      "memory": [
+        {
+          "run_label": "Primary",
+          "topology": "Matched full process",
+          "worker_count": 1,
+          "startup_current_rss_min": 234500096,
+          "startup_current_rss_max": 234500096,
+          "after_head_current_rss_min": 362946560,
+          "after_head_current_rss_max": 362946560,
+          "final_current_rss_min": 570159104,
+          "final_current_rss_max": 570159104,
+          "peak_rss_min": 570159104,
+          "peak_rss_max": 570159104
+        },
+        {
+          "run_label": "Primary",
+          "topology": "Expert process",
+          "worker_count": 4,
+          "startup_current_rss_min": 234295296,
+          "startup_current_rss_max": 234491904,
+          "after_head_current_rss_min": 343805952,
+          "after_head_current_rss_max": 344772608,
+          "final_current_rss_min": 373420032,
+          "final_current_rss_max": 376025088,
+          "peak_rss_min": 591544320,
+          "peak_rss_max": 591544320
+        },
+        {
+          "run_label": "Repeat",
+          "topology": "Matched full process",
+          "worker_count": 1,
+          "startup_current_rss_min": 234668032,
+          "startup_current_rss_max": 234668032,
+          "after_head_current_rss_min": 363126784,
+          "after_head_current_rss_max": 363126784,
+          "final_current_rss_min": 570507264,
+          "final_current_rss_max": 570507264,
+          "peak_rss_min": 570507264,
+          "peak_rss_max": 570507264
+        },
+        {
+          "run_label": "Repeat",
+          "topology": "Expert process",
+          "worker_count": 4,
+          "startup_current_rss_min": 234283008,
+          "startup_current_rss_max": 234627072,
+          "after_head_current_rss_min": 344281088,
+          "after_head_current_rss_max": 344408064,
+          "final_current_rss_min": 373456896,
+          "final_current_rss_max": 375435264,
+          "peak_rss_min": 595357696,
+          "peak_rss_max": 595357696
+        }
+      ],
+      "recovery": [
+        {
+          "run_label": "Primary",
+          "first_worker_exit_code": -15,
+          "replacement_worker_exit_code": 0,
+          "replacement_result_matches_stable": 1,
+          "lost_worker_tensor_wire_bytes": 10633224,
+          "retransmitted_tensor_wire_bytes": 10633224,
+          "replacement_result_wire_bytes": 2236032,
+          "recovery_control_json_wire_bytes": 6159,
+          "recovery_total_application_wire_bytes": 23508639,
+          "replacement_initialization_seconds": 2.4585445920001803,
+          "recovery_seconds": 3.3741886100006013
+        },
+        {
+          "run_label": "Repeat",
+          "first_worker_exit_code": -15,
+          "replacement_worker_exit_code": 0,
+          "replacement_result_matches_stable": 1,
+          "lost_worker_tensor_wire_bytes": 10633224,
+          "retransmitted_tensor_wire_bytes": 10633224,
+          "replacement_result_wire_bytes": 2236032,
+          "recovery_control_json_wire_bytes": 6159,
+          "recovery_total_application_wire_bytes": 23508639,
+          "replacement_initialization_seconds": 2.8072164390005128,
+          "recovery_seconds": 3.8396371670005465
+        }
+      ]
+    }
+  }
+}

@@ -2,9 +2,9 @@
 
 **Last updated:** 2026-07-27
 
-**Repository version:** [`0.1.4`](VERSION)
+**Repository version:** [`0.1.6`](VERSION)
 
-**Current phase:** P7 authenticated process control after published cached-head T0 evidence
+**Current phase:** P7 refreshed multi-step and persisted-result control after local process qualification
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -327,7 +327,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P7 — Explore sparse experts and other advanced topologies
 
-**Status:** Active research - exact frozen cached-head T0 control validated and published
+**Status:** Active research - authenticated local T1 process control validated
 
 - Expert-sharded or sparse models.
 - Router and shared-trunk training.
@@ -352,21 +352,74 @@ Completed within the first P3 measurement and native-baseline slice:
   SQL recomputations, and self-contained Report 013 now preserve that finding.
   This is exact tensor accounting in one process, not transport, memory,
   reliability, training-quality, or production evidence.
+- Added a trusted-local spawned-process control with a matched persistent full
+  sparse worker and persistent expert workers. Each stable worker accepts two
+  independent one-step assignments from identical initialization, authenticates
+  the exact campaign, dataset, immutable head, trainable state, input, routes,
+  and result frames, and caches the frozen head once while trainable state is
+  refreshed per assignment.
+- Full and expert results are reconstructed under coordinator-owned clipping and
+  AdamW and compared with the centralized frozen-head oracle. Workers are
+  scheduled one at a time to bound this host's load. Evidence labels
+  safetensors and JSON payload bytes separately from private pipe framing and
+  records per-child RSS without implying concurrent or aggregate memory.
+- Added a deliberate accepted-assignment loss control. The first expert process
+  pauses after authenticating the assignment and is terminated; a replacement
+  reloads the same head, trainable state, routes, and selected inputs. Its result
+  must be byte-identical to the stable result and is the result used by the
+  canonical reconstruction. Recovery traffic remains separate from the matched
+  full-versus-expert totals.
+- The first T1 preparation run exposed a cross-platform artifact bug rather
+  than a model/data change. The frozen TinyStories tokenizer, notice, and
+  manifest were originally written with Windows CRLF text bytes, while the
+  generic builder used the host default and emitted LF under Linux. Packed
+  train and validation tensors already matched exactly. TinyStories text
+  serialization is now explicitly CRLF and its four file hashes plus manifest
+  revision are enforced; generic dataset builds remain explicitly LF so the
+  later frozen Record Patch revision is unchanged.
+- Two exact one-thread T1 process runs now retain the same 8,390,904-byte
+  frozen head across two assignments in one matched full child and four
+  sequential expert-affine children. Every deterministic routing, safetensors
+  payload, loss, gradient, clipping, AdamW, model, cache, and replacement-result
+  field repeated.
+- Four warm expert processes moved 17,913,408 safetensors bytes, 55.75% below
+  the matched full process's 40,478,096 bytes. Including canonical JSON
+  controls changed the primary reduction only to 55.73%. Cold expert fan-out
+  remained 5.34% above full for safetensors and 5.36% above full for
+  application payload.
+- A separate accepted-assignment loss control terminated expert zero with exit
+  code -15 after authentication. Its replacement returned the same
+  2,236,032-byte result byte-for-byte, exited cleanly, and supplied the result
+  used in canonical reconstruction. Post-loss replacement took 3.37-3.84
+  seconds and the complete separate loss control moved 23,508,639 application
+  payload bytes.
+- Expert shutdown current RSS was 34.05%-34.54% below the matched full child,
+  but process high-water RSS already included interpreter/import startup and
+  ended 3.75%-4.36% above full. This control therefore establishes no
+  peak-memory reduction. Worker timers also exclude coordinator work and do
+  not establish end-to-end speed.
+- Report 014, the validated machine-readable study, five independently executed
+  SQLite queries, canonical report artifact, and primary/repeat JSON records
+  preserve the finding. The scope is trusted local spawned pipes, isolated
+  one-step controls, and an experimental sparse tracer on frozen T1 data. It is
+  not remote authentication, persisted coordinator recovery, a sequential
+  training trajectory, donated-compute proof, or a model-quality result.
 
 ## Immediate next bounded target
 
-Run the frozen-head topology through authenticated T1 process workers. Retain
-and revalidate the same immutable head across assignments, refresh all trainable
-state, compare matched persistent full and expert processes, measure serialized
-bytes and isolated worker RSS, and deliberately exercise worker loss. Preserve
-exact centralized equivalence and the 7.34% cold penalty as guardrails. Model
-quality remains outside this systems slice and requires a separate
-owner-supplied practical campaign contract.
+Advance several sequential coordinator AdamW steps while refreshing shared
+hidden rows, routes, and expert trainable state at every checkpoint. Persist
+accepted expert results and the coordinator apply boundary so replacement or
+coordinator restart cannot double-apply work. Add external child lifecycle RSS
+sampling and complete coordinator-plus-worker timing so interpreter startup and
+omitted coordinator work no longer distort the resource result. Keep remote
+volunteer transport outside the claim until these local semantics are exact.
 
 ## Remaining major work
 
-- Continue P7 with authenticated-data, process-memory, cache-reuse, and retry
-  qualification. Quality qualification belongs to a separately defined
+- Continue P7 with a refreshed multi-step trajectory, persisted result/apply
+  authority, external lifecycle RSS sampling, and complete elapsed-time
+  accounting. Quality qualification belongs to a separately defined
   owner-directed campaign.
 - Run the first practical campaign after its owner supplies the model, data,
   training recipe, usage scenario, evaluator, metrics, comparisons, publication
@@ -414,6 +467,50 @@ owner-supplied practical campaign contract.
 
 ### 2026-07-27
 
+- Published primary and repeat authenticated-process records at SHA-256
+  `ed8bfe6676f922d5ddace31d3eed4b74faa75fb4da3282d5e32e2b07c2164c3b`
+  and
+  `24e7f45b436cb011362061dc7deb336c87cf0f01a24b672a922670f35bcc08a9`.
+  Both pin implementation commit
+  `56204c7dceba49a487c153948dbb6a1fa3d2e54e` and frozen dataset
+  revision
+  `99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af`.
+- Added the validated `p7-authenticated-process-t1-v1` study and Report 014.
+  Five committed SQLite queries reproduce its traffic, exactness, memory, and
+  recovery datasets from the JSON records. The canonical report artifact
+  passed Data Analytics validation and portable packaging with exact manifest
+  and snapshot equality plus a semantic fallback. No compatible Chromium was
+  installed, so enhanced-reader visual and source-interaction QA remains
+  unverified.
+- The process result is exact and mixed: warm serialized tensor payload fell
+  55.75%, cold payload rose 5.34%, one accepted assignment recomputed
+  byte-for-byte, shutdown current RSS fell about 34%, and observed high-water
+  RSS rose 3.75%-4.36%. Report 014 preserves all five findings and does not
+  convert them into a peak-memory, speed, remote-authentication, training, or
+  model-quality claim.
+- The version `0.1.6` publication gate passed all `325` tests in 187.43
+  seconds with one compute thread. Version and lock synchronization, source,
+  test, and script compilation, sparse-process command-line help, source and
+  wheel builds, wheel metadata, report rebuild determinism, exact embedded
+  manifest and snapshot comparison, all five SQLite result shapes, local
+  links, diff whitespace, and changed-file credential-pattern checks also
+  passed.
+- Added the authenticated persistent-process P7 implementation and focused
+  process tests. The matched full and expert controls cache the same frozen
+  head across two assignments, refresh trainable state, bind every tensor frame
+  to the campaign and dataset, reconstruct coordinator-owned AdamW exactly, and
+  isolate a terminated accepted assignment from the normal traffic comparison.
+- Found and fixed host-dependent text serialization in the frozen TinyStories
+  builder. The Linux rebuild now reproduces tokenizer SHA-256
+  `7cb0fc243e7fa2bcfb9e1087ece80f3cbffc642d2c53f3213edaab218d0139bb`,
+  manifest SHA-256
+  `99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af`,
+  and both packed safetensors hashes exactly. Generic builds retain canonical LF
+  bytes, preserving the Record Patch dataset revision.
+- The version `0.1.5` implementation gate passed all `325` tests in 193.66
+  seconds with one compute thread. Source and test compilation, version
+  progression, the sparse-process command-line path, exact TinyStories artifact
+  reconstruction, and diff whitespace checks also passed.
 - Published the primary and repeat frozen cached-head records at SHA-256
   `c4c8b93f74e2adc43d7fb9127b8dabc5257e7e4a95b133a7233fb7c596d2bc12`
   and
