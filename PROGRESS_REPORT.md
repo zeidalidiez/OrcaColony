@@ -2,9 +2,9 @@
 
 **Last updated:** 2026-07-27
 
-**Repository version:** [`0.1.2`](VERSION)
+**Repository version:** [`0.1.3`](VERSION)
 
-**Current phase:** Parallel P7 systems research and project-navigation hardening
+**Current phase:** P7 frozen cached-head control and evidence capture
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -324,7 +324,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P7 — Explore sparse experts and other advanced topologies
 
-**Status:** Active research — exact independent T0 experts measured
+**Status:** Active research - exact frozen cached-head T0 control implemented
 
 - Expert-sharded or sparse models.
 - Router and shared-trunk training.
@@ -334,26 +334,32 @@ Completed within the first P3 measurement and native-baseline slice:
 - Byte-canonical aggregation required an explicit untied output head: tying input embedding and output projection made independently returned head gradients accumulate in a different FP32 order. This deliberate extra shared state is part of the P7 payload result, not hidden implementation detail.
 - One cold expert worker carries `2,626,048` bytes versus `7,167,488` full bytes, a 63.36% reduction; the `2,098,176`-byte shared norm/head cache is 79.90% of that cold worker payload. With it cached, expert-only payload is `527,872` bytes, 92.64% below full. But four cold workers duplicate `10,504,192` model bytes and produce a `21,536,768`-byte round trip, 46.55%/50.15% above full. Warm model bytes fall 70.54% and warm round trip only 8.36% below full because shared-head gradients still dominate uploads. The full comparison includes its `8,192` input bytes.
 - Unconstrained routing counts `[108, 147, 152, 105]` had 16.87% load CV. Capacity 128 rerouted 44/512 tokens (8.59%) to force `[128, 128, 128, 128]`; perfect reported balance is therefore policy intervention, not learned-router evidence. Report 009 keeps the one-step synthetic/no-process/no-quality limitations explicit.
+- Added a separate frozen cached-head control without changing the Report 009
+  command. Both centralized and distributed paths freeze the final norm and
+  untied output head before optimizer construction, train only router, shared
+  trunk, and experts, reject any head gradient or optimizer state, and compare
+  only trainable gradients and optimizer tensors.
+- Two one-thread local runs repeated every non-environmental field. Centralized
+  and distributed gradients, clipped gradients, AdamW state, model state, loss,
+  and the unchanged head digest matched exactly. Against a fair full control
+  that also omits frozen-head gradients and retains the same immutable head
+  after its cold assignment, four cold expert workers remained 7.34% more
+  expensive, while warm persistent aggregate traffic was 53.17% lower.
+  Committed evidence and the findings report remain the next handoff.
 
 ## Immediate next bounded target
 
-Run two explicitly separate bounded tracks:
-
-1. **Project maintenance track:** review and merge repository version `0.1.2`
-   with the separate auxiliary contribution ledger, release snapshot, evidence
-   copying, Hugging Face public-package gate, example, and operator
-   documentation.
-2. **P7 systems track:** freeze and persistently cache the untied final
-   norm/output head in both centralized and distributed sparse controls. Train
-   only router, shared trunk, and experts, preserve byte-exact canonical AdamW,
-   and recompute cold/warm result traffic without duplicated head gradients.
-   Advance to authenticated T1/process workers only if this one-variable control
-   produces a meaningful aggregate advantage rather than an
-   individual-worker-only saving.
+Pin the frozen cached-head evidence to the exact implementation commit, publish
+the machine-readable primary and repeat records and an agent-authored findings
+report, and independently recompute every traffic claim. The measured warm
+aggregate advantage is sufficient to make authenticated T1/process execution
+the next P7 experiment, but the cold regression must remain visible and no
+quality or production claim may be made from this T0 control.
 
 ## Remaining major work
 
-- P7 cached-head, authenticated-data, process-memory, retry, and quality qualification.
+- Publish the P7 cached-head evidence and findings, then continue with
+  authenticated-data, process-memory, retry, and quality qualification.
 - Run the first practical campaign after its owner supplies the model, data,
   training recipe, usage scenario, evaluator, metrics, comparisons, publication
   settings, and participants. No default task or model size is selected by the
@@ -400,6 +406,23 @@ Run two explicitly separate bounded tracks:
 
 ### 2026-07-27
 
+- Added a separate `--frozen-cached-head` P7 control while retaining the
+  original trainable-head tracer unchanged. The final norm/output head is
+  frozen in both centralized and distributed execution, remains available for
+  input-adjoint computation, and cannot acquire gradients or optimizer state.
+- Added fair traffic accounting against a full sparse control with the same
+  frozen head. Two local one-thread runs repeated all deterministic fields:
+  exact gradients, clipping, AdamW state, model bytes, loss, routing, and head
+  identity. Cold aggregate traffic remained 7.34% above a matched cold full
+  control, while warm persistent traffic fell 53.17% below a matched full
+  control retaining the same frozen head.
+- Added focused tests for trainable-state closure, frozen-head immutability,
+  optimizer exclusion, exact distributed equivalence, fair byte formulas, and
+  the new command-line path. Evidence publication is deliberately deferred to a
+  second versioned commit so it can name this implementation revision exactly.
+- The one-thread repository gate passed all `323` tests. Version `0.1.3`,
+  source and test compilation, the sparse-expert CLI, and whitespace checks
+  also passed.
 - Added the separate private `orcacolony_auxiliary_contributions_v1` ledger for
   owner-reviewed non-training work. Every entry binds the exact campaign
   revision, an owner-defined work kind, factual description, disposition, and
