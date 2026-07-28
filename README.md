@@ -1,6 +1,6 @@
 # OrcaColony
 
-**Repository version:** [`0.1.6`](VERSION)
+**Repository version:** [`0.1.7`](VERSION)
 
 OrcaColony is a self-hostable framework and reproducible research vehicle for
 community model training. It lets independent contributors complete bounded

@@ -1,10 +1,10 @@
 # OrcaColony Progress Report
 
-**Last updated:** 2026-07-27
+**Last updated:** 2026-07-28
 
-**Repository version:** [`0.1.6`](VERSION)
+**Repository version:** [`0.1.7`](VERSION)
 
-**Current phase:** P7 refreshed multi-step and persisted-result control after local process qualification
+**Current phase:** P7 persisted multi-step local control awaiting T1 measurement
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -327,7 +327,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P7 — Explore sparse experts and other advanced topologies
 
-**Status:** Active research - authenticated local T1 process control validated
+**Status:** Active research - persisted multi-step local control implemented
 
 - Expert-sharded or sparse models.
 - Router and shared-trunk training.
@@ -404,23 +404,49 @@ Completed within the first P3 measurement and native-baseline slice:
   one-step controls, and an experimental sparse tracer on frozen T1 data. It is
   not remote authentication, persisted coordinator recovery, a sequential
   training trajectory, donated-compute proof, or a model-quality result.
+- Added a separate persisted trajectory path without changing the Report 014
+  command or evidence format. Centralized, matched full-process, and pooled
+  expert-process controls now advance the same live AdamW state for multiple
+  sequential steps. Every step recomputes the current shared hidden rows and
+  routes and retransmits the current trainable state.
+- The local expert topology uses one persistent sequential executor rather than
+  four simultaneously resident expert-affine children. This preserves the
+  one-child host-safety boundary and tests refreshed expert semantics, but it
+  is a different cold-cache and availability topology from Report 014.
+- Each step persists its exact pre-model, pre-optimizer, batch, accepted result
+  directories, and applied checkpoint under a transaction identity. Result and
+  checkpoint directories become visible through atomic directory replacement;
+  file and directory contents are flushed before the manifest commits their
+  phase. A committed result omitted by a lost manifest update can be
+  reconciled, while duplicate acceptance and duplicate application reject.
+- The bounded failure control terminates the pooled expert executor only after
+  result zero is durable, starts a replacement for the remaining experts, and
+  never recomputes the persisted result. After the final applied checkpoint is
+  published but before its manifest is marked applied, the worker is stopped
+  and a new spawned coordinator process validates and commits the checkpoint
+  using only persisted state. A second apply rejects.
+- Parent-side Linux `/proc` sampling now covers child spawn, interpreter and
+  model initialization, assignment execution, and shutdown. Complete
+  centralized, full-process, and expert-process lifecycle timers include
+  coordinator preparation, IPC, persistence, apply, recovery, and shutdown.
+  These fields make a later resource comparison possible; the implementation
+  alone establishes no speed or memory result.
 
 ## Immediate next bounded target
 
-Advance several sequential coordinator AdamW steps while refreshing shared
-hidden rows, routes, and expert trainable state at every checkpoint. Persist
-accepted expert results and the coordinator apply boundary so replacement or
-coordinator restart cannot double-apply work. Add external child lifecycle RSS
-sampling and complete coordinator-plus-worker timing so interpreter startup and
-omitted coordinator work no longer distort the resource result. Keep remote
-volunteer transport outside the claim until these local semantics are exact.
+Run and repeat the persisted trajectory on the exact frozen T1 artifacts with
+one compute thread. Verify every sequential model, optimizer, route, result,
+transaction, worker-replacement, coordinator-recovery, timing, and external RSS
+field that should be deterministic. Publish the positive and negative findings
+without treating this systems tracer as a practical model campaign.
 
 ## Remaining major work
 
-- Continue P7 with a refreshed multi-step trajectory, persisted result/apply
-  authority, external lifecycle RSS sampling, and complete elapsed-time
-  accounting. Quality qualification belongs to a separately defined
-  owner-directed campaign.
+- Qualify the implemented P7 persisted multi-step trajectory at T1, then use
+  the measured result to decide whether the next systems slice should address
+  remote transport, concurrent expert residency, or a different topology.
+  Quality qualification belongs to a separately defined owner-directed
+  campaign.
 - Run the first practical campaign after its owner supplies the model, data,
   training recipe, usage scenario, evaluator, metrics, comparisons, publication
   settings, and participants. No default task or model size is selected by the
@@ -464,6 +490,25 @@ volunteer transport outside the claim until these local semantics are exact.
 - Larger-model execution methods are hypotheses until measured; none should be described as supported merely because a paper or prototype demonstrates the general idea.
 
 ## Change record
+
+### 2026-07-28
+
+- Added the persisted multi-step sparse trajectory implementation and focused
+  tests. The two-step T0 control advanced real AdamW state exactly through
+  centralized, persistent full-process, and pooled expert-process paths,
+  refreshed all assignment state, retained one frozen head per worker
+  generation, and kept at most one child alive.
+- Added atomic accepted-result and applied-checkpoint directories, strict
+  transaction identities, manifest reconciliation, exact checkpoint reload,
+  worker replacement after durable acceptance, a new-process coordinator
+  recovery after checkpoint publication, duplicate-apply rejection, result and
+  checkpoint tamper tests, complete topology timers, and external lifecycle RSS
+  sampling. T1 resource and traffic findings remain unmeasured.
+- The version `0.1.7` implementation gate passed all `327` tests in 191.67
+  seconds with one compute thread. Version and lock synchronization, source,
+  test, and script compilation, the trajectory command-line path, source and
+  wheel builds, package metadata and inclusion, diff whitespace, and
+  changed-file credential-pattern checks also passed.
 
 ### 2026-07-27
 
