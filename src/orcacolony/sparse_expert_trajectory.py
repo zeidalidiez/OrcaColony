@@ -61,12 +61,30 @@ from orcacolony.tiled_model import _max_abs_difference, _model_snapshot
 _INIT_FORMAT = "orcacolony_sparse_trajectory_worker_init_v1"
 _RUN_FORMAT = "orcacolony_sparse_trajectory_assignment_v1"
 _TRANSACTION_FORMAT = "orcacolony_sparse_trajectory_transaction_v1"
+_CONTENT_TRANSACTION_FORMAT = (
+    "orcacolony_sparse_trajectory_content_addressed_transaction_v1"
+)
 _APPLIED_FORMAT = "orcacolony_sparse_trajectory_applied_checkpoint_v1"
+_CONTENT_APPLIED_FORMAT = (
+    "orcacolony_sparse_trajectory_content_addressed_checkpoint_v1"
+)
+_CHECKPOINT_REFERENCE_FORMAT = (
+    "orcacolony_sparse_trajectory_checkpoint_references_v1"
+)
 _EVIDENCE_FORMAT = "orcacolony_persisted_sparse_trajectory_evidence_v1"
+_CONTENT_EVIDENCE_FORMAT = (
+    "orcacolony_content_addressed_sparse_trajectory_evidence_v1"
+)
+_CONTENT_COMPARISON_FORMAT = (
+    "orcacolony_content_addressed_sparse_trajectory_comparison_v1"
+)
 _TRANSPORT_SCOPE = "trusted-local-spawn-pipe"
 _AUTHENTICATION_MODE = "coordinator-bound-sha256-safetensors-v1"
 _RSS_SOURCE = "linux-proc-status-v1"
 _PHASES = ("prepared", "results_accepted", "applied")
+_TRANSACTION_FORMATS = frozenset(
+    {_TRANSACTION_FORMAT, _CONTENT_TRANSACTION_FORMAT}
+)
 _MANIFEST_FIELDS = frozenset(
     {
         "format",
@@ -165,6 +183,10 @@ _APPLIED_STATE_FIELDS = frozenset(
         "routing_capacity",
     }
 )
+_CHECKPOINT_REFERENCE_FIELDS = frozenset(
+    {"format", "model", "optimizer"}
+)
+_BLOB_REFERENCE_FIELDS = frozenset({"sha256", "bytes"})
 
 
 @dataclass(frozen=True)
@@ -351,6 +373,36 @@ class PersistedSparseTrajectoryEvidence:
 
 
 @dataclass(frozen=True)
+class TopologyStorageComparisonEvidence:
+    topology: str
+    replicated_persisted_bytes: int
+    content_addressed_persisted_bytes: int
+    persisted_byte_reduction: int
+    persisted_byte_reduction_fraction: float
+    content_addressed_blob_count: int
+    content_addressed_blob_bytes: int
+    checkpoint_reference_count: int
+    reused_checkpoint_reference_count: int
+    transaction_ids_match: bool
+    final_model_sha256_match: bool
+    final_optimizer_sha256_match: bool
+
+
+@dataclass(frozen=True)
+class ContentAddressedSparseTrajectoryComparisonEvidence:
+    format: str
+    comparison_order: str
+    byte_accounting_scope: str
+    replicated: PersistedSparseTrajectoryEvidence
+    content_addressed: PersistedSparseTrajectoryEvidence
+    full_storage: TopologyStorageComparisonEvidence
+    expert_storage: TopologyStorageComparisonEvidence
+    all_steps_exact: bool
+    transaction_ids_match: bool
+    limitations: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class _PreparedTopologyStep:
     step: int
     cursor: int
@@ -474,6 +526,196 @@ def _read_owned_file(path: Path, *, expected_bytes: int, expected_sha256: str) -
     if _sha256_bytes(payload) != expected_sha256:
         raise ValueError(f"persisted file digest changed: {path.name}")
     return payload
+
+
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _is_content_addressed_manifest(
+    manifest: Mapping[str, object],
+) -> bool:
+    return manifest["format"] == _CONTENT_TRANSACTION_FORMAT
+
+
+def _validate_blob_directory(topology_root: Path) -> Path:
+    if topology_root.is_symlink() or not topology_root.is_dir():
+        raise ValueError("trajectory topology state directory is invalid")
+    blob_dir = topology_root / "blobs"
+    if blob_dir.is_symlink() or not blob_dir.is_dir():
+        raise ValueError("trajectory content-addressed blob directory is invalid")
+    for entry in blob_dir.iterdir():
+        name = entry.name
+        digest = (
+            name[: -len(".safetensors")]
+            if name.endswith(".safetensors")
+            else ""
+        )
+        if (
+            entry.is_symlink()
+            or not entry.is_file()
+            or not _is_sha256(digest)
+            or name != f"{digest}.safetensors"
+        ):
+            raise ValueError(
+                "trajectory content-addressed blob directory contains "
+                "an unexpected entry"
+            )
+    return blob_dir
+
+
+def _ensure_blob_directory(topology_root: Path) -> Path:
+    if topology_root.is_symlink() or not topology_root.is_dir():
+        raise ValueError("trajectory topology state directory is invalid")
+    blob_dir = topology_root / "blobs"
+    if blob_dir.exists():
+        return _validate_blob_directory(topology_root)
+    blob_dir.mkdir(exist_ok=False)
+    _fsync_directory(topology_root)
+    return blob_dir
+
+
+def _blob_reference(payload: bytes) -> dict[str, object]:
+    return {
+        "sha256": _sha256_bytes(payload),
+        "bytes": len(payload),
+    }
+
+
+def _validate_blob_reference(
+    reference: object,
+    *,
+    label: str,
+) -> dict[str, object]:
+    if (
+        not isinstance(reference, dict)
+        or frozenset(reference) != _BLOB_REFERENCE_FIELDS
+        or not _is_sha256(reference["sha256"])
+        or type(reference["bytes"]) is not int
+        or int(reference["bytes"]) <= 0
+    ):
+        raise ValueError(f"{label} blob reference is invalid")
+    return reference
+
+
+def _publish_content_blob(
+    topology_root: Path,
+    payload: bytes,
+) -> dict[str, object]:
+    reference = _blob_reference(payload)
+    blob_dir = _ensure_blob_directory(topology_root)
+    path = blob_dir / f"{reference['sha256']}.safetensors"
+    if path.exists():
+        existing = _read_owned_file(
+            path,
+            expected_bytes=int(reference["bytes"]),
+            expected_sha256=str(reference["sha256"]),
+        )
+        if existing != payload:
+            raise ValueError("trajectory content-addressed blob differs")
+        return reference
+    _write_bytes_atomic(path, payload)
+    return reference
+
+
+def _read_content_blob(
+    transaction_dir: Path,
+    reference: object,
+    *,
+    label: str,
+) -> bytes:
+    validated = _validate_blob_reference(reference, label=label)
+    blob_dir = _validate_blob_directory(transaction_dir.parent)
+    return _read_owned_file(
+        blob_dir / f"{validated['sha256']}.safetensors",
+        expected_bytes=int(validated["bytes"]),
+        expected_sha256=str(validated["sha256"]),
+    )
+
+
+def _checkpoint_reference_payload(
+    *,
+    model_wire: bytes,
+    optimizer_wire: bytes,
+) -> dict[str, object]:
+    return {
+        "format": _CHECKPOINT_REFERENCE_FORMAT,
+        "model": _blob_reference(model_wire),
+        "optimizer": _blob_reference(optimizer_wire),
+    }
+
+
+def _load_pre_checkpoint_wires(
+    transaction_dir: Path,
+    manifest: Mapping[str, object],
+) -> tuple[bytes, bytes]:
+    identity = _validate_identity(manifest["identity"])
+    if not _is_content_addressed_manifest(manifest):
+        return (
+            _read_owned_file(
+                transaction_dir / "pre-model.safetensors",
+                expected_bytes=int(identity["pre_model_wire_bytes"]),
+                expected_sha256=str(identity["pre_model_wire_sha256"]),
+            ),
+            _read_owned_file(
+                transaction_dir / "pre-optimizer.safetensors",
+                expected_bytes=int(identity["pre_optimizer_wire_bytes"]),
+                expected_sha256=str(
+                    identity["pre_optimizer_wire_sha256"]
+                ),
+            ),
+        )
+    reference_path = transaction_dir / "pre-state.json"
+    if reference_path.is_symlink() or not reference_path.is_file():
+        raise ValueError("trajectory pre-state reference is unavailable")
+    reference_wire = reference_path.read_bytes()
+    references = _load_json_bytes(
+        reference_wire,
+        label="trajectory pre-state reference",
+    )
+    if (
+        frozenset(references) != _CHECKPOINT_REFERENCE_FIELDS
+        or references["format"] != _CHECKPOINT_REFERENCE_FORMAT
+        or reference_wire != _canonical_json(references)
+    ):
+        raise ValueError("trajectory pre-state reference schema is invalid")
+    model_reference = _validate_blob_reference(
+        references["model"],
+        label="trajectory pre-model",
+    )
+    optimizer_reference = _validate_blob_reference(
+        references["optimizer"],
+        label="trajectory pre-optimizer",
+    )
+    if (
+        model_reference
+        != {
+            "sha256": identity["pre_model_wire_sha256"],
+            "bytes": identity["pre_model_wire_bytes"],
+        }
+        or optimizer_reference
+        != {
+            "sha256": identity["pre_optimizer_wire_sha256"],
+            "bytes": identity["pre_optimizer_wire_bytes"],
+        }
+    ):
+        raise ValueError("trajectory pre-state reference identity changed")
+    return (
+        _read_content_blob(
+            transaction_dir,
+            model_reference,
+            label="trajectory pre-model",
+        ),
+        _read_content_blob(
+            transaction_dir,
+            optimizer_reference,
+            label="trajectory pre-optimizer",
+        ),
+    )
 
 
 class _ExternalRssSampler:
@@ -1727,8 +1969,11 @@ def _create_transaction(
     model_wire: bytes,
     optimizer_wire: bytes,
     batch_wire: bytes,
+    transaction_format: str = _TRANSACTION_FORMAT,
 ) -> str:
     _validate_identity(identity)
+    if transaction_format not in _TRANSACTION_FORMATS:
+        raise ValueError("trajectory transaction format is invalid")
     if transaction_dir.exists():
         if (
             transaction_dir.is_symlink()
@@ -1742,21 +1987,34 @@ def _create_transaction(
         raise ValueError("trajectory transaction directory may not be a symlink")
     results_dir = transaction_dir / "results"
     results_dir.mkdir(exist_ok=False)
-    _write_bytes_atomic(
-        transaction_dir / "pre-model.safetensors",
-        model_wire,
-    )
-    _write_bytes_atomic(
-        transaction_dir / "pre-optimizer.safetensors",
-        optimizer_wire,
-    )
+    if transaction_format == _CONTENT_TRANSACTION_FORMAT:
+        _publish_content_blob(transaction_dir.parent, model_wire)
+        _publish_content_blob(transaction_dir.parent, optimizer_wire)
+        _write_bytes_atomic(
+            transaction_dir / "pre-state.json",
+            _canonical_json(
+                _checkpoint_reference_payload(
+                    model_wire=model_wire,
+                    optimizer_wire=optimizer_wire,
+                )
+            ),
+        )
+    else:
+        _write_bytes_atomic(
+            transaction_dir / "pre-model.safetensors",
+            model_wire,
+        )
+        _write_bytes_atomic(
+            transaction_dir / "pre-optimizer.safetensors",
+            optimizer_wire,
+        )
     _write_bytes_atomic(
         transaction_dir / "batch.safetensors",
         batch_wire,
     )
     transaction_id = _sha256_bytes(_canonical_json(identity))
     manifest = {
-        "format": _TRANSACTION_FORMAT,
+        "format": transaction_format,
         "identity": identity,
         "transaction_id": transaction_id,
         "phase": "prepared",
@@ -1783,7 +2041,7 @@ def _load_manifest(transaction_dir: Path) -> dict[str, object]:
     )
     if frozenset(manifest) != _MANIFEST_FIELDS:
         raise ValueError("trajectory transaction manifest schema is invalid")
-    if manifest["format"] != _TRANSACTION_FORMAT:
+    if manifest["format"] not in _TRANSACTION_FORMATS:
         raise ValueError("trajectory transaction manifest format is invalid")
     identity = _validate_identity(manifest["identity"])
     transaction_id = _sha256_bytes(_canonical_json(identity))
@@ -1856,13 +2114,21 @@ def _validate_transaction_root(
 ) -> None:
     if transaction_dir.is_symlink() or not transaction_dir.is_dir():
         raise ValueError("trajectory transaction directory is invalid")
-    expected = {
-        "manifest.json",
-        "pre-model.safetensors",
-        "pre-optimizer.safetensors",
-        "batch.safetensors",
-        "results",
-    }
+    if _is_content_addressed_manifest(manifest):
+        expected = {
+            "manifest.json",
+            "pre-state.json",
+            "batch.safetensors",
+            "results",
+        }
+    else:
+        expected = {
+            "manifest.json",
+            "pre-model.safetensors",
+            "pre-optimizer.safetensors",
+            "batch.safetensors",
+            "results",
+        }
     if (transaction_dir / "applied").exists():
         expected.add("applied")
     entries = tuple(transaction_dir.iterdir())
@@ -1877,16 +2143,7 @@ def _validate_transaction_root(
         elif not entry.is_file():
             raise ValueError("trajectory transaction file entry is invalid")
     identity = _validate_identity(manifest["identity"])
-    _read_owned_file(
-        transaction_dir / "pre-model.safetensors",
-        expected_bytes=int(identity["pre_model_wire_bytes"]),
-        expected_sha256=str(identity["pre_model_wire_sha256"]),
-    )
-    _read_owned_file(
-        transaction_dir / "pre-optimizer.safetensors",
-        expected_bytes=int(identity["pre_optimizer_wire_bytes"]),
-        expected_sha256=str(identity["pre_optimizer_wire_sha256"]),
-    )
+    _load_pre_checkpoint_wires(transaction_dir, manifest)
     _read_owned_file(
         transaction_dir / "batch.safetensors",
         expected_bytes=int(identity["batch_wire_bytes"]),
@@ -2355,15 +2612,9 @@ def _compute_transaction_candidate(
         or len(records) != identity["expected_result_count"]
     ):
         raise ValueError("trajectory transaction is not ready to apply")
-    model_wire = _read_owned_file(
-        transaction_dir / "pre-model.safetensors",
-        expected_bytes=int(identity["pre_model_wire_bytes"]),
-        expected_sha256=str(identity["pre_model_wire_sha256"]),
-    )
-    optimizer_wire = _read_owned_file(
-        transaction_dir / "pre-optimizer.safetensors",
-        expected_bytes=int(identity["pre_optimizer_wire_bytes"]),
-        expected_sha256=str(identity["pre_optimizer_wire_sha256"]),
+    model_wire, optimizer_wire = _load_pre_checkpoint_wires(
+        transaction_dir,
+        manifest,
     )
     batch_wire = _read_owned_file(
         transaction_dir / "batch.safetensors",
@@ -2527,7 +2778,11 @@ def _compute_transaction_candidate(
         step_seconds=time.perf_counter() - started,
     )
     state = {
-        "format": _APPLIED_FORMAT,
+        "format": (
+            _CONTENT_APPLIED_FORMAT
+            if _is_content_addressed_manifest(manifest)
+            else _APPLIED_FORMAT
+        ),
         "transaction_id": manifest["transaction_id"],
         "topology": identity["topology"],
         "step": int(identity["step"]) + 1,
@@ -2558,38 +2813,39 @@ def _publish_applied_checkpoint(
     transaction_dir: Path,
     candidate: _AppliedCandidate,
 ) -> int:
+    manifest = _load_manifest(transaction_dir)
+    content_addressed = _is_content_addressed_manifest(manifest)
     applied_dir = transaction_dir / "applied"
     state_wire = _canonical_json(candidate.applied_state)
-    if applied_dir.exists():
-        if applied_dir.is_symlink() or not applied_dir.is_dir():
-            raise ValueError("trajectory applied checkpoint is invalid")
-        existing_state = (applied_dir / "state.json").read_bytes()
-        existing_model = (applied_dir / "model.safetensors").read_bytes()
-        existing_optimizer = (
-            applied_dir / "optimizer.safetensors"
-        ).read_bytes()
-        if (
-            existing_state != state_wire
-            or existing_model != candidate.model_wire
-            or existing_optimizer != candidate.optimizer_wire
-        ):
-            raise ValueError("trajectory applied checkpoint differs on retry")
-        return (
-            len(existing_state)
-            + len(existing_model)
-            + len(existing_optimizer)
+    if content_addressed:
+        _publish_content_blob(transaction_dir.parent, candidate.model_wire)
+        _publish_content_blob(
+            transaction_dir.parent,
+            candidate.optimizer_wire,
         )
+    if applied_dir.exists():
+        persisted_bytes = _validate_applied_checkpoint(
+            transaction_dir,
+            candidate,
+        )
+        if (applied_dir / "state.json").read_bytes() != state_wire:
+            raise ValueError("trajectory applied checkpoint differs on retry")
+        return persisted_bytes
     stage = transaction_dir / f".applied.tmp-{os.getpid()}"
     if stage.exists():
         raise ValueError("trajectory applied checkpoint staging exists")
     stage.mkdir(exist_ok=False)
     try:
         _write_new_file(stage / "state.json", state_wire)
-        _write_new_file(stage / "model.safetensors", candidate.model_wire)
-        _write_new_file(
-            stage / "optimizer.safetensors",
-            candidate.optimizer_wire,
-        )
+        if not content_addressed:
+            _write_new_file(
+                stage / "model.safetensors",
+                candidate.model_wire,
+            )
+            _write_new_file(
+                stage / "optimizer.safetensors",
+                candidate.optimizer_wire,
+            )
         _fsync_directory(stage)
         os.replace(stage, applied_dir)
         _fsync_directory(transaction_dir)
@@ -2608,13 +2864,19 @@ def _validate_applied_checkpoint(
     transaction_dir: Path,
     candidate: _AppliedCandidate,
 ) -> int:
+    manifest = _load_manifest(transaction_dir)
+    content_addressed = _is_content_addressed_manifest(manifest)
     applied_dir = transaction_dir / "applied"
     if applied_dir.is_symlink() or not applied_dir.is_dir():
         raise ValueError("trajectory applied checkpoint is unavailable")
     entries = tuple(applied_dir.iterdir())
+    expected_entries = (
+        {"state.json"}
+        if content_addressed
+        else {"state.json", "model.safetensors", "optimizer.safetensors"}
+    )
     if (
-        {entry.name for entry in entries}
-        != {"state.json", "model.safetensors", "optimizer.safetensors"}
+        {entry.name for entry in entries} != expected_entries
         or any(entry.is_symlink() or not entry.is_file() for entry in entries)
     ):
         raise ValueError("trajectory applied checkpoint files are invalid")
@@ -2626,18 +2888,40 @@ def _validate_applied_checkpoint(
     if (
         frozenset(state) != _APPLIED_STATE_FIELDS
         or state != candidate.applied_state
+        or (
+            content_addressed
+            and state_wire != _canonical_json(state)
+        )
     ):
         raise ValueError("trajectory applied checkpoint state differs")
-    model_wire = _read_owned_file(
-        applied_dir / "model.safetensors",
-        expected_bytes=int(state["model_wire_bytes"]),
-        expected_sha256=str(state["model_wire_sha256"]),
-    )
-    optimizer_wire = _read_owned_file(
-        applied_dir / "optimizer.safetensors",
-        expected_bytes=int(state["optimizer_wire_bytes"]),
-        expected_sha256=str(state["optimizer_wire_sha256"]),
-    )
+    if content_addressed:
+        model_wire = _read_content_blob(
+            transaction_dir,
+            {
+                "sha256": state["model_wire_sha256"],
+                "bytes": state["model_wire_bytes"],
+            },
+            label="trajectory applied model",
+        )
+        optimizer_wire = _read_content_blob(
+            transaction_dir,
+            {
+                "sha256": state["optimizer_wire_sha256"],
+                "bytes": state["optimizer_wire_bytes"],
+            },
+            label="trajectory applied optimizer",
+        )
+    else:
+        model_wire = _read_owned_file(
+            applied_dir / "model.safetensors",
+            expected_bytes=int(state["model_wire_bytes"]),
+            expected_sha256=str(state["model_wire_sha256"]),
+        )
+        optimizer_wire = _read_owned_file(
+            applied_dir / "optimizer.safetensors",
+            expected_bytes=int(state["optimizer_wire_bytes"]),
+            expected_sha256=str(state["optimizer_wire_sha256"]),
+        )
     if (
         model_wire != candidate.model_wire
         or optimizer_wire != candidate.optimizer_wire
@@ -3052,6 +3336,7 @@ def _create_step_transaction(
     campaign_revision_value: str,
     dataset_revision: str,
     head_sha256: str,
+    transaction_format: str,
 ) -> tuple[
     dict[str, Tensor],
     dict[str, Tensor],
@@ -3087,6 +3372,7 @@ def _create_step_transaction(
         model_wire=model_wire,
         optimizer_wire=optimizer_wire,
         batch_wire=prepared.batch_wire,
+        transaction_format=transaction_format,
     )
     return (
         model_tensors,
@@ -3122,6 +3408,7 @@ def _run_full_trajectory(
     head_sha256: str,
     timeout_seconds: float,
     sample_interval_seconds: float,
+    transaction_format: str,
 ) -> _TopologyRun:
     started = time.perf_counter()
     model = _build_sparse_model(campaign, expert_count)
@@ -3150,6 +3437,7 @@ def _run_full_trajectory(
         )
         for step in range(steps):
             step_started = time.perf_counter()
+            persisted_before_step = _directory_file_bytes(full_root)
             prepared = _prepare_full_step(
                 campaign,
                 dataset,
@@ -3175,6 +3463,7 @@ def _run_full_trajectory(
                 campaign_revision_value=campaign_revision_value,
                 dataset_revision=dataset_revision,
                 head_sha256=head_sha256,
+                transaction_format=transaction_format,
             )
             result = _run_worker_assignment(
                 worker,
@@ -3223,7 +3512,10 @@ def _run_full_trajectory(
                     + len(prepared.input_wires[0])
                     + len(result.result_wire),
                     control_json_wire_bytes=result.control_json_wire_bytes,
-                    persisted_bytes=_directory_file_bytes(transaction_dir),
+                    persisted_bytes=(
+                        _directory_file_bytes(full_root)
+                        - persisted_before_step
+                    ),
                     end_to_end_seconds=time.perf_counter() - step_started,
                     worker_round_trip_seconds=(result.round_trip_seconds,),
                     worker_compute_seconds=(
@@ -3251,6 +3543,9 @@ def _run_full_trajectory(
     if worker_evidence is None:
         raise AssertionError("full trajectory worker evidence is absent")
     final_optimizer = _trainable_optimizer_tensor_snapshot(model, optimizer)
+    persisted_bytes = sum(run.persisted_bytes for run in step_runs)
+    if persisted_bytes != _directory_file_bytes(full_root):
+        raise AssertionError("full persisted-byte accounting changed")
     return _TopologyRun(
         steps=tuple(step_runs),
         workers=(worker_evidence,),
@@ -3259,7 +3554,7 @@ def _run_full_trajectory(
         control_json_wire_bytes=(
             worker_evidence.control_json_wire_bytes
         ),
-        persisted_bytes=sum(run.persisted_bytes for run in step_runs),
+        persisted_bytes=persisted_bytes,
         final_model_sha256=tensor_sha256(_model_snapshot(model)),
         final_optimizer_sha256=tensor_sha256(final_optimizer),
     )
@@ -3279,6 +3574,7 @@ def _run_expert_trajectory(
     head_sha256: str,
     timeout_seconds: float,
     sample_interval_seconds: float,
+    transaction_format: str,
 ) -> tuple[
     _TopologyRun,
     WorkerReplacementEvidence,
@@ -3317,6 +3613,7 @@ def _run_expert_trajectory(
         )
         for step in range(steps):
             step_started = time.perf_counter()
+            persisted_before_step = _directory_file_bytes(expert_root)
             prepared = _prepare_expert_step(
                 campaign,
                 dataset,
@@ -3343,6 +3640,7 @@ def _run_expert_trajectory(
                 campaign_revision_value=campaign_revision_value,
                 dataset_revision=dataset_revision,
                 head_sha256=head_sha256,
+                transaction_format=transaction_format,
             )
             results: list[_CollectedResult] = []
             persistence_bytes_from_results = 0
@@ -3506,7 +3804,10 @@ def _run_expert_trajectory(
                     control_json_wire_bytes=sum(
                         result.control_json_wire_bytes for result in results
                     ),
-                    persisted_bytes=_directory_file_bytes(transaction_dir),
+                    persisted_bytes=(
+                        _directory_file_bytes(expert_root)
+                        - persisted_before_step
+                    ),
                     end_to_end_seconds=time.perf_counter() - step_started,
                     worker_round_trip_seconds=tuple(
                         result.round_trip_seconds for result in results
@@ -3568,6 +3869,9 @@ def _run_expert_trajectory(
         recomputed_persisted_result=False,
     )
     final_optimizer = _trainable_optimizer_tensor_snapshot(model, optimizer)
+    persisted_bytes = sum(run.persisted_bytes for run in step_runs)
+    if persisted_bytes != _directory_file_bytes(expert_root):
+        raise AssertionError("expert persisted-byte accounting changed")
     topology = _TopologyRun(
         steps=tuple(step_runs),
         workers=tuple(workers),
@@ -3576,7 +3880,7 @@ def _run_expert_trajectory(
         control_json_wire_bytes=sum(
             item.control_json_wire_bytes for item in workers
         ),
-        persisted_bytes=sum(run.persisted_bytes for run in step_runs),
+        persisted_bytes=persisted_bytes,
         final_model_sha256=tensor_sha256(_model_snapshot(model)),
         final_optimizer_sha256=tensor_sha256(final_optimizer),
     )
@@ -3726,7 +4030,7 @@ def _exact_step(
     )
 
 
-def run_persisted_sparse_trajectory_experiment(
+def _run_persisted_sparse_trajectory_experiment(
     campaign: CampaignConfig,
     state_dir: Path,
     *,
@@ -3736,7 +4040,10 @@ def run_persisted_sparse_trajectory_experiment(
     router_aux_weight: float = 0.01,
     timeout_seconds: float = 120.0,
     sample_interval_seconds: float = 0.01,
+    transaction_format: str,
 ) -> PersistedSparseTrajectoryEvidence:
+    if transaction_format not in _TRANSACTION_FORMATS:
+        raise ValueError("trajectory transaction format is invalid")
     (
         dataset,
         state_dir,
@@ -3787,6 +4094,7 @@ def run_persisted_sparse_trajectory_experiment(
         head_sha256=head_sha256,
         timeout_seconds=timeout_seconds,
         sample_interval_seconds=sample_interval_seconds,
+        transaction_format=transaction_format,
     )
     expert, worker_replacement, coordinator_recovery = (
         _run_expert_trajectory(
@@ -3802,6 +4110,7 @@ def run_persisted_sparse_trajectory_experiment(
             head_sha256=head_sha256,
             timeout_seconds=timeout_seconds,
             sample_interval_seconds=sample_interval_seconds,
+            transaction_format=transaction_format,
         )
     )
     if not (
@@ -3994,7 +4303,11 @@ def run_persisted_sparse_trajectory_experiment(
     ):
         raise AssertionError("sparse trajectory final state differs")
     return PersistedSparseTrajectoryEvidence(
-        format=_EVIDENCE_FORMAT,
+        format=(
+            _CONTENT_EVIDENCE_FORMAT
+            if transaction_format == _CONTENT_TRANSACTION_FORMAT
+            else _EVIDENCE_FORMAT
+        ),
         campaign_id=str(campaign.campaign["id"]),
         campaign_revision=campaign_revision_value,
         dataset_revision=dataset_revision,
@@ -4008,8 +4321,14 @@ def run_persisted_sparse_trajectory_experiment(
             "sequential-adamw-trajectory-refreshed-model-routes-hidden-and-experts"
         ),
         persistence_scope=(
-            "atomic-result-directories-and-applied-checkpoint-directory-with-"
-            "manifest-commit"
+            "topology-local-content-addressed-immutable-checkpoint-blobs-with-"
+            "canonical-pre-state-references-atomic-result-and-applied-state-"
+            "directories-and-manifest-commit"
+            if transaction_format == _CONTENT_TRANSACTION_FORMAT
+            else (
+                "atomic-result-directories-and-applied-checkpoint-directory-"
+                "with-manifest-commit"
+            )
         ),
         timing_scope=(
             "complete-topology-lifecycle-includes-coordinator-preparation-worker-"
@@ -4047,6 +4366,450 @@ def run_persisted_sparse_trajectory_experiment(
         worker_replacement=worker_replacement,
         coordinator_recovery=coordinator_recovery,
         steps=tuple(evidence_steps),
+    )
+
+
+def run_persisted_sparse_trajectory_experiment(
+    campaign: CampaignConfig,
+    state_dir: Path,
+    *,
+    dataset: PackedDataset | None,
+    steps: int = 3,
+    expert_count: int = 4,
+    router_aux_weight: float = 0.01,
+    timeout_seconds: float = 120.0,
+    sample_interval_seconds: float = 0.01,
+) -> PersistedSparseTrajectoryEvidence:
+    return _run_persisted_sparse_trajectory_experiment(
+        campaign,
+        state_dir,
+        dataset=dataset,
+        steps=steps,
+        expert_count=expert_count,
+        router_aux_weight=router_aux_weight,
+        timeout_seconds=timeout_seconds,
+        sample_interval_seconds=sample_interval_seconds,
+        transaction_format=_TRANSACTION_FORMAT,
+    )
+
+
+def run_content_addressed_sparse_trajectory_experiment(
+    campaign: CampaignConfig,
+    state_dir: Path,
+    *,
+    dataset: PackedDataset | None,
+    steps: int = 3,
+    expert_count: int = 4,
+    router_aux_weight: float = 0.01,
+    timeout_seconds: float = 120.0,
+    sample_interval_seconds: float = 0.01,
+) -> PersistedSparseTrajectoryEvidence:
+    return _run_persisted_sparse_trajectory_experiment(
+        campaign,
+        state_dir,
+        dataset=dataset,
+        steps=steps,
+        expert_count=expert_count,
+        router_aux_weight=router_aux_weight,
+        timeout_seconds=timeout_seconds,
+        sample_interval_seconds=sample_interval_seconds,
+        transaction_format=_CONTENT_TRANSACTION_FORMAT,
+    )
+
+
+def _semantic_trajectory_evidence_matches(
+    replicated: PersistedSparseTrajectoryEvidence,
+    content_addressed: PersistedSparseTrajectoryEvidence,
+) -> bool:
+    if (
+        replicated.campaign_id != content_addressed.campaign_id
+        or replicated.campaign_revision
+        != content_addressed.campaign_revision
+        or replicated.dataset_revision
+        != content_addressed.dataset_revision
+        or replicated.expert_count != content_addressed.expert_count
+        or replicated.step_count != content_addressed.step_count
+        or replicated.frozen_head_sha256
+        != content_addressed.frozen_head_sha256
+        or replicated.frozen_head_wire_sha256
+        != content_addressed.frozen_head_wire_sha256
+        or replicated.centralized_final_model_sha256
+        != content_addressed.centralized_final_model_sha256
+        or replicated.full_process_final_model_sha256
+        != content_addressed.full_process_final_model_sha256
+        or replicated.expert_process_final_model_sha256
+        != content_addressed.expert_process_final_model_sha256
+        or replicated.centralized_final_optimizer_sha256
+        != content_addressed.centralized_final_optimizer_sha256
+        or replicated.full_process_final_optimizer_sha256
+        != content_addressed.full_process_final_optimizer_sha256
+        or replicated.expert_process_final_optimizer_sha256
+        != content_addressed.expert_process_final_optimizer_sha256
+        or not replicated.all_steps_exact
+        or not content_addressed.all_steps_exact
+        or len(replicated.steps) != len(content_addressed.steps)
+    ):
+        return False
+    for baseline, candidate in zip(
+        replicated.steps,
+        content_addressed.steps,
+        strict=True,
+    ):
+        if (
+            baseline.step != candidate.step
+            or baseline.cursor != candidate.cursor
+            or baseline.routing_capacity != candidate.routing_capacity
+            or baseline.routing_counts != candidate.routing_counts
+            or baseline.unconstrained_routing_counts
+            != candidate.unconstrained_routing_counts
+            or baseline.capacity_rerouted_tokens
+            != candidate.capacity_rerouted_tokens
+            or baseline.routes_sha256 != candidate.routes_sha256
+            or baseline.centralized_pre_model_sha256
+            != candidate.centralized_pre_model_sha256
+            or baseline.full_pre_model_sha256
+            != candidate.full_pre_model_sha256
+            or baseline.expert_pre_model_sha256
+            != candidate.expert_pre_model_sha256
+            or baseline.centralized_pre_optimizer_sha256
+            != candidate.centralized_pre_optimizer_sha256
+            or baseline.full_pre_optimizer_sha256
+            != candidate.full_pre_optimizer_sha256
+            or baseline.expert_pre_optimizer_sha256
+            != candidate.expert_pre_optimizer_sha256
+            or baseline.centralized_loss != candidate.centralized_loss
+            or baseline.full_process_loss != candidate.full_process_loss
+            or baseline.expert_process_loss != candidate.expert_process_loss
+            or baseline.centralized_raw_gradient_sha256
+            != candidate.centralized_raw_gradient_sha256
+            or baseline.full_process_raw_gradient_sha256
+            != candidate.full_process_raw_gradient_sha256
+            or baseline.expert_process_raw_gradient_sha256
+            != candidate.expert_process_raw_gradient_sha256
+            or baseline.centralized_clipped_gradient_sha256
+            != candidate.centralized_clipped_gradient_sha256
+            or baseline.full_process_clipped_gradient_sha256
+            != candidate.full_process_clipped_gradient_sha256
+            or baseline.expert_process_clipped_gradient_sha256
+            != candidate.expert_process_clipped_gradient_sha256
+            or baseline.centralized_optimizer_sha256
+            != candidate.centralized_optimizer_sha256
+            or baseline.full_process_optimizer_sha256
+            != candidate.full_process_optimizer_sha256
+            or baseline.expert_process_optimizer_sha256
+            != candidate.expert_process_optimizer_sha256
+            or baseline.centralized_model_sha256
+            != candidate.centralized_model_sha256
+            or baseline.full_process_model_sha256
+            != candidate.full_process_model_sha256
+            or baseline.expert_process_model_sha256
+            != candidate.expert_process_model_sha256
+            or baseline.full_trainable_state_sha256
+            != candidate.full_trainable_state_sha256
+            or baseline.expert_trainable_state_sha256
+            != candidate.expert_trainable_state_sha256
+            or baseline.full_tensor_wire_bytes
+            != candidate.full_tensor_wire_bytes
+            or baseline.expert_tensor_wire_bytes
+            != candidate.expert_tensor_wire_bytes
+            or baseline.full_transaction.transaction_id
+            != candidate.full_transaction.transaction_id
+            or baseline.expert_transaction.transaction_id
+            != candidate.expert_transaction.transaction_id
+        ):
+            return False
+    return True
+
+
+def _content_addressed_storage_statistics(
+    topology_root: Path,
+    *,
+    topology: str,
+    replicated: PersistedSparseTrajectoryEvidence,
+    content_addressed: PersistedSparseTrajectoryEvidence,
+) -> TopologyStorageComparisonEvidence:
+    if topology not in {"full", "expert"}:
+        raise ValueError("trajectory comparison topology is invalid")
+    expected_root_entries = {"blobs"} | {
+        f"step-{step:08d}"
+        for step in range(content_addressed.step_count)
+    }
+    root_entries = tuple(topology_root.iterdir())
+    if (
+        {entry.name for entry in root_entries} != expected_root_entries
+        or any(entry.is_symlink() or not entry.is_dir() for entry in root_entries)
+    ):
+        raise ValueError(
+            "content-addressed topology contains an unexpected entry"
+        )
+    blob_dir = _validate_blob_directory(topology_root)
+    blob_entries = tuple(sorted(blob_dir.iterdir()))
+    for entry in blob_entries:
+        _read_owned_file(
+            entry,
+            expected_bytes=entry.stat().st_size,
+            expected_sha256=entry.name[: -len(".safetensors")],
+        )
+    blob_identities = {
+        (
+            entry.name[: -len(".safetensors")],
+            entry.stat().st_size,
+        )
+        for entry in blob_entries
+    }
+    references: list[tuple[str, int]] = []
+    for step in range(content_addressed.step_count):
+        transaction_dir = topology_root / f"step-{step:08d}"
+        manifest = _load_manifest(transaction_dir)
+        if not _is_content_addressed_manifest(manifest):
+            raise ValueError(
+                "content-addressed comparison found a replicated transaction"
+            )
+        _validate_transaction_root(transaction_dir, manifest)
+        pre_wire = (transaction_dir / "pre-state.json").read_bytes()
+        pre_state = _load_json_bytes(
+            pre_wire,
+            label="trajectory pre-state reference",
+        )
+        if pre_wire != _canonical_json(pre_state):
+            raise ValueError("trajectory pre-state reference is not canonical")
+        applied_wire = (
+            transaction_dir / "applied" / "state.json"
+        ).read_bytes()
+        applied_state = _load_json_bytes(
+            applied_wire,
+            label="trajectory applied checkpoint state",
+        )
+        if (
+            applied_wire != _canonical_json(applied_state)
+            or applied_state["format"] != _CONTENT_APPLIED_FORMAT
+        ):
+            raise ValueError(
+                "trajectory applied checkpoint reference is not canonical"
+            )
+        for reference in (
+            pre_state["model"],
+            pre_state["optimizer"],
+            {
+                "sha256": applied_state["model_wire_sha256"],
+                "bytes": applied_state["model_wire_bytes"],
+            },
+            {
+                "sha256": applied_state["optimizer_wire_sha256"],
+                "bytes": applied_state["optimizer_wire_bytes"],
+            },
+        ):
+            validated = _validate_blob_reference(
+                reference,
+                label="trajectory checkpoint",
+            )
+            references.append(
+                (
+                    str(validated["sha256"]),
+                    int(validated["bytes"]),
+                )
+            )
+    unique_references = set(references)
+    if unique_references != blob_identities:
+        raise ValueError(
+            "trajectory content-addressed blob membership differs from references"
+        )
+    if len(references) != content_addressed.step_count * 4:
+        raise AssertionError("trajectory checkpoint-reference count changed")
+    content_persisted = (
+        content_addressed.full_persisted_bytes
+        if topology == "full"
+        else content_addressed.expert_persisted_bytes
+    )
+    replicated_persisted = (
+        replicated.full_persisted_bytes
+        if topology == "full"
+        else replicated.expert_persisted_bytes
+    )
+    if content_persisted != _directory_file_bytes(topology_root):
+        raise AssertionError(
+            "content-addressed topology byte accounting changed"
+        )
+    reduction = replicated_persisted - content_persisted
+    baseline_steps = (
+        tuple(step.full_transaction for step in replicated.steps)
+        if topology == "full"
+        else tuple(step.expert_transaction for step in replicated.steps)
+    )
+    candidate_steps = (
+        tuple(step.full_transaction for step in content_addressed.steps)
+        if topology == "full"
+        else tuple(
+            step.expert_transaction for step in content_addressed.steps
+        )
+    )
+    baseline_final_model = (
+        replicated.full_process_final_model_sha256
+        if topology == "full"
+        else replicated.expert_process_final_model_sha256
+    )
+    candidate_final_model = (
+        content_addressed.full_process_final_model_sha256
+        if topology == "full"
+        else content_addressed.expert_process_final_model_sha256
+    )
+    baseline_final_optimizer = (
+        replicated.full_process_final_optimizer_sha256
+        if topology == "full"
+        else replicated.expert_process_final_optimizer_sha256
+    )
+    candidate_final_optimizer = (
+        content_addressed.full_process_final_optimizer_sha256
+        if topology == "full"
+        else content_addressed.expert_process_final_optimizer_sha256
+    )
+    return TopologyStorageComparisonEvidence(
+        topology=topology,
+        replicated_persisted_bytes=replicated_persisted,
+        content_addressed_persisted_bytes=content_persisted,
+        persisted_byte_reduction=reduction,
+        persisted_byte_reduction_fraction=(
+            reduction / replicated_persisted
+        ),
+        content_addressed_blob_count=len(blob_entries),
+        content_addressed_blob_bytes=sum(
+            entry.stat().st_size for entry in blob_entries
+        ),
+        checkpoint_reference_count=len(references),
+        reused_checkpoint_reference_count=(
+            len(references) - len(unique_references)
+        ),
+        transaction_ids_match=all(
+            baseline.transaction_id == candidate.transaction_id
+            for baseline, candidate in zip(
+                baseline_steps,
+                candidate_steps,
+                strict=True,
+            )
+        ),
+        final_model_sha256_match=(
+            baseline_final_model == candidate_final_model
+        ),
+        final_optimizer_sha256_match=(
+            baseline_final_optimizer == candidate_final_optimizer
+        ),
+    )
+
+
+def run_content_addressed_sparse_trajectory_comparison(
+    campaign: CampaignConfig,
+    state_dir: Path,
+    *,
+    dataset: PackedDataset | None,
+    steps: int = 3,
+    expert_count: int = 4,
+    router_aux_weight: float = 0.01,
+    timeout_seconds: float = 120.0,
+    sample_interval_seconds: float = 0.01,
+    comparison_order: str = "replicated-then-content-addressed",
+) -> ContentAddressedSparseTrajectoryComparisonEvidence:
+    validate_dataset_artifacts(campaign, dataset)
+    if campaign.dataset is None or dataset is None:
+        raise ValueError(
+            "content-addressed sparse trajectory requires dataset artifacts"
+        )
+    if comparison_order not in {
+        "replicated-then-content-addressed",
+        "content-addressed-then-replicated",
+    }:
+        raise ValueError("trajectory comparison order is invalid")
+    state_dir = state_dir.resolve()
+    if state_dir.exists():
+        if (
+            state_dir.is_symlink()
+            or not state_dir.is_dir()
+            or any(state_dir.iterdir())
+        ):
+            raise ValueError(
+                "trajectory comparison state directory must be new or empty"
+            )
+    else:
+        state_dir.mkdir(parents=True, exist_ok=False)
+    if state_dir.is_symlink():
+        raise ValueError(
+            "trajectory comparison state directory may not be a symlink"
+        )
+    def run_replicated() -> PersistedSparseTrajectoryEvidence:
+        return run_persisted_sparse_trajectory_experiment(
+            campaign,
+            state_dir / "replicated",
+            dataset=dataset,
+            steps=steps,
+            expert_count=expert_count,
+            router_aux_weight=router_aux_weight,
+            timeout_seconds=timeout_seconds,
+            sample_interval_seconds=sample_interval_seconds,
+        )
+
+    def run_content_addressed() -> PersistedSparseTrajectoryEvidence:
+        return run_content_addressed_sparse_trajectory_experiment(
+            campaign,
+            state_dir / "content-addressed",
+            dataset=dataset,
+            steps=steps,
+            expert_count=expert_count,
+            router_aux_weight=router_aux_weight,
+            timeout_seconds=timeout_seconds,
+            sample_interval_seconds=sample_interval_seconds,
+        )
+
+    if comparison_order == "replicated-then-content-addressed":
+        replicated = run_replicated()
+        content_addressed = run_content_addressed()
+    else:
+        content_addressed = run_content_addressed()
+        replicated = run_replicated()
+    full_storage = _content_addressed_storage_statistics(
+        state_dir / "content-addressed" / "full",
+        topology="full",
+        replicated=replicated,
+        content_addressed=content_addressed,
+    )
+    expert_storage = _content_addressed_storage_statistics(
+        state_dir / "content-addressed" / "expert",
+        topology="expert",
+        replicated=replicated,
+        content_addressed=content_addressed,
+    )
+    semantic_match = _semantic_trajectory_evidence_matches(
+        replicated,
+        content_addressed,
+    )
+    transaction_ids_match = (
+        full_storage.transaction_ids_match
+        and expert_storage.transaction_ids_match
+    )
+    if not semantic_match or not transaction_ids_match:
+        raise AssertionError(
+            "content-addressed trajectory differs from replicated control"
+        )
+    return ContentAddressedSparseTrajectoryComparisonEvidence(
+        format=_CONTENT_COMPARISON_FORMAT,
+        comparison_order=comparison_order,
+        byte_accounting_scope=(
+            "sum-of-regular-file-payload-bytes-under-each-topology-root-"
+            "including-shared-blobs-and-excluding-directory-metadata-and-"
+            "filesystem-block-allocation"
+        ),
+        replicated=replicated,
+        content_addressed=content_addressed,
+        full_storage=full_storage,
+        expert_storage=expert_storage,
+        all_steps_exact=True,
+        transaction_ids_match=True,
+        limitations=(
+            "trusted local spawned processes and one child at a time",
+            "no remote transport or concurrent coordinator contention",
+            "no blob garbage collection or interrupted-blob cleanup",
+            "file payload bytes are not filesystem block allocation",
+            "complete elapsed and recovery timings remain host observations",
+            "no practical model-quality or donated-compute claim",
+        ),
     )
 
 

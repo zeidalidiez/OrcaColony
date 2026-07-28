@@ -7,7 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from orcacolony import sparse_expert_trajectory
+from orcacolony import (
+    sparse_expert_content_store,
+    sparse_expert_trajectory,
+)
 from orcacolony.artifacts import PackedDataset, build_dataset_artifacts
 from orcacolony.reference import (
     CampaignConfig,
@@ -21,6 +24,8 @@ from orcacolony.sparse_expert_trajectory import (
     _load_manifest,
     _reconcile_results,
     _validate_applied_checkpoint,
+    _validate_transaction_root,
+    run_content_addressed_sparse_trajectory_comparison,
     run_persisted_sparse_trajectory_experiment,
 )
 
@@ -354,3 +359,165 @@ def test_persisted_sparse_trajectory_rejects_invalid_controls(
             expert_count=2,
             sample_interval_seconds=0.5,
         )
+
+
+def test_content_addressed_trajectory_reuses_checkpoint_blobs_and_recovers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    campaign, dataset = _dataset_campaign(tmp_path)
+    state_dir = tmp_path / "content-addressed-comparison"
+    evidence = run_content_addressed_sparse_trajectory_comparison(
+        campaign,
+        state_dir,
+        dataset=dataset,
+        steps=2,
+        expert_count=2,
+        timeout_seconds=30.0,
+        sample_interval_seconds=0.005,
+        comparison_order="content-addressed-then-replicated",
+    )
+
+    assert evidence.format == (
+        "orcacolony_content_addressed_sparse_trajectory_comparison_v1"
+    )
+    assert evidence.comparison_order == (
+        "content-addressed-then-replicated"
+    )
+    assert evidence.all_steps_exact is True
+    assert evidence.transaction_ids_match is True
+    assert evidence.replicated.all_steps_exact is True
+    assert evidence.content_addressed.all_steps_exact is True
+    assert evidence.content_addressed.format == (
+        "orcacolony_content_addressed_sparse_trajectory_evidence_v1"
+    )
+    recovery = evidence.content_addressed.coordinator_recovery
+    assert recovery.recovered_from_published_checkpoint is True
+    assert recovery.new_process_loaded_only_persisted_state is True
+    assert recovery.duplicate_apply_rejected is True
+
+    for storage in (evidence.full_storage, evidence.expert_storage):
+        assert storage.replicated_persisted_bytes > (
+            storage.content_addressed_persisted_bytes
+        )
+        assert storage.persisted_byte_reduction > 0
+        assert 0.0 < storage.persisted_byte_reduction_fraction < 1.0
+        assert storage.content_addressed_blob_count == 6
+        assert storage.content_addressed_blob_bytes > 0
+        assert storage.checkpoint_reference_count == 8
+        assert storage.reused_checkpoint_reference_count == 2
+        assert storage.transaction_ids_match is True
+        assert storage.final_model_sha256_match is True
+        assert storage.final_optimizer_sha256_match is True
+
+    candidate_root = state_dir / "content-addressed"
+    for topology in ("full", "expert"):
+        topology_root = candidate_root / topology
+        assert len(tuple((topology_root / "blobs").iterdir())) == 6
+        for step in range(2):
+            transaction_dir = topology_root / f"step-{step:08d}"
+            assert not (transaction_dir / "pre-model.safetensors").exists()
+            assert not (
+                transaction_dir / "pre-optimizer.safetensors"
+            ).exists()
+            assert {entry.name for entry in transaction_dir.iterdir()} == {
+                "manifest.json",
+                "pre-state.json",
+                "batch.safetensors",
+                "results",
+                "applied",
+            }
+            assert {
+                entry.name for entry in (transaction_dir / "applied").iterdir()
+            } == {"state.json"}
+        first_applied = json.loads(
+            (
+                topology_root
+                / "step-00000000"
+                / "applied"
+                / "state.json"
+            ).read_text(encoding="utf-8")
+        )
+        second_pre = json.loads(
+            (
+                topology_root
+                / "step-00000001"
+                / "pre-state.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert first_applied["model_wire_sha256"] == (
+            second_pre["model"]["sha256"]
+        )
+        assert first_applied["optimizer_wire_sha256"] == (
+            second_pre["optimizer"]["sha256"]
+        )
+
+    final_expert_transaction = (
+        candidate_root / "expert" / "step-00000001"
+    )
+    candidate = _compute_transaction_candidate(
+        campaign,
+        final_expert_transaction,
+        allow_applied=True,
+    )
+    applied_state = candidate.applied_state
+    applied_blob = (
+        candidate_root
+        / "expert"
+        / "blobs"
+        / f"{applied_state['model_wire_sha256']}.safetensors"
+    )
+    original_blob = applied_blob.read_bytes()
+    applied_blob.write_bytes(
+        original_blob[:-1] + bytes([original_blob[-1] ^ 1])
+    )
+    with pytest.raises(ValueError, match="digest changed"):
+        _validate_applied_checkpoint(
+            final_expert_transaction,
+            candidate,
+        )
+    applied_blob.write_bytes(original_blob)
+
+    first_full_transaction = (
+        candidate_root / "full" / "step-00000000"
+    )
+    reference_path = first_full_transaction / "pre-state.json"
+    reference_wire = reference_path.read_bytes()
+    reference_path.write_bytes(b" " + reference_wire)
+    manifest = _load_manifest(first_full_transaction)
+    with pytest.raises(ValueError, match="reference schema"):
+        _validate_transaction_root(first_full_transaction, manifest)
+    reference_path.write_bytes(reference_wire)
+
+    campaign_path = tmp_path / "campaign-content.json"
+    campaign_path.write_text(
+        json.dumps(campaign_to_mapping(campaign), indent=2) + "\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "content-evidence.json"
+    monkeypatch.setattr(
+        sparse_expert_content_store,
+        "run_content_addressed_sparse_trajectory_comparison",
+        lambda *_args, **_kwargs: evidence,
+    )
+    sparse_expert_content_store.main(
+        [
+            "--config",
+            str(campaign_path),
+            "--dataset",
+            str(dataset.root),
+            "--state",
+            str(tmp_path / "content-cli-state"),
+            "--steps",
+            "2",
+            "--expert-count",
+            "2",
+            "--comparison-order",
+            "content-addressed-then-replicated",
+            "--output",
+            str(output),
+        ]
+    )
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["format"] == evidence.format
+    assert payload["transaction_ids_match"] is True

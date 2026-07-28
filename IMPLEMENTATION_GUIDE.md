@@ -154,6 +154,40 @@ expert tensor traffic falls 45.68% and maximum child VmHWM falls
 bytes fall only 7.12%. These are local systems measurements, not model-quality
 evidence.
 
+### P7 content-addressed checkpoint control
+
+The next bounded control retains the replicated transaction above and runs a
+second trajectory whose model and optimizer checkpoints live in separate
+topology-local immutable blob stores. Transaction pre-state and applied-state
+files reference exact safetensors SHA-256 and byte lengths. Full-process and
+pooled-expert stores are not shared, so the comparison paths remain
+independent.
+
+Run the paired control with a fresh state root:
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+  uv run python -m orcacolony.sparse_expert_content_store \
+  --config campaign/t1-tinystories-system-proof.json \
+  --dataset .artifacts/p7-trajectory-dataset \
+  --state .artifacts/p7-content-store-primary-state \
+  --steps 3 --expert-count 4 --router-aux-weight 0.01 \
+  --timeout-seconds 120 --sample-interval-seconds 0.01 \
+  --comparison-order replicated-then-content-addressed \
+  --output .artifacts/p7-content-store-primary.json
+```
+
+Use `content-addressed-then-replicated` for the independent repeat so fixed
+execution order does not decide the timing comparison. Both orders keep at most
+one child process alive. The command verifies matched transaction IDs and exact
+model, optimizer, gradient, route, and loss identities before it reports
+storage reduction. Persisted-byte accounting sums regular-file payload lengths
+under each topology root, including shared blobs but excluding directory
+metadata and filesystem block allocation. This slice does not add garbage
+collection, concurrent coordinators, remote workers, model-quality evaluation,
+or contributor claims.
+
 ## Historical Record Patch prototype
 
 [`capability/record-patch-v1/TASK.md`](capability/record-patch-v1/TASK.md)

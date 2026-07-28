@@ -2,9 +2,9 @@
 
 **Last updated:** 2026-07-28
 
-**Repository version:** [`0.1.8`](VERSION)
+**Repository version:** [`0.1.9`](VERSION)
 
-**Current phase:** P7 persisted multi-step local control qualified at T1; durable-state cost is the next systems boundary
+**Current phase:** P7 content-addressed durable state passes the bounded T0 control; the paired T1 measurement is next
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -327,7 +327,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P7 — Explore sparse experts and other advanced topologies
 
-**Status:** Active research - persisted multi-step local control qualified at T1
+**Status:** Active research - content-addressed T0 control implemented; paired T1 measurement pending
 
 - Expert-sharded or sparse models.
 - Router and shared-trunk training.
@@ -453,23 +453,42 @@ Completed within the first P3 measurement and native-baseline slice:
   child-memory-only, three-step systems control. It does not establish model
   quality, concurrent throughput, aggregate memory, remote trust, or donated
   computation.
+- Added a separate content-addressed trajectory path while retaining the
+  Report 015 command and replicated transaction format as the control. Each
+  topology owns an independent immutable blob directory keyed by the raw
+  safetensors SHA-256. A transaction stores a canonical pre-state reference,
+  and its applied state references the same blob identities instead of copying
+  model and optimizer payloads into both transaction directories.
+- The transaction ID remains a digest of the unchanged semantic work identity,
+  so matched replicated and content-addressed transactions retain the same
+  IDs. The new layout preserves the prepared, results-accepted, and applied
+  phases, atomic applied-state publication, fresh-process recovery, and
+  duplicate-apply rejection. It uses neither hard links nor cross-topology
+  sharing, so mutation cannot silently couple the two comparison paths.
+- The bounded two-step T0 comparison passed exact model, gradient, clipping,
+  AdamW, routing, worker-loss, coordinator-recovery, and tamper checks. Each
+  topology resolved eight checkpoint references through six unique blobs,
+  reusing the first applied checkpoint as the second pre-state. This is an
+  implementation qualification, not the planned T1 resource finding.
 
 ## Immediate next bounded target
 
-Retain the exact transaction and recovery gates while testing one bounded
-durable-state reduction. Content-address or deduplicate immutable checkpoint
-tensors, then repeat the T1 trajectory and measure persisted bytes, complete
-elapsed time, and recovery time against Report 015. Do not add remote or
-concurrent workers until the local transaction retains exact at-most-once
-semantics under the reduced state representation.
+Run primary and repeat one-thread T1 comparisons from the merged
+content-addressed implementation. Each comparison must execute the unchanged
+replicated layout and the content-addressed layout sequentially in opposite
+orders, retain exact transaction IDs and model state, and measure physical file
+payload bytes, complete elapsed time, and fresh-process recovery time. Publish
+the raw records, study, queries, and agent findings only after the
+implementation revision is fixed. Do not add remote or concurrent workers in
+this slice.
 
 ## Remaining major work
 
-- Reduce duplicated durable state in the qualified P7 trajectory without
-  weakening exact recovery or at-most-once apply. Use the measured result to
-  decide whether a later systems slice should address remote transport,
-  concurrent expert residency, or a different topology. Quality qualification
-  belongs to a separately defined owner-directed campaign.
+- Measure the implemented content-addressed P7 trajectory at T1 and use that
+  result to decide whether a later systems slice should address recovery
+  recomputation, retained-state growth and garbage collection, remote
+  transport, concurrent expert residency, or a different topology. Quality
+  qualification belongs to a separately defined owner-directed campaign.
 - Run the first practical campaign after its owner supplies the model, data,
   training recipe, usage scenario, evaluator, metrics, comparisons, publication
   settings, and participants. No default task or model size is selected by the
@@ -516,6 +535,22 @@ semantics under the reduced state representation.
 
 ### 2026-07-28
 
+- Added a topology-local content-addressed checkpoint representation and a
+  separate matched comparison command. The legacy replicated command remains
+  unchanged. Canonical references resolve immutable safetensors blobs by
+  SHA-256 and byte length; closed-directory, canonical-JSON, blob-membership,
+  digest, and physical-byte accounting checks fail closed.
+- The focused T0 gate passed all three sparse-trajectory tests in 38.28
+  seconds with one compute thread. It includes a sequential replicated versus
+  content-addressed comparison, exact semantic and transaction identity,
+  worker and coordinator recovery, duplicate-apply rejection, blob tamper
+  rejection, noncanonical-reference rejection, and command-line
+  serialization. T1 measurement and publication remain intentionally pending
+  until this version is merged.
+- The version `0.1.9` repository gate passed all `328` tests in 177.93 seconds
+  with one compute thread. Version synchronization and progression, source and
+  test compilation, the new command-line path, and diff whitespace checks also
+  passed.
 - Published primary and repeat persisted-trajectory records at SHA-256
   `17292d431208f5d9078c6bacc3ffad0ce6db000355a2ce8047c60ab88756c123`
   and
