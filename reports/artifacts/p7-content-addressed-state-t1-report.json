@@ -1,0 +1,856 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Content-addressed checkpoints remove repeated state safely",
+    "description": "Technical findings from the paired P7 T1 replicated and content-addressed checkpoint-storage control.",
+    "generatedAt": "2026-07-30T03:28:09Z",
+    "cards": [
+      {
+        "id": "full_storage_card",
+        "description": "Three-step full-process topology, including the topology-local blob store.",
+        "dataset": "headline",
+        "sourceId": "headline_query",
+        "metrics": [
+          {
+            "label": "Content-addressed bytes",
+            "field": "full_content_addressed_bytes",
+            "format": "compact",
+            "unit": "bytes"
+          },
+          {
+            "label": "Reduction",
+            "field": "full_reduction_fraction",
+            "format": "percent"
+          },
+          {
+            "label": "Bytes removed",
+            "field": "full_reduction_bytes",
+            "format": "compact",
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "id": "expert_storage_card",
+        "description": "Three-step pooled-expert topology, including the topology-local blob store.",
+        "dataset": "headline",
+        "sourceId": "headline_query",
+        "metrics": [
+          {
+            "label": "Content-addressed bytes",
+            "field": "expert_content_addressed_bytes",
+            "format": "compact",
+            "unit": "bytes"
+          },
+          {
+            "label": "Reduction",
+            "field": "expert_reduction_fraction",
+            "format": "percent"
+          },
+          {
+            "label": "Bytes removed",
+            "field": "expert_reduction_bytes",
+            "format": "compact",
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "id": "exactness_card",
+        "description": "Centralized, full-process, and pooled-expert identity checks for both layouts and both run orders.",
+        "dataset": "headline",
+        "sourceId": "headline_query",
+        "metrics": [
+          {
+            "label": "Exact layout/run/steps",
+            "field": "exact_layout_run_steps",
+            "format": "number"
+          },
+          {
+            "label": "Compared layout/run/steps",
+            "field": "compared_layout_run_steps",
+            "format": "number"
+          },
+          {
+            "label": "Storage repeated",
+            "field": "storage_repeated_exactly",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "reuse_card",
+        "description": "Reference and unique-blob counts within each independent topology-local store.",
+        "dataset": "headline",
+        "sourceId": "headline_query",
+        "metrics": [
+          {
+            "label": "Checkpoint references",
+            "field": "checkpoint_references_per_topology",
+            "format": "number"
+          },
+          {
+            "label": "Unique blobs",
+            "field": "unique_blobs_per_topology",
+            "format": "number"
+          },
+          {
+            "label": "Reused references",
+            "field": "reused_references_per_topology",
+            "format": "number"
+          }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "storage_chart",
+        "title": "Persisted file payload by topology and layout",
+        "subtitle": "The opposite-order repeat reproduced every byte total exactly.",
+        "type": "bar",
+        "dataset": "storage",
+        "sourceId": "storage_query",
+        "valueFormat": "compact",
+        "unit": "bytes",
+        "xAxisTitle": "Execution topology",
+        "yAxisTitle": "Persisted regular-file payload bytes",
+        "encodings": {
+          "x": {
+            "field": "topology",
+            "type": "nominal",
+            "label": "Execution topology"
+          },
+          "y": {
+            "field": "persisted_bytes",
+            "type": "quantitative",
+            "label": "Persisted bytes",
+            "format": "compact",
+            "unit": "bytes"
+          },
+          "color": {
+            "field": "layout",
+            "type": "nominal",
+            "label": "Storage layout"
+          },
+          "tooltip": [
+            {
+              "field": "reduction_fraction",
+              "type": "quantitative",
+              "label": "Reduction versus replicated",
+              "format": "percent"
+            },
+            {
+              "field": "repeat_matches",
+              "type": "quantitative",
+              "label": "Repeat matches",
+              "format": "number"
+            }
+          ]
+        }
+      },
+      {
+        "id": "timing_chart",
+        "title": "Content-addressed elapsed-time change by run",
+        "subtitle": "All three directions reverse when execution order is reversed.",
+        "type": "bar",
+        "dataset": "timing",
+        "sourceId": "timing_query",
+        "valueFormat": "percent",
+        "xAxisTitle": "Measured lifecycle",
+        "yAxisTitle": "Change versus replicated layout",
+        "encodings": {
+          "x": {
+            "field": "metric",
+            "type": "nominal",
+            "label": "Measured lifecycle"
+          },
+          "y": {
+            "field": "candidate_change_fraction",
+            "type": "quantitative",
+            "label": "Candidate change",
+            "format": "percent"
+          },
+          "color": {
+            "field": "run_label",
+            "type": "nominal",
+            "label": "Run order"
+          },
+          "tooltip": [
+            {
+              "field": "baseline_seconds",
+              "type": "quantitative",
+              "label": "Replicated seconds",
+              "format": "number",
+              "unit": "seconds"
+            },
+            {
+              "field": "candidate_seconds",
+              "type": "quantitative",
+              "label": "Content-addressed seconds",
+              "format": "number",
+              "unit": "seconds"
+            }
+          ]
+        }
+      }
+    ],
+    "tables": [
+      {
+        "id": "storage_table",
+        "title": "Exact storage accounting",
+        "subtitle": "Regular-file payload bytes under each independent topology root; directory metadata and block allocation are excluded.",
+        "dataset": "storage",
+        "sourceId": "storage_query",
+        "density": "spacious",
+        "defaultSort": {
+          "field": "persisted_bytes",
+          "direction": "desc"
+        },
+        "columns": [
+          {
+            "field": "topology",
+            "label": "Topology",
+            "type": "text"
+          },
+          {
+            "field": "layout",
+            "label": "Layout",
+            "type": "text"
+          },
+          {
+            "field": "persisted_bytes",
+            "label": "Persisted bytes",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "reduction_bytes",
+            "label": "Bytes removed",
+            "format": "number",
+            "unit": "bytes",
+            "align": "right"
+          },
+          {
+            "field": "reduction_fraction",
+            "label": "Reduction",
+            "format": "percent",
+            "align": "right"
+          },
+          {
+            "field": "repeat_matches",
+            "label": "Repeat matches",
+            "format": "number",
+            "align": "right"
+          }
+        ]
+      },
+      {
+        "id": "exactness_table",
+        "title": "Layout, run, and step exactness audit",
+        "subtitle": "Twelve rows compare centralized, full-process, and pooled-expert gradient and state identities.",
+        "dataset": "exactness",
+        "sourceId": "exactness_query",
+        "density": "dense",
+        "defaultSort": {
+          "field": "step",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "run_label",
+            "label": "Run",
+            "type": "text"
+          },
+          {
+            "field": "layout",
+            "label": "Layout",
+            "type": "text"
+          },
+          {
+            "field": "step",
+            "label": "Step",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "cursor",
+            "label": "Cursor",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "exact",
+            "label": "Exact",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "transaction_ids_match",
+            "label": "Transaction IDs match",
+            "format": "number",
+            "align": "right"
+          }
+        ]
+      },
+      {
+        "id": "recovery_table",
+        "title": "Worker and coordinator recovery audit",
+        "subtitle": "Both layouts pass the same durable-result, fresh-process, and at-most-once gates in both runs.",
+        "dataset": "recovery",
+        "sourceId": "recovery_query",
+        "density": "dense",
+        "defaultSort": {
+          "field": "recovery_seconds",
+          "direction": "desc"
+        },
+        "columns": [
+          {
+            "field": "run_label",
+            "label": "Run",
+            "type": "text"
+          },
+          {
+            "field": "layout",
+            "label": "Layout",
+            "type": "text"
+          },
+          {
+            "field": "persisted_result_survived_loss",
+            "label": "Result survived",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "recomputed_persisted_result",
+            "label": "Result recomputed",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "fresh_process_only_persisted_state",
+            "label": "Fresh-process load",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "duplicate_apply_rejected",
+            "label": "Duplicate rejected",
+            "format": "number",
+            "align": "right"
+          },
+          {
+            "field": "recovery_seconds",
+            "label": "Recovery time",
+            "format": "number",
+            "unit": "seconds",
+            "align": "right"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "headline_query",
+        "label": "Content-addressed state headline query",
+        "path": "reports/queries/p7-content-addressed-state-headline.sql",
+        "query": {
+          "description": "Calculate storage reductions, exact comparison coverage, repeat identity, and checkpoint-reference reuse.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-30T03:28:09Z",
+          "language": "sql",
+          "sql": "WITH runs AS (\n  SELECT\n    source_path,\n    json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path IN (\n    'reports/evidence/p7-content-addressed-state-t1.json',\n    'reports/evidence/p7-content-addressed-state-t1-repeat.json'\n  )\n),\nrun_layouts AS (\n  SELECT source_path, doc, '$.replicated' AS layout_path\n  FROM runs\n  UNION ALL\n  SELECT source_path, doc, '$.content_addressed'\n  FROM runs\n),\nprimary_run AS (\n  SELECT doc\n  FROM runs\n  WHERE source_path = 'reports/evidence/p7-content-addressed-state-t1.json'\n),\nrepeat_run AS (\n  SELECT doc\n  FROM runs\n  WHERE source_path = 'reports/evidence/p7-content-addressed-state-t1-repeat.json'\n)\nSELECT\n  (\n    SELECT sum(\n      CASE\n        WHEN json_extract(doc, layout_path || '.all_steps_exact') = 1\n        THEN json_array_length(json_extract(doc, layout_path || '.steps'))\n        ELSE 0\n      END\n    )\n    FROM run_layouts\n  ) AS exact_layout_run_steps,\n  (\n    SELECT sum(json_array_length(json_extract(doc, layout_path || '.steps')))\n    FROM run_layouts\n  ) AS compared_layout_run_steps,\n  2 AS independent_runs,\n  json_extract(p.doc, '$.full_storage.replicated_persisted_bytes')\n    AS full_replicated_bytes,\n  json_extract(p.doc, '$.full_storage.content_addressed_persisted_bytes')\n    AS full_content_addressed_bytes,\n  json_extract(p.doc, '$.full_storage.persisted_byte_reduction')\n    AS full_reduction_bytes,\n  json_extract(p.doc, '$.full_storage.persisted_byte_reduction_fraction')\n    AS full_reduction_fraction,\n  json_extract(p.doc, '$.expert_storage.replicated_persisted_bytes')\n    AS expert_replicated_bytes,\n  json_extract(p.doc, '$.expert_storage.content_addressed_persisted_bytes')\n    AS expert_content_addressed_bytes,\n  json_extract(p.doc, '$.expert_storage.persisted_byte_reduction')\n    AS expert_reduction_bytes,\n  json_extract(p.doc, '$.expert_storage.persisted_byte_reduction_fraction')\n    AS expert_reduction_fraction,\n  json_extract(p.doc, '$.full_storage.replicated_persisted_bytes')\n    + json_extract(p.doc, '$.expert_storage.replicated_persisted_bytes')\n    AS combined_replicated_bytes,\n  json_extract(p.doc, '$.full_storage.content_addressed_persisted_bytes')\n    + json_extract(p.doc, '$.expert_storage.content_addressed_persisted_bytes')\n    AS combined_content_addressed_bytes,\n  json_extract(p.doc, '$.full_storage.persisted_byte_reduction')\n    + json_extract(p.doc, '$.expert_storage.persisted_byte_reduction')\n    AS combined_reduction_bytes,\n  1.0 - 1.0 * (\n    json_extract(p.doc, '$.full_storage.content_addressed_persisted_bytes')\n      + json_extract(\n        p.doc,\n        '$.expert_storage.content_addressed_persisted_bytes'\n      )\n  ) / (\n    json_extract(p.doc, '$.full_storage.replicated_persisted_bytes')\n      + json_extract(p.doc, '$.expert_storage.replicated_persisted_bytes')\n  ) AS combined_reduction_fraction,\n  json_extract(p.doc, '$.full_storage.content_addressed_blob_count')\n    AS unique_blobs_per_topology,\n  json_extract(p.doc, '$.full_storage.checkpoint_reference_count')\n    AS checkpoint_references_per_topology,\n  json_extract(p.doc, '$.full_storage.reused_checkpoint_reference_count')\n    AS reused_references_per_topology,\n  CASE\n    WHEN json_extract(p.doc, '$.full_storage')\n      = json_extract(r.doc, '$.full_storage')\n    AND json_extract(p.doc, '$.expert_storage')\n      = json_extract(r.doc, '$.expert_storage')\n    THEN 1\n    ELSE 0\n  END AS storage_repeated_exactly,\n  CASE\n    WHEN json_extract(p.doc, '$.all_steps_exact') = 1\n    AND json_extract(r.doc, '$.all_steps_exact') = 1\n    AND json_extract(p.doc, '$.transaction_ids_match') = 1\n    AND json_extract(r.doc, '$.transaction_ids_match') = 1\n    THEN 1\n    ELSE 0\n  END AS identity_guardrails_passed\nFROM primary_run p\nCROSS JOIN repeat_run r;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path IN (reports/evidence/p7-content-addressed-state-t1.json, reports/evidence/p7-content-addressed-state-t1-repeat.json)"
+          ],
+          "metric_definitions": [
+            "Persisted-byte reduction equals replicated regular-file payload bytes minus content-addressed regular-file payload bytes within one topology root.",
+            "Reduction fraction equals persisted-byte reduction divided by replicated persisted bytes.",
+            "An exact layout-run-step matches centralized raw and clipped gradients, AdamW state, complete model state, and loss."
+          ]
+        }
+      },
+      {
+        "id": "storage_query",
+        "label": "Content-addressed state storage query",
+        "path": "reports/queries/p7-content-addressed-state-storage.sql",
+        "query": {
+          "description": "Return replicated and content-addressed persisted bytes for the full-process and pooled-expert topology controls.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-30T03:28:09Z",
+          "language": "sql",
+          "sql": "WITH primary_run AS (\n  SELECT json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path = 'reports/evidence/p7-content-addressed-state-t1.json'\n),\nrepeat_run AS (\n  SELECT json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path = 'reports/evidence/p7-content-addressed-state-t1-repeat.json'\n),\nstorage_rows AS (\n  SELECT\n    0 AS topology_order,\n    0 AS layout_order,\n    'Full process' AS topology,\n    'Replicated' AS layout,\n    json_extract(p.doc, '$.full_storage.replicated_persisted_bytes')\n      AS persisted_bytes,\n    0 AS reduction_bytes,\n    0.0 AS reduction_fraction,\n    CASE\n      WHEN json_extract(p.doc, '$.full_storage.replicated_persisted_bytes')\n        = json_extract(r.doc, '$.full_storage.replicated_persisted_bytes')\n      THEN 1 ELSE 0\n    END AS repeat_matches\n  FROM primary_run p CROSS JOIN repeat_run r\n\n  UNION ALL\n\n  SELECT\n    0,\n    1,\n    'Full process',\n    'Content addressed',\n    json_extract(p.doc, '$.full_storage.content_addressed_persisted_bytes'),\n    json_extract(p.doc, '$.full_storage.persisted_byte_reduction'),\n    json_extract(p.doc, '$.full_storage.persisted_byte_reduction_fraction'),\n    CASE\n      WHEN json_extract(\n        p.doc,\n        '$.full_storage.content_addressed_persisted_bytes'\n      ) = json_extract(\n        r.doc,\n        '$.full_storage.content_addressed_persisted_bytes'\n      )\n      THEN 1 ELSE 0\n    END\n  FROM primary_run p CROSS JOIN repeat_run r\n\n  UNION ALL\n\n  SELECT\n    1,\n    0,\n    'Pooled expert',\n    'Replicated',\n    json_extract(p.doc, '$.expert_storage.replicated_persisted_bytes'),\n    0,\n    0.0,\n    CASE\n      WHEN json_extract(p.doc, '$.expert_storage.replicated_persisted_bytes')\n        = json_extract(r.doc, '$.expert_storage.replicated_persisted_bytes')\n      THEN 1 ELSE 0\n    END\n  FROM primary_run p CROSS JOIN repeat_run r\n\n  UNION ALL\n\n  SELECT\n    1,\n    1,\n    'Pooled expert',\n    'Content addressed',\n    json_extract(p.doc, '$.expert_storage.content_addressed_persisted_bytes'),\n    json_extract(p.doc, '$.expert_storage.persisted_byte_reduction'),\n    json_extract(p.doc, '$.expert_storage.persisted_byte_reduction_fraction'),\n    CASE\n      WHEN json_extract(\n        p.doc,\n        '$.expert_storage.content_addressed_persisted_bytes'\n      ) = json_extract(\n        r.doc,\n        '$.expert_storage.content_addressed_persisted_bytes'\n      )\n      THEN 1 ELSE 0\n    END\n  FROM primary_run p CROSS JOIN repeat_run r\n)\nSELECT\n  topology,\n  layout,\n  persisted_bytes,\n  reduction_bytes,\n  reduction_fraction,\n  repeat_matches\nFROM storage_rows\nORDER BY topology_order, layout_order;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path IN (reports/evidence/p7-content-addressed-state-t1.json, reports/evidence/p7-content-addressed-state-t1-repeat.json)"
+          ],
+          "metric_definitions": [
+            "Persisted bytes sum regular-file payload lengths under the topology root, including its shared blob directory and excluding directory metadata and block allocation.",
+            "Repeat matches is one when the opposite-order run reproduces the same persisted-byte value."
+          ]
+        }
+      },
+      {
+        "id": "timing_query",
+        "label": "Content-addressed state timing query",
+        "path": "reports/queries/p7-content-addressed-state-timing.sql",
+        "query": {
+          "description": "Compare full, expert, and fresh-coordinator recovery elapsed times in two runs with opposite execution orders.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-30T03:28:09Z",
+          "language": "sql",
+          "sql": "WITH runs AS (\n  SELECT\n    CASE source_path\n      WHEN 'reports/evidence/p7-content-addressed-state-t1.json' THEN 0\n      ELSE 1\n    END AS run_order,\n    CASE source_path\n      WHEN 'reports/evidence/p7-content-addressed-state-t1.json'\n        THEN 'Primary: replicated first'\n      ELSE 'Repeat: content addressed first'\n    END AS run_label,\n    json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path IN (\n    'reports/evidence/p7-content-addressed-state-t1.json',\n    'reports/evidence/p7-content-addressed-state-t1-repeat.json'\n  )\n),\ntiming_rows AS (\n  SELECT\n    run_order,\n    run_label,\n    0 AS metric_order,\n    'Full elapsed' AS metric,\n    json_extract(doc, '$.replicated.full_process_end_to_end_seconds')\n      AS baseline_seconds,\n    json_extract(doc, '$.content_addressed.full_process_end_to_end_seconds')\n      AS candidate_seconds\n  FROM runs\n\n  UNION ALL\n\n  SELECT\n    run_order,\n    run_label,\n    1,\n    'Expert elapsed',\n    json_extract(doc, '$.replicated.expert_process_end_to_end_seconds'),\n    json_extract(doc, '$.content_addressed.expert_process_end_to_end_seconds')\n  FROM runs\n\n  UNION ALL\n\n  SELECT\n    run_order,\n    run_label,\n    2,\n    'Recovery elapsed',\n    json_extract(doc, '$.replicated.coordinator_recovery.recovery_seconds'),\n    json_extract(\n      doc,\n      '$.content_addressed.coordinator_recovery.recovery_seconds'\n    )\n  FROM runs\n)\nSELECT\n  run_label,\n  metric,\n  baseline_seconds,\n  candidate_seconds,\n  1.0 * candidate_seconds / baseline_seconds - 1.0\n    AS candidate_change_fraction\nFROM timing_rows\nORDER BY metric_order, run_order;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path IN (reports/evidence/p7-content-addressed-state-t1.json, reports/evidence/p7-content-addressed-state-t1-repeat.json)"
+          ],
+          "metric_definitions": [
+            "Candidate change equals content-addressed seconds divided by replicated seconds minus one within the same run.",
+            "Complete topology time includes coordinator preparation, worker IPC, persistence, apply, recovery, and shutdown."
+          ]
+        }
+      },
+      {
+        "id": "exactness_query",
+        "label": "Content-addressed state exactness query",
+        "path": "reports/queries/p7-content-addressed-state-exactness.sql",
+        "query": {
+          "description": "Audit all twelve run, layout, and step rows for exact gradient, optimizer, model, and transaction identities.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-30T03:28:09Z",
+          "language": "sql",
+          "sql": "WITH runs AS (\n  SELECT\n    CASE source_path\n      WHEN 'reports/evidence/p7-content-addressed-state-t1.json' THEN 0\n      ELSE 1\n    END AS run_order,\n    CASE source_path\n      WHEN 'reports/evidence/p7-content-addressed-state-t1.json' THEN 'Primary'\n      ELSE 'Repeat'\n    END AS run_label,\n    json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path IN (\n    'reports/evidence/p7-content-addressed-state-t1.json',\n    'reports/evidence/p7-content-addressed-state-t1-repeat.json'\n  )\n),\nlayouts AS (\n  SELECT\n    run_order,\n    run_label,\n    doc,\n    0 AS layout_order,\n    'Replicated' AS layout,\n    '$.replicated' AS layout_path\n  FROM runs\n\n  UNION ALL\n\n  SELECT\n    run_order,\n    run_label,\n    doc,\n    1,\n    'Content addressed',\n    '$.content_addressed'\n  FROM runs\n),\nstep_rows AS (\n  SELECT\n    run_order,\n    run_label,\n    layout_order,\n    layout,\n    doc,\n    step.value AS step_doc\n  FROM layouts\n  CROSS JOIN json_each(json_extract(doc, layout_path || '.steps')) AS step\n)\nSELECT\n  run_label,\n  layout,\n  json_extract(step_doc, '$.step') AS step,\n  json_extract(step_doc, '$.cursor') AS cursor,\n  CASE\n    WHEN json_extract(step_doc, '$.centralized_raw_gradient_sha256')\n      = json_extract(step_doc, '$.full_process_raw_gradient_sha256')\n    AND json_extract(step_doc, '$.centralized_raw_gradient_sha256')\n      = json_extract(step_doc, '$.expert_process_raw_gradient_sha256')\n    AND json_extract(step_doc, '$.centralized_clipped_gradient_sha256')\n      = json_extract(step_doc, '$.full_process_clipped_gradient_sha256')\n    AND json_extract(step_doc, '$.centralized_clipped_gradient_sha256')\n      = json_extract(step_doc, '$.expert_process_clipped_gradient_sha256')\n    AND json_extract(step_doc, '$.centralized_optimizer_sha256')\n      = json_extract(step_doc, '$.full_process_optimizer_sha256')\n    AND json_extract(step_doc, '$.centralized_optimizer_sha256')\n      = json_extract(step_doc, '$.expert_process_optimizer_sha256')\n    AND json_extract(step_doc, '$.centralized_model_sha256')\n      = json_extract(step_doc, '$.full_process_model_sha256')\n    AND json_extract(step_doc, '$.centralized_model_sha256')\n      = json_extract(step_doc, '$.expert_process_model_sha256')\n    AND json_extract(step_doc, '$.centralized_loss')\n      = json_extract(step_doc, '$.full_process_loss')\n    AND json_extract(step_doc, '$.centralized_loss')\n      = json_extract(step_doc, '$.expert_process_loss')\n    AND json_extract(step_doc, '$.full_max_abs_raw_gradient_difference') = 0.0\n    AND json_extract(step_doc, '$.expert_max_abs_raw_gradient_difference') = 0.0\n    AND json_extract(\n      step_doc,\n      '$.full_max_abs_clipped_gradient_difference'\n    ) = 0.0\n    AND json_extract(\n      step_doc,\n      '$.expert_max_abs_clipped_gradient_difference'\n    ) = 0.0\n    AND json_extract(step_doc, '$.full_max_abs_model_difference') = 0.0\n    AND json_extract(step_doc, '$.expert_max_abs_model_difference') = 0.0\n    THEN 1\n    ELSE 0\n  END AS exact,\n  json_extract(doc, '$.transaction_ids_match') AS transaction_ids_match\nFROM step_rows\nORDER BY run_order, layout_order, step;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path IN (reports/evidence/p7-content-addressed-state-t1.json, reports/evidence/p7-content-addressed-state-t1-repeat.json)"
+          ],
+          "metric_definitions": [
+            "Exact is one only when centralized, full-process, and pooled-expert raw gradients, clipped gradients, AdamW state, and complete model state match with zero maximum difference."
+          ]
+        }
+      },
+      {
+        "id": "recovery_query",
+        "label": "Content-addressed state recovery query",
+        "path": "reports/queries/p7-content-addressed-state-recovery.sql",
+        "query": {
+          "description": "Audit durable worker-result reuse and fresh-process coordinator recovery for both layouts in both runs.",
+          "engine": "SQLite",
+          "executed_at": "2026-07-30T03:28:09Z",
+          "language": "sql",
+          "sql": "WITH runs AS (\n  SELECT\n    CASE source_path\n      WHEN 'reports/evidence/p7-content-addressed-state-t1.json' THEN 0\n      ELSE 1\n    END AS run_order,\n    CASE source_path\n      WHEN 'reports/evidence/p7-content-addressed-state-t1.json' THEN 'Primary'\n      ELSE 'Repeat'\n    END AS run_label,\n    json(document) AS doc\n  FROM report_source_documents\n  WHERE source_path IN (\n    'reports/evidence/p7-content-addressed-state-t1.json',\n    'reports/evidence/p7-content-addressed-state-t1-repeat.json'\n  )\n),\nlayouts AS (\n  SELECT\n    run_order,\n    run_label,\n    0 AS layout_order,\n    'Replicated' AS layout,\n    json_extract(doc, '$.replicated') AS layout_doc\n  FROM runs\n\n  UNION ALL\n\n  SELECT\n    run_order,\n    run_label,\n    1,\n    'Content addressed',\n    json_extract(doc, '$.content_addressed')\n  FROM runs\n)\nSELECT\n  run_label,\n  layout,\n  json_extract(\n    layout_doc,\n    '$.worker_replacement.persisted_result_survived_loss'\n  ) AS persisted_result_survived_loss,\n  json_extract(\n    layout_doc,\n    '$.worker_replacement.recomputed_persisted_result'\n  ) AS recomputed_persisted_result,\n  json_extract(\n    layout_doc,\n    '$.coordinator_recovery.new_process_loaded_only_persisted_state'\n  ) AS fresh_process_only_persisted_state,\n  json_extract(\n    layout_doc,\n    '$.coordinator_recovery.recovered_from_published_checkpoint'\n  ) AS recovered_from_checkpoint,\n  json_extract(\n    layout_doc,\n    '$.coordinator_recovery.duplicate_apply_rejected'\n  ) AS duplicate_apply_rejected,\n  json_extract(\n    layout_doc,\n    '$.coordinator_recovery.recovery_process_exit_code'\n  ) AS recovery_process_exit_code,\n  json_extract(layout_doc, '$.coordinator_recovery.recovery_seconds')\n    AS recovery_seconds\nFROM layouts\nORDER BY run_order, layout_order;",
+          "tables_used": [
+            "report_source_documents"
+          ],
+          "filters": [
+            "source_path IN (reports/evidence/p7-content-addressed-state-t1.json, reports/evidence/p7-content-addressed-state-t1-repeat.json)"
+          ],
+          "metric_definitions": [
+            "Worker recovery passes when the durable accepted result survives loss and is not recomputed.",
+            "Coordinator recovery passes when a new process loads only persisted state, validates the published checkpoint, commits the manifest, rejects duplicate apply, and exits cleanly."
+          ]
+        }
+      },
+      {
+        "id": "primary_evidence",
+        "label": "Primary replicated-first evidence",
+        "path": "reports/evidence/p7-content-addressed-state-t1.json"
+      },
+      {
+        "id": "repeat_evidence",
+        "label": "Repeat content-addressed-first evidence",
+        "path": "reports/evidence/p7-content-addressed-state-t1-repeat.json"
+      },
+      {
+        "id": "study_evidence",
+        "label": "P7 content-addressed state study evidence",
+        "path": "research/studies/p7-content-addressed-state-t1-v1/evidence/t1-content-addressed-state.json"
+      },
+      {
+        "id": "implementation",
+        "label": "Content-addressed state implementation commit",
+        "href": "https://github.com/zeidalidiez/OrcaColony/commit/2e0dcd6e82551330f87dedde8376539db3cd9899"
+      },
+      {
+        "id": "merged_execution_revision",
+        "label": "Merged revision used for execution",
+        "href": "https://github.com/zeidalidiez/OrcaColony/commit/c43c2cb5bb339e037ab48701f38a07d104b86de4"
+      },
+      {
+        "id": "t1_campaign",
+        "label": "Frozen T1 systems configuration",
+        "path": "campaign/t1-tinystories-system-proof.json"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Content-addressed checkpoints remove repeated state safely"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## Technical summary\n\nThe topology-local content-addressed layout removed exactly **138,198,293 bytes** of repeated checkpoint payload from each three-step topology. Persisted payload fell **29.07%** for the full-process control and **31.30%** for the pooled-expert control. The opposite-order repeat reproduced every storage total and non-environmental identity. All **12 layout, run, and step rows** remained exact, and worker and coordinator recovery passed under both layouts. Full, expert, and recovery timing each changed direction when execution order was reversed, so the evidence supports no timing improvement or regression. This closes the repeated-checkpoint storage target."
+      },
+      {
+        "id": "headline_metrics",
+        "type": "metric-strip",
+        "cardIds": [
+          "full_storage_card",
+          "expert_storage_card",
+          "exactness_card",
+          "reuse_card"
+        ]
+      },
+      {
+        "id": "storage_finding",
+        "type": "markdown",
+        "sourceId": "storage_query",
+        "body": "## Duplicate checkpoint payload fell by 138.2 MB per topology\n\nThe full-process root fell from **475,339,837** to **337,141,544 bytes**. The pooled-expert root fell from **441,492,728** to **303,294,435 bytes**. The absolute saving is equal because both paths stop writing the same duplicated model and optimizer checkpoint payloads into transaction directories. Each independent store has **8 unique blobs**, **12 checkpoint references**, and **4 reused references**."
+      },
+      {
+        "id": "storage_chart_block",
+        "type": "chart",
+        "chartId": "storage_chart"
+      },
+      {
+        "id": "storage_table_block",
+        "type": "table",
+        "tableId": "storage_table"
+      },
+      {
+        "id": "timing_finding",
+        "type": "markdown",
+        "sourceId": "timing_query",
+        "body": "## Timing did not move in a repeatable direction\n\nWith replicated storage first, content addressing changed full elapsed time by **-12.28%**, expert elapsed time by **+1.51%**, and recovery time by **+19.77%**. With content addressing first, the same comparisons were **+26.09%**, **-3.85%**, and **-8.22%**. The candidate and baseline ranges overlap for every measure. Two local observations are enough to reject a stable direction here, but not enough to estimate a performance effect."
+      },
+      {
+        "id": "timing_chart_block",
+        "type": "chart",
+        "chartId": "timing_chart"
+      },
+      {
+        "id": "scope_definitions",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## Scope, data, and metric definitions\n\nThis is the frozen three-step T1 **systems control** from the preceding trajectory study. It is not a practical training campaign. **Persisted bytes** are the sum of regular-file payload lengths under one topology root, including that root's shared blob directory. The metric excludes directory metadata, filesystem block allocation, and temporary run roots after measurement. **Exact** means centralized, full-process, and pooled-expert raw gradients, clipped gradients, AdamW tensors, complete model tensors, loss, and transaction identities agree for the recorded step. No model-quality metric, campaign decision, donated computation, or contributor credit is part of this control."
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "sourceId": "implementation",
+        "body": "## Experimental design kept identity and failure gates fixed\n\nImplementation commit `2e0dcd6e82551330f87dedde8376539db3cd9899` adds a separate candidate layout while leaving the replicated trajectory unchanged. Full-process and pooled-expert blob stores remain topology-local so neither control shares files with the other. Canonical references bind immutable safetensors blobs by SHA-256 and byte length. Closed-directory, canonical-JSON, blob-membership, digest, physical-byte, duplicate-apply, worker-loss, and fresh-coordinator checks fail closed. The primary run executed replicated storage first; the repeat reversed that order. Both used one compute thread and at most one child process."
+      },
+      {
+        "id": "exactness_finding",
+        "type": "markdown",
+        "sourceId": "exactness_query",
+        "body": "## Exact state advancement survives the storage change\n\nEvery one of the **12 layout, run, and step rows** has zero maximum tensor difference and matching gradient, optimizer, model, and transaction identities. The candidate final model and optimizer hashes match the replicated control in both topologies and both runs."
+      },
+      {
+        "id": "exactness_table_block",
+        "type": "table",
+        "tableId": "exactness_table"
+      },
+      {
+        "id": "recovery_finding",
+        "type": "markdown",
+        "sourceId": "recovery_query",
+        "body": "## Recovery and at-most-once behavior remain intact\n\nUnder both layouts and both run orders, an accepted expert result survived worker loss without recomputation. A fresh coordinator loaded only persisted state, validated the published applied checkpoint, completed the lagging manifest transition, rejected duplicate application, and exited with code zero. Candidate recovery took **6.70 to 7.10 seconds**, but the paired timing direction is not stable."
+      },
+      {
+        "id": "recovery_table_block",
+        "type": "table",
+        "tableId": "recovery_table"
+      },
+      {
+        "id": "reproduction",
+        "type": "markdown",
+        "body": "## Reproduce the evidence\n\nUse merged revision `c43c2cb5bb339e037ab48701f38a07d104b86de4`, whose tree matches the implementation commit, on Linux. Build the frozen dataset once, then use fresh state roots and opposite orders:\n\n```bash\nOMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.artifacts --output .artifacts/p7-content-store-dataset\nOMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.sparse_expert_content_store --config campaign/t1-tinystories-system-proof.json --dataset .artifacts/p7-content-store-dataset --state .artifacts/p7-content-store-primary-state --steps 3 --expert-count 4 --router-aux-weight 0.01 --timeout-seconds 120 --sample-interval-seconds 0.01 --comparison-order replicated-then-content-addressed --output .artifacts/p7-content-store-primary.json\nOMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 uv run python -m orcacolony.sparse_expert_content_store --config campaign/t1-tinystories-system-proof.json --dataset .artifacts/p7-content-store-dataset --state .artifacts/p7-content-store-repeat-state --steps 3 --expert-count 4 --router-aux-weight 0.01 --timeout-seconds 120 --sample-interval-seconds 0.01 --comparison-order content-addressed-then-replicated --output .artifacts/p7-content-store-repeat.json\n```\n\nThe dataset manifest SHA-256 is `99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af`. The committed primary and repeat evidence SHA-256 values are `8a75ba9f057ae04e034851c033630f71ef699e8ef84581a1264fc0d2dec1f481` and `047e2e67a1a157aca4f33cc63df043fca9bba777a1ccdb8c8c8582d70a7d1e5b`. Temporary state is about 1.5 GB per run and may be removed after the evidence JSON is secured."
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## Limitations, uncertainty, and robustness\n\nThe deterministic result covers two local CPU runs, two storage layouts, two process topologies, and three optimizer steps. It does not measure long-run retention, garbage collection, interrupted-blob cleanup, filesystem block use, network behavior, concurrent coordinators, or hostile peers. Timing is an environmental host observation and is explicitly inconclusive. Recovery still recomputes the expected update for validation. The sparse tracer is not a practical model, and this record establishes no training benefit or model capability."
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "sourceId": "study_evidence",
+        "body": "## Close the storage target and return to the project decision\n\nThe content-addressed layout should remain the qualified experimental control. The measured storage problem is solved for this bounded trajectory, exactness is preserved, and the timing evidence gives no reason for another storage mechanism iteration. Do not open another checkpoint-storage branch now. The next substantive target should come from one of the actual project gates: an owner-defined practical campaign contract, or operator-supplied inputs for a remote trusted deployment. Neither is selected by this systems report."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Further questions\n\n- Which practical usage scenario, evaluator, model, data, and decision criteria will the owner choose for the first campaign?\n- Which hosting, HTTPS, participant, and operational inputs are available if remote trusted deployment becomes the next target?\n- Does a future campaign produce evidence that checkpoint garbage collection or cheaper recovery validation is worth prioritizing?\n- What long-run retention policy should be tested only after a real campaign establishes its checkpoint and audit needs?"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-30T03:28:09Z",
+    "status": "ready",
+    "datasets": {
+      "headline": [
+        {
+          "exact_layout_run_steps": 12,
+          "compared_layout_run_steps": 12,
+          "independent_runs": 2,
+          "full_replicated_bytes": 475339837,
+          "full_content_addressed_bytes": 337141544,
+          "full_reduction_bytes": 138198293,
+          "full_reduction_fraction": 0.2907357689021129,
+          "expert_replicated_bytes": 441492728,
+          "expert_content_addressed_bytes": 303294435,
+          "expert_reduction_bytes": 138198293,
+          "expert_reduction_fraction": 0.31302507206868424,
+          "combined_replicated_bytes": 916832565,
+          "combined_content_addressed_bytes": 640435979,
+          "combined_reduction_bytes": 276396586,
+          "combined_reduction_fraction": 0.3014689885060965,
+          "unique_blobs_per_topology": 8,
+          "checkpoint_references_per_topology": 12,
+          "reused_references_per_topology": 4,
+          "storage_repeated_exactly": 1,
+          "identity_guardrails_passed": 1
+        }
+      ],
+      "storage": [
+        {
+          "topology": "Full process",
+          "layout": "Replicated",
+          "persisted_bytes": 475339837,
+          "reduction_bytes": 0,
+          "reduction_fraction": 0.0,
+          "repeat_matches": 1
+        },
+        {
+          "topology": "Full process",
+          "layout": "Content addressed",
+          "persisted_bytes": 337141544,
+          "reduction_bytes": 138198293,
+          "reduction_fraction": 0.2907357689021129,
+          "repeat_matches": 1
+        },
+        {
+          "topology": "Pooled expert",
+          "layout": "Replicated",
+          "persisted_bytes": 441492728,
+          "reduction_bytes": 0,
+          "reduction_fraction": 0.0,
+          "repeat_matches": 1
+        },
+        {
+          "topology": "Pooled expert",
+          "layout": "Content addressed",
+          "persisted_bytes": 303294435,
+          "reduction_bytes": 138198293,
+          "reduction_fraction": 0.31302507206868424,
+          "repeat_matches": 1
+        }
+      ],
+      "timing": [
+        {
+          "run_label": "Primary: replicated first",
+          "metric": "Full elapsed",
+          "baseline_seconds": 11.693038968020119,
+          "candidate_seconds": 10.257683495001402,
+          "candidate_change_fraction": -0.12275298807643953
+        },
+        {
+          "run_label": "Repeat: content addressed first",
+          "metric": "Full elapsed",
+          "baseline_seconds": 8.980362397007411,
+          "candidate_seconds": 11.323251985013485,
+          "candidate_change_fraction": 0.2608903164962264
+        },
+        {
+          "run_label": "Primary: replicated first",
+          "metric": "Expert elapsed",
+          "baseline_seconds": 19.29336033499567,
+          "candidate_seconds": 19.584252752014436,
+          "candidate_change_fraction": 0.015077332925313547
+        },
+        {
+          "run_label": "Repeat: content addressed first",
+          "metric": "Expert elapsed",
+          "baseline_seconds": 19.923151633003727,
+          "candidate_seconds": 19.15697503698175,
+          "candidate_change_fraction": -0.0384565961317469
+        },
+        {
+          "run_label": "Primary: replicated first",
+          "metric": "Recovery elapsed",
+          "baseline_seconds": 5.931141548004234,
+          "candidate_seconds": 7.103846152982442,
+          "candidate_change_fraction": 0.1977198816596799
+        },
+        {
+          "run_label": "Repeat: content addressed first",
+          "metric": "Recovery elapsed",
+          "baseline_seconds": 7.3039956809952855,
+          "candidate_seconds": 6.703424915991491,
+          "candidate_change_fraction": -0.08222496168315885
+        }
+      ],
+      "exactness": [
+        {
+          "run_label": "Primary",
+          "layout": "Replicated",
+          "step": 0,
+          "cursor": 0,
+          "exact": 1,
+          "transaction_ids_match": 1
+        },
+        {
+          "run_label": "Primary",
+          "layout": "Replicated",
+          "step": 1,
+          "cursor": 2,
+          "exact": 1,
+          "transaction_ids_match": 1
+        },
+        {
+          "run_label": "Primary",
+          "layout": "Replicated",
+          "step": 2,
+          "cursor": 4,
+          "exact": 1,
+          "transaction_ids_match": 1
+        },
+        {
+          "run_label": "Primary",
+          "layout": "Content addressed",
+          "step": 0,
+          "cursor": 0,
+          "exact": 1,
+          "transaction_ids_match": 1
+        },
+        {
+          "run_label": "Primary",
+          "layout": "Content addressed",
+          "step": 1,
+          "cursor": 2,
+          "exact": 1,
+          "transaction_ids_match": 1
+        },
+        {
+          "run_label": "Primary",
+          "layout": "Content addressed",
+          "step": 2,
+          "cursor": 4,
+          "exact": 1,
+          "transaction_ids_match": 1
+        },
+        {
+          "run_label": "Repeat",
+          "layout": "Replicated",
+          "step": 0,
+          "cursor": 0,
+          "exact": 1,
+          "transaction_ids_match": 1
+        },
+        {
+          "run_label": "Repeat",
+          "layout": "Replicated",
+          "step": 1,
+          "cursor": 2,
+          "exact": 1,
+          "transaction_ids_match": 1
+        },
+        {
+          "run_label": "Repeat",
+          "layout": "Replicated",
+          "step": 2,
+          "cursor": 4,
+          "exact": 1,
+          "transaction_ids_match": 1
+        },
+        {
+          "run_label": "Repeat",
+          "layout": "Content addressed",
+          "step": 0,
+          "cursor": 0,
+          "exact": 1,
+          "transaction_ids_match": 1
+        },
+        {
+          "run_label": "Repeat",
+          "layout": "Content addressed",
+          "step": 1,
+          "cursor": 2,
+          "exact": 1,
+          "transaction_ids_match": 1
+        },
+        {
+          "run_label": "Repeat",
+          "layout": "Content addressed",
+          "step": 2,
+          "cursor": 4,
+          "exact": 1,
+          "transaction_ids_match": 1
+        }
+      ],
+      "recovery": [
+        {
+          "run_label": "Primary",
+          "layout": "Replicated",
+          "persisted_result_survived_loss": 1,
+          "recomputed_persisted_result": 0,
+          "fresh_process_only_persisted_state": 1,
+          "recovered_from_checkpoint": 1,
+          "duplicate_apply_rejected": 1,
+          "recovery_process_exit_code": 0,
+          "recovery_seconds": 5.931141548004234
+        },
+        {
+          "run_label": "Primary",
+          "layout": "Content addressed",
+          "persisted_result_survived_loss": 1,
+          "recomputed_persisted_result": 0,
+          "fresh_process_only_persisted_state": 1,
+          "recovered_from_checkpoint": 1,
+          "duplicate_apply_rejected": 1,
+          "recovery_process_exit_code": 0,
+          "recovery_seconds": 7.103846152982442
+        },
+        {
+          "run_label": "Repeat",
+          "layout": "Replicated",
+          "persisted_result_survived_loss": 1,
+          "recomputed_persisted_result": 0,
+          "fresh_process_only_persisted_state": 1,
+          "recovered_from_checkpoint": 1,
+          "duplicate_apply_rejected": 1,
+          "recovery_process_exit_code": 0,
+          "recovery_seconds": 7.3039956809952855
+        },
+        {
+          "run_label": "Repeat",
+          "layout": "Content addressed",
+          "persisted_result_survived_loss": 1,
+          "recomputed_persisted_result": 0,
+          "fresh_process_only_persisted_state": 1,
+          "recovered_from_checkpoint": 1,
+          "duplicate_apply_rejected": 1,
+          "recovery_process_exit_code": 0,
+          "recovery_seconds": 6.703424915991491
+        }
+      ]
+    }
+  }
+}

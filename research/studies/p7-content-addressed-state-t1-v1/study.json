@@ -1,0 +1,108 @@
+{
+  "format": "orcacolony_study_v1",
+  "study_id": "p7-content-addressed-state-t1-v1",
+  "title": "P7 topology-local content-addressed checkpoint control",
+  "hypothesis": "Replacing replicated transaction checkpoint payloads with topology-local immutable content-addressed blobs can strictly reduce persisted regular-file payload bytes in both full-process and pooled-expert controls without changing exact trajectory state, transaction identity, worker-result reuse, or fresh-coordinator recovery.",
+  "status": "validated",
+  "use_case": {
+    "claim": "Decide whether content-addressed checkpoint storage closes the repeated-state problem observed in the persisted sparse trajectory, without making a model-quality or timing claim.",
+    "baseline": {
+      "id": "replicated-transaction-checkpoints",
+      "label": "Replicated transaction checkpoint layout",
+      "description": "Every transaction retains its own pre-state and applied model and optimizer safetensors payloads under the existing exact persisted trajectory."
+    },
+    "primary_metric": {
+      "id": "minimum-topology-persisted-byte-reduction",
+      "label": "Minimum topology persisted-byte reduction",
+      "description": "The smaller of the full-process and pooled-expert persisted-byte reduction fractions. The gate tests positive direction only; strict reduction in both topologies is a separate guardrail, and no post-measurement materiality threshold is introduced.",
+      "direction": "maximize",
+      "success_threshold": 0.0,
+      "unit": "ratio"
+    },
+    "repeated_validation_suite": {
+      "id": "opposite-order-content-addressed-primary-and-repeat",
+      "label": "Two independent opposite-order one-thread comparisons",
+      "description": "The primary runs replicated then content-addressed storage. The repeat reverses the order. Storage, semantic state, identities, and recovery results must reproduce; timings and process-memory observations remain environmental.",
+      "revision": "git:2e0dcd6e82551330f87dedde8376539db3cd9899:tests/test_sparse_expert_trajectory.py"
+    },
+    "final_holdout_suite": {
+      "id": "content-addressed-storage-exactness-and-recovery-control",
+      "label": "Storage, exactness, and recovery comparison",
+      "description": "For three sequential steps and both process topologies, compare physical regular-file payload totals, semantic trajectory evidence, final model and optimizer identities, transaction identities, worker loss, fresh-process recovery, and duplicate-apply rejection.",
+      "revision": "git:2e0dcd6e82551330f87dedde8376539db3cd9899:orcacolony.sparse_expert_content_store"
+    },
+    "guardrails": [
+      {
+        "id": "strict-reduction-in-both-topologies",
+        "label": "Strict reduction in both topologies",
+        "description": "Content-addressed regular-file payload bytes must be lower than replicated bytes for both the full-process and pooled-expert roots."
+      },
+      {
+        "id": "opposite-order-storage-repeat",
+        "label": "Opposite-order storage repeat",
+        "description": "The repeat must reproduce every storage total, blob count, checkpoint-reference count, and reused-reference count exactly."
+      },
+      {
+        "id": "semantic-and-transaction-identity",
+        "label": "Semantic and transaction identity",
+        "description": "Every non-environmental trajectory field and every transaction identity must match between replicated and content-addressed layouts and across the two runs."
+      },
+      {
+        "id": "durable-recovery-and-at-most-once",
+        "label": "Durable recovery and at-most-once apply",
+        "description": "Accepted worker results must survive loss without recomputation, and a fresh coordinator must recover the published checkpoint while rejecting duplicate apply."
+      },
+      {
+        "id": "closed-content-addressed-storage",
+        "label": "Closed content-addressed storage",
+        "description": "Canonical references, exact blob membership, safetensors digests and lengths, closed directories, and physical byte accounting must validate without unlisted material."
+      },
+      {
+        "id": "bounded-host-load",
+        "label": "Bounded host load",
+        "description": "At most one child process may execute at a time and all numerical libraries must remain on one compute thread."
+      }
+    ]
+  },
+  "independent_variables": [
+    {
+      "id": "checkpoint-storage-layout",
+      "label": "Replicated or topology-local content-addressed checkpoints",
+      "description": "The baseline writes checkpoint payloads into each transaction. The candidate writes each immutable model or optimizer payload once per topology and stores canonical references in transactions."
+    },
+    {
+      "id": "comparison-order",
+      "label": "Primary and reversed execution order",
+      "description": "One run executes the replicated layout first and one executes the content-addressed layout first so a fixed order cannot silently determine the timing comparison."
+    }
+  ],
+  "controlled_variables": [
+    {
+      "id": "frozen-t1-three-step-trajectory",
+      "label": "Frozen T1 data, model, routing, and optimizer trajectory",
+      "description": "Both layouts use the same frozen dataset revision, campaign dimensions, initialization, three cursors, four experts, routing, clipping, frozen head, and coordinator-owned AdamW updates."
+    },
+    {
+      "id": "independent-topology-roots",
+      "label": "Independent full-process and pooled-expert roots",
+      "description": "Full-process and pooled-expert blob stores remain topology-local and do not share files, so their storage totals remain independent controls."
+    },
+    {
+      "id": "failure-boundaries",
+      "label": "Matched worker and coordinator failure boundaries",
+      "description": "Both layouts lose a worker after an accepted result is durable and lose coordinator progress after an applied checkpoint is published but before the manifest phase is committed."
+    },
+    {
+      "id": "bounded-one-thread-runtime",
+      "label": "Bounded one-thread local runtime",
+      "description": "Both runs use one numerical compute thread, at most one child process, a 120-second operation timeout, and a 0.01-second external RSS sampling interval."
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "t1-content-addressed-state",
+      "role": "candidate",
+      "manifest": "experiments/t1-content-addressed-state.json"
+    }
+  ]
+}

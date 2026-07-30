@@ -156,37 +156,66 @@ evidence.
 
 ### P7 content-addressed checkpoint control
 
-The next bounded control retains the replicated transaction above and runs a
-second trajectory whose model and optimizer checkpoints live in separate
+The paired control retains the replicated transaction above and runs a second
+trajectory whose model and optimizer checkpoints live in separate
 topology-local immutable blob stores. Transaction pre-state and applied-state
 files reference exact safetensors SHA-256 and byte lengths. Full-process and
 pooled-expert stores are not shared, so the comparison paths remain
 independent.
 
-Run the paired control with a fresh state root:
+Build the frozen dataset, then run the primary comparison with a fresh state
+root:
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+  uv run python -m orcacolony.artifacts \
+  --output .artifacts/p7-content-store-dataset
+
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
   uv run python -m orcacolony.sparse_expert_content_store \
   --config campaign/t1-tinystories-system-proof.json \
-  --dataset .artifacts/p7-trajectory-dataset \
+  --dataset .artifacts/p7-content-store-dataset \
   --state .artifacts/p7-content-store-primary-state \
   --steps 3 --expert-count 4 --router-aux-weight 0.01 \
   --timeout-seconds 120 --sample-interval-seconds 0.01 \
   --comparison-order replicated-then-content-addressed \
   --output .artifacts/p7-content-store-primary.json
+
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+  uv run python -m orcacolony.sparse_expert_content_store \
+  --config campaign/t1-tinystories-system-proof.json \
+  --dataset .artifacts/p7-content-store-dataset \
+  --state .artifacts/p7-content-store-repeat-state \
+  --steps 3 --expert-count 4 --router-aux-weight 0.01 \
+  --timeout-seconds 120 --sample-interval-seconds 0.01 \
+  --comparison-order content-addressed-then-replicated \
+  --output .artifacts/p7-content-store-repeat.json
 ```
 
-Use `content-addressed-then-replicated` for the independent repeat so fixed
-execution order does not decide the timing comparison. Both orders keep at most
-one child process alive. The command verifies matched transaction IDs and exact
-model, optimizer, gradient, route, and loss identities before it reports
-storage reduction. Persisted-byte accounting sums regular-file payload lengths
-under each topology root, including shared blobs but excluding directory
-metadata and filesystem block allocation. This slice does not add garbage
-collection, concurrent coordinators, remote workers, model-quality evaluation,
-or contributor claims.
+Both orders keep at most one child process alive. The command verifies matched
+transaction IDs and exact model, optimizer, gradient, route, and loss identities
+before it reports storage reduction. Persisted-byte accounting sums regular-file
+payload lengths under each topology root, including shared blobs but excluding
+directory metadata and filesystem block allocation.
+
+[Report 016](reports/p7-content-addressed-state-t1.html) preserves the measured
+result. The candidate removes exactly 138,198,293 bytes from each independent
+topology, reducing the full-process root by 29.07% and the pooled-expert root by
+31.30%. All 12 layout, run, and step rows remain exact. Full, expert, and
+recovery timing change direction when execution order is reversed, so no speed
+improvement or regression is claimed. This closes the repeated-checkpoint
+storage target. The qualified candidate still lacks garbage collection,
+interrupted-blob cleanup, long-run retention evidence, concurrent coordinators,
+remote workers, model-quality evaluation, and contributor claims.
+
+Each comparison state root is about 1.5 GB. After the two evidence JSON files
+have been secured and hashed, the state roots and the regenerated dataset may be
+removed. The primary and repeat evidence SHA-256 values are
+`8a75ba9f057ae04e034851c033630f71ef699e8ef84581a1264fc0d2dec1f481` and
+`047e2e67a1a157aca4f33cc63df043fca9bba777a1ccdb8c8c8582d70a7d1e5b`.
 
 ## Historical Record Patch prototype
 
