@@ -86,6 +86,13 @@ pretending that their bytes were verified.
   67.40%-69.07% higher and persisted bytes fall only 7.12%. It does not claim
   practical training benefit, aggregate memory, concurrent throughput, remote
   trust, or donated computation.
+- `p7-content-addressed-state-t1-v1` compares the replicated trajectory with
+  topology-local immutable checkpoint blobs in two opposite execution orders.
+  Persisted file payload falls 29.07% for the full-process control and 31.30%
+  for the pooled-expert control while all 12 layout, run, and step rows remain
+  exact and both recovery paths pass. Timing direction is inconclusive. The
+  result closes this bounded storage target and does not claim model quality,
+  donated computation, or a practical campaign result.
 
 Reproduce the persistent release study's source evidence with:
 
@@ -161,6 +168,22 @@ uv run python -m orcacolony.research record \
 The experiment manifest pins the one-thread primary and repeat commands,
 implementation commit, evidence hashes, frozen dataset revision, 875 MB
 temporary-state expectation, and Linux `/proc` requirement.
+
+Validate and bundle the committed content-addressed state evidence with:
+
+```bash
+uv run python -m orcacolony.research record \
+  --study research/studies/p7-content-addressed-state-t1-v1/study.json \
+  --experiment research/studies/p7-content-addressed-state-t1-v1/experiments/t1-content-addressed-state.json \
+  --evidence research/studies/p7-content-addressed-state-t1-v1/evidence/t1-content-addressed-state.json \
+  --output .artifacts/p7-content-addressed-state-result
+```
+
+The experiment manifest pins the opposite-order one-thread commands,
+implementation and merged execution revisions, evidence hashes, frozen dataset
+revision, 1.5 GB temporary comparison-root expectation, and Linux `/proc`
+requirement. The raw state roots are reproducible temporary material and may be
+removed after the evidence JSON is secured.
 
 Every committed study, linked experiment, and conventionally named evidence file is rebuilt by the repository test suite. To render any result directly, substitute that study's three manifest paths in the command above and choose a fresh ignored output directory.
 

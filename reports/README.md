@@ -43,17 +43,17 @@ Every important report should answer, in plain language:
 Reports are self-contained HTML with no remote scripts. Supporting measured JSON may live under `evidence/`. Reports should link the exact implementation commit and reproduction command when available.
 
 The current P7 systems finding is
-[Report 015](p7-persisted-trajectory-t1.html). Its canonical report artifact,
-six source queries, primary and repeat trajectory evidence, and linked
-machine-readable study are committed beside the report. It establishes exact
-three-step state advancement, durable worker-result reuse, and fresh-process
-coordinator recovery. Pooled expert tensor traffic and maximum child VmHWM are
-lower, but complete elapsed time is 67.40%-69.07% higher and persisted bytes
-fall only 7.12%. It does not establish practical model quality, aggregate
-memory, concurrent throughput, or remote trust.
+[Report 016](p7-content-addressed-state-t1.html). Its canonical report artifact,
+five source queries, primary and opposite-order repeat evidence, and linked
+machine-readable study are committed beside the report. Content addressing
+reduces persisted file payload by 29.07% for the full-process control and
+31.30% for the pooled-expert control while all 12 layout, run, and step rows
+remain exact. Full, expert, and recovery timing reverse direction with execution
+order, so the report makes no timing claim and closes the checkpoint-storage
+target.
 
-[Report 014](p7-authenticated-process-t1.html) is the preceding persistent
-process and accepted-assignment replacement control.
+[Report 015](p7-persisted-trajectory-t1.html) is the preceding persisted
+trajectory and recovery control.
 
 ## Practical campaign review points
 

@@ -1,0 +1,224 @@
+{
+  "format": "orcacolony_experiment_evidence_v1",
+  "study_id": "p7-content-addressed-state-t1-v1",
+  "experiment_id": "t1-content-addressed-state",
+  "outcome": "validated",
+  "completed_at": "2026-07-30T03:28:09Z",
+  "summary": "Two independent one-thread comparisons with opposite execution orders reproduced all storage totals and non-environmental identities. Content addressing removed 138,198,293 regular-file payload bytes from each topology, reducing the full-process root by 29.07% and the pooled-expert root by 31.30%. All 12 layout, run, and step rows were exact, and both recovery paths passed under both layouts. Full, expert, and recovery timing directions reversed with execution order, so timing is inconclusive. The result closes this bounded checkpoint-duplication target without making a model-quality, donated-compute, or practical-campaign claim.",
+  "measurements": [
+    {
+      "id": "minimum-topology-persisted-byte-reduction",
+      "label": "Minimum topology persisted-byte reduction",
+      "value": 0.2907357689021129,
+      "unit": "ratio"
+    },
+    {
+      "id": "full-persisted-byte-reduction",
+      "label": "Full-process persisted-byte reduction",
+      "value": 0.2907357689021129,
+      "unit": "ratio"
+    },
+    {
+      "id": "expert-persisted-byte-reduction",
+      "label": "Pooled-expert persisted-byte reduction",
+      "value": 0.31302507206868424,
+      "unit": "ratio"
+    },
+    {
+      "id": "full-persisted-byte-saving",
+      "label": "Full-process persisted-byte saving",
+      "value": 138198293,
+      "unit": "bytes"
+    },
+    {
+      "id": "expert-persisted-byte-saving",
+      "label": "Pooled-expert persisted-byte saving",
+      "value": 138198293,
+      "unit": "bytes"
+    },
+    {
+      "id": "combined-control-persisted-byte-reduction",
+      "label": "Combined independent-control persisted-byte reduction",
+      "value": 0.3014689885060965,
+      "unit": "ratio"
+    },
+    {
+      "id": "exact-layout-run-step-rate",
+      "label": "Exact layout, run, and step rate",
+      "value": 1.0,
+      "unit": "ratio"
+    },
+    {
+      "id": "semantic-repeat-identity-rate",
+      "label": "Non-environmental repeat identity rate",
+      "value": 1.0,
+      "unit": "ratio"
+    },
+    {
+      "id": "unique-checkpoint-blobs-per-topology",
+      "label": "Unique checkpoint blobs per topology",
+      "value": 8,
+      "unit": "blobs"
+    },
+    {
+      "id": "checkpoint-references-per-topology",
+      "label": "Checkpoint references per topology",
+      "value": 12,
+      "unit": "references"
+    },
+    {
+      "id": "reused-checkpoint-references-per-topology",
+      "label": "Reused checkpoint references per topology",
+      "value": 4,
+      "unit": "references"
+    },
+    {
+      "id": "primary-full-elapsed-change",
+      "label": "Primary content-addressed full elapsed change",
+      "value": -0.12275298807643953,
+      "unit": "ratio"
+    },
+    {
+      "id": "repeat-full-elapsed-change",
+      "label": "Repeat content-addressed full elapsed change",
+      "value": 0.2608903164962264,
+      "unit": "ratio"
+    },
+    {
+      "id": "primary-expert-elapsed-change",
+      "label": "Primary content-addressed expert elapsed change",
+      "value": 0.015077332925313547,
+      "unit": "ratio"
+    },
+    {
+      "id": "repeat-expert-elapsed-change",
+      "label": "Repeat content-addressed expert elapsed change",
+      "value": -0.03845659613174689,
+      "unit": "ratio"
+    },
+    {
+      "id": "primary-recovery-elapsed-change",
+      "label": "Primary content-addressed recovery elapsed change",
+      "value": 0.1977198816596799,
+      "unit": "ratio"
+    },
+    {
+      "id": "repeat-recovery-elapsed-change",
+      "label": "Repeat content-addressed recovery elapsed change",
+      "value": -0.08222496168315885,
+      "unit": "ratio"
+    }
+  ],
+  "evaluation": {
+    "primary_metric": {
+      "id": "minimum-topology-persisted-byte-reduction",
+      "value": 0.2907357689021129
+    },
+    "guardrails": [
+      {
+        "id": "strict-reduction-in-both-topologies",
+        "passed": true,
+        "detail": "Full-process persisted payload fell from 475,339,837 to 337,141,544 bytes, and pooled-expert persisted payload fell from 441,492,728 to 303,294,435 bytes."
+      },
+      {
+        "id": "opposite-order-storage-repeat",
+        "passed": true,
+        "detail": "The content-addressed-first repeat reproduced every persisted-byte total, 8 unique blobs, 12 checkpoint references, and 4 reused references per topology exactly."
+      },
+      {
+        "id": "semantic-and-transaction-identity",
+        "passed": true,
+        "detail": "All 12 layout, run, and step rows matched centralized raw and clipped gradients, AdamW state, complete model state, and loss. Final model, optimizer, and transaction identities match across layouts and runs."
+      },
+      {
+        "id": "durable-recovery-and-at-most-once",
+        "passed": true,
+        "detail": "For both layouts in both runs, the accepted expert result survived worker loss without recomputation. A fresh coordinator loaded persisted state, recovered the published checkpoint, rejected duplicate apply, and exited with code zero."
+      },
+      {
+        "id": "closed-content-addressed-storage",
+        "passed": true,
+        "detail": "Independent validation rejected duplicate JSON keys, matched exact physical regular-file sums, confirmed closed blob membership, and reproduced candidate blob bytes and counts from every canonical checkpoint reference."
+      },
+      {
+        "id": "bounded-host-load",
+        "passed": true,
+        "detail": "Both commands bound OpenMP, MKL, OpenBLAS, NumExpr, and VecLib to one thread. Each layout schedules at most one spawned child process at a time."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "repeated-checkpoint-payload-removed",
+      "label": "Repeated checkpoint payload is materially lower",
+      "description": "The candidate removes exactly 138,198,293 bytes per independent topology, a 29.07% full-process reduction and 31.30% pooled-expert reduction.",
+      "kind": "positive"
+    },
+    {
+      "id": "storage-repeats-exactly",
+      "label": "Storage accounting repeats exactly",
+      "description": "Reversing execution order changes none of the byte totals, blob membership, checkpoint-reference counts, or reuse counts.",
+      "kind": "positive"
+    },
+    {
+      "id": "exactness-and-recovery-preserved",
+      "label": "Exact state and recovery behavior are preserved",
+      "description": "Every layout, run, and step remains exact. Worker-result reuse, fresh-coordinator recovery, and at-most-once apply pass under both storage layouts.",
+      "kind": "positive"
+    },
+    {
+      "id": "timing-direction-inconclusive",
+      "label": "Timing has no stable direction",
+      "description": "Full, expert, and recovery changes all reverse sign with execution order. The two-run local evidence supports neither a timing improvement nor a regression.",
+      "kind": "neutral"
+    },
+    {
+      "id": "storage-target-closed",
+      "label": "The bounded storage target is closed",
+      "description": "The measured duplication is removed without weakening the fixed identity and recovery gates. Another checkpoint-storage mechanism is not justified by this evidence.",
+      "kind": "positive"
+    }
+  ],
+  "limitations": [
+    "This is a three-step local systems control, not a practical model campaign. It does not evaluate model quality, capability, generalization, or training benefit.",
+    "Persisted bytes count regular-file payload lengths. They exclude directory metadata, filesystem block allocation, sparse-file behavior, compression, and storage-device effects.",
+    "Full-process and pooled-expert stores are intentionally independent. The combined reduction summarizes these two controls and is not a production campaign footprint.",
+    "The content-addressed implementation does not provide blob garbage collection, interrupted-blob cleanup, long-run retention policy, or concurrent-coordinator arbitration.",
+    "Both runs use trusted local spawned processes, one child at a time. No remote transport, concurrent worker throughput, network latency, or hostile-peer behavior is measured.",
+    "Complete lifecycle and recovery times are two local host observations. Their direction reverses with order, so no speed improvement or regression is claimed.",
+    "Fresh-coordinator recovery still recomputes the expected update from persisted pre-state and results for validation.",
+    "No campaign training work or volunteer hardware donation was accepted in this control, so it creates no contributor-credit entries and no Hugging Face model or dataset publication."
+  ],
+  "artifacts": [
+    {
+      "id": "implementation",
+      "kind": "git-commit",
+      "revision": "2e0dcd6e82551330f87dedde8376539db3cd9899",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/2e0dcd6e82551330f87dedde8376539db3cd9899"
+    },
+    {
+      "id": "merged-execution-revision",
+      "kind": "git-commit",
+      "revision": "c43c2cb5bb339e037ab48701f38a07d104b86de4",
+      "uri": "https://github.com/zeidalidiez/OrcaColony/commit/c43c2cb5bb339e037ab48701f38a07d104b86de4"
+    },
+    {
+      "id": "primary-evidence",
+      "kind": "repo-json-sha256",
+      "revision": "8a75ba9f057ae04e034851c033630f71ef699e8ef84581a1264fc0d2dec1f481",
+      "uri": "repo:reports/evidence/p7-content-addressed-state-t1.json"
+    },
+    {
+      "id": "repeat-evidence",
+      "kind": "repo-json-sha256",
+      "revision": "047e2e67a1a157aca4f33cc63df043fca9bba777a1ccdb8c8c8582d70a7d1e5b",
+      "uri": "repo:reports/evidence/p7-content-addressed-state-t1-repeat.json"
+    },
+    {
+      "id": "t1-systems-configuration",
+      "kind": "repo-json-sha256",
+      "revision": "87efb542e6b283202a0d47efd1e3b9acace986f34d1c4617c4a4090611c53890",
+      "uri": "repo:campaign/t1-tinystories-system-proof.json"
+    }
+  ]
+}

@@ -1,10 +1,10 @@
 # OrcaColony Progress Report
 
-**Last updated:** 2026-07-28
+**Last updated:** 2026-07-29
 
-**Repository version:** [`0.1.9`](VERSION)
+**Repository version:** [`0.1.10`](VERSION)
 
-**Current phase:** P7 content-addressed durable state passes the bounded T0 control; the paired T1 measurement is next
+**Current phase:** P7 content-addressed T1 state is validated; the storage target is closed and the next project target requires an owner or operator decision
 
 **Canonical specification:** [`SPEC.md`](SPEC.md)
 
@@ -327,7 +327,7 @@ Completed within the first P3 measurement and native-baseline slice:
 
 ### P7 — Explore sparse experts and other advanced topologies
 
-**Status:** Active research - content-addressed T0 control implemented; paired T1 measurement pending
+**Status:** Active research at a decision boundary - content-addressed T1 storage target closed; no automatic follow-on selected
 
 - Expert-sharded or sparse models.
 - Router and shared-trunk training.
@@ -469,26 +469,52 @@ Completed within the first P3 measurement and native-baseline slice:
   AdamW, routing, worker-loss, coordinator-recovery, and tamper checks. Each
   topology resolved eight checkpoint references through six unique blobs,
   reusing the first applied checkpoint as the second pre-state. This is an
-  implementation qualification, not the planned T1 resource finding.
+  implementation qualification, not the T1 resource finding.
+- Two independent three-step T1 comparisons ran with opposite execution
+  orders. The full-process root fell from 475,339,837 to 337,141,544 regular-file
+  payload bytes, a 29.07% reduction. The pooled-expert root fell from
+  441,492,728 to 303,294,435 bytes, a 31.30% reduction. Each topology removed
+  exactly 138,198,293 bytes.
+- The opposite-order repeat reproduced every storage total, eight unique blobs,
+  twelve checkpoint references, four reused references, and every
+  non-environmental trajectory field exactly. All twelve layout, run, and step
+  rows matched centralized gradients, AdamW state, complete model state, and
+  loss. Worker-result reuse, fresh-coordinator recovery, transaction identity,
+  and duplicate-apply rejection passed under both layouts.
+- Full, expert, and recovery elapsed-time changes all reversed sign when
+  execution order was reversed. The measured ranges overlap, so this result
+  supports neither a timing improvement nor a regression.
+- Report 016, five SQLite queries, the canonical report artifact, the validated
+  machine-readable study, and primary/repeat evidence preserve the result. The
+  report passed Data Analytics artifact validation and portable structural
+  packaging. Chromium is not installed, so browser-level visual and source
+  interaction QA remains unverified.
+- This result closes the repeated-checkpoint storage target for the bounded
+  trajectory. Another checkpoint layout or deduplication branch is not
+  justified by the evidence. Future garbage collection or cheaper recovery
+  validation work must be reopened by a concrete campaign or deployment need,
+  not by automatic continuation.
 
 ## Immediate next bounded target
 
-Run primary and repeat one-thread T1 comparisons from the merged
-content-addressed implementation. Each comparison must execute the unchanged
-replicated layout and the content-addressed layout sequentially in opposite
-orders, retain exact transaction IDs and model state, and measure physical file
-payload bytes, complete elapsed time, and fresh-process recovery time. Publish
-the raw records, study, queries, and agent findings only after the
-implementation revision is fixed. Do not add remote or concurrent workers in
-this slice.
+No new systems slice is selected by Report 016. The repository is at a project
+decision boundary. The next substantive target requires one of these inputs:
+
+1. An owner-defined practical campaign contract containing the model, data,
+   recipe, usage scenario, evaluator, metrics, comparisons, publication
+   settings, and participants.
+2. Operator-owned HTTPS hosting, participant, and deployment choices for a
+   remote trusted campaign.
+
+Until one of those inputs exists, do not create another checkpoint-storage PR
+or infer a campaign from the framework's historical examples.
 
 ## Remaining major work
 
-- Measure the implemented content-addressed P7 trajectory at T1 and use that
-  result to decide whether a later systems slice should address recovery
-  recomputation, retained-state growth and garbage collection, remote
-  transport, concurrent expert residency, or a different topology. Quality
-  qualification belongs to a separately defined owner-directed campaign.
+- Keep the qualified content-addressed layout as an experimental control. Do
+  not continue checkpoint-storage optimization unless a later campaign or
+  deployment supplies a concrete retention, garbage-collection, recovery, or
+  concurrency requirement.
 - Run the first practical campaign after its owner supplies the model, data,
   training recipe, usage scenario, evaluator, metrics, comparisons, publication
   settings, and participants. No default task or model size is selected by the
@@ -520,7 +546,8 @@ this slice.
 
 ## Current blockers and hold-ups
 
-- No blocker prevents the specification and research-framework work.
+- No technical blocker prevents specification or framework maintenance, but
+  there is no authorized substantive target after the closed P7 storage result.
 - No practical community campaign is currently defined. Starting one requires
   an owner-supplied campaign contract, participants, and deployment inputs.
   Record Patch's negative result is evidence about that historical experiment,
@@ -532,6 +559,42 @@ this slice.
 - Larger-model execution methods are hypotheses until measured; none should be described as supported merely because a paper or prototype demonstrates the general idea.
 
 ## Change record
+
+### 2026-07-29
+
+- Published primary and opposite-order repeat content-addressed state evidence
+  at SHA-256
+  `8a75ba9f057ae04e034851c033630f71ef699e8ef84581a1264fc0d2dec1f481`
+  and
+  `047e2e67a1a157aca4f33cc63df043fca9bba777a1ccdb8c8c8582d70a7d1e5b`.
+  Both pin implementation commit
+  `2e0dcd6e82551330f87dedde8376539db3cd9899`, merged execution revision
+  `c43c2cb5bb339e037ab48701f38a07d104b86de4`, and frozen dataset revision
+  `99e5642bec2a9fa0b7f6175ed5f4821bf4f9aa2c08ec1038f12bfdfb302bb4af`.
+- Added the validated `p7-content-addressed-state-t1-v1` study and Report 016.
+  Five committed SQLite queries rebuild storage, timing, exactness, and recovery
+  findings from the raw records. The canonical report artifact passed Data
+  Analytics validation and portable structural packaging. Chromium is absent,
+  so browser-level visual and source-interaction QA remains unverified.
+- The candidate reduced persisted payload by 29.07% for the full-process
+  control and 31.30% for the pooled-expert control. All twelve layout, run, and
+  step rows and all recovery gates passed. Timing direction reversed with
+  execution order and remains inconclusive.
+- Closed the repeated-checkpoint storage target. The temporary comparison roots,
+  regenerated dataset, and validation bundle were removed after the raw
+  evidence and checksums were secured. No model or dataset was published to
+  Hugging Face, no donated work occurred, and no contributor credit was
+  created by this local systems control.
+- The version `0.1.10` publication gate passed all `328` tests in 226.71
+  seconds with one compute thread. Version and lock synchronization, source and
+  test compilation, deterministic report and HTML rebuilds, artifact
+  validation, portable structural packaging, study reconstruction and
+  checksums, SQLite result shapes, local links, source and wheel builds, diff
+  whitespace, and changed-file credential-pattern checks also passed. The
+  first test attempt exhausted the 5.8 GB WSL tmpfs because retained pytest
+  directories already occupied it; after those disposable directories were
+  removed, the clean workspace-backed rerun passed. Chromium remains absent,
+  so browser-level report interaction QA is still unverified.
 
 ### 2026-07-28
 

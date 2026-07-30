@@ -1,6 +1,6 @@
 # OrcaColony
 
-**Repository version:** [`0.1.9`](VERSION)
+**Repository version:** [`0.1.10`](VERSION)
 
 OrcaColony is a self-hostable framework and reproducible research vehicle for
 community model training. It lets independent contributors complete bounded
@@ -35,7 +35,7 @@ threshold, checkpoint choice, or follow-up experiment.
 | --- | --- | --- |
 | Training framework | Deterministic reference, browser, multi-worker, restart, retry, release, and attribution paths are implemented | [Specification](SPEC.md), [detailed guide](IMPLEMENTATION_GUIDE.md) |
 | Campaign research | Owner-defined v2 contracts, evidence preflight, checkpoint binding, and Hugging Face packaging are implemented | [Campaign framework](research/CAMPAIGN_FRAMEWORK.md) |
-| Systems research | PEFT, local placement, partial-model, tiled recovery, and sparse-expert methods have bounded studies with explicit limitations | [Research index](research/README.md), [reports](reports/index.html) |
+| Systems research | PEFT, local placement, partial-model, tiled recovery, and sparse-expert methods have bounded studies with explicit limitations; the repeated-checkpoint storage target is closed | [Research index](research/README.md), [reports](reports/index.html) |
 | Contributor credit | Accepted direct-training work and a separate owner-reviewed auxiliary-work ledger preserve contributor disclosure choices and evidence | [Campaign formats](campaign/README.md), [current roadmap](PROGRESS_REPORT.md) |
 | Practical campaign | Intentionally undefined until a campaign owner supplies the complete contract | [Current roadmap](PROGRESS_REPORT.md) |
 | Public model and data release | Organization page exists; no owner-defined campaign model or dataset package has been published yet | [Hugging Face publication](HUGGINGFACE.md) |
